@@ -1,0 +1,25 @@
+[user]
+	name = Gabriel Saillard
+	email = gabriel@saillard.dev
+	signingkey = 4F615B5FE436611A
+[commit]
+	gpgsign = true
+[diff]
+	tool = kitty
+	guitool = kitty.gui
+[difftool]
+	prompt = false
+	trustExitCode = true
+[difftool "kitty"]
+	cmd = kitty +kitten diff $LOCAL $REMOTE
+[difftool "kitty.gui"]
+	cmd = kitty kitty +kitten diff $LOCAL $REMOTE
+[filter "lfs"]
+	process = git-lfs filter-process
+	required = true
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+[pull]
+	rebase = true
+[init]
+	defaultBranch = master
