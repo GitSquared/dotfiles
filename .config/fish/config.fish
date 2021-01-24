@@ -4,7 +4,7 @@ nvm use default > /dev/null
 
 alias clemence="echo '❤️'"
 
-alias full_upgrade='paru; paru -R (paru -Qdtq); sudo fwupdmgr refresh; rustup update stable; cargo install-update -a; npm update -g; fish_update_completions; ncu -g; sudo fwupdmgr get-updates; fisher update; tldr --update;nvim -c "PlugUpgrade|PlugUpdate|CocUpdateSync|qa"'
+alias full_upgrade='paru; paru -c; sudo fwupdmgr refresh; rustup update stable; cargo install-update -a; npm update -g; fish_update_completions; ncu -g; sudo fwupdmgr get-updates; fisher update; tldr --update;nvim -c "PlugUpgrade|PlugUpdate|CocUpdateSync|qa"'
 alias empty_swap='sudo swapoff -a; sudo swapon -a'
 alias empty_ram='sudo sysctl -w vm.drop_caches=3'
 alias restart_kwin='DISPLAY=:0 kwin_x11 --replace &; disown'
