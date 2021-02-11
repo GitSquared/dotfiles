@@ -27,6 +27,8 @@ Plug 'qpkorr/vim-bufkill'
 Plug 'mattn/emmet-vim'
 " Rust stuff
 Plug 'rust-lang/rust.vim', { 'for': 'rust' }
+" Markdown stuff
+Plug 'plasticboy/vim-markdown', { 'for': 'markdown' }
 " Pywal colorscheme
 Plug 'GitSquared/wal.vim'
 
@@ -175,6 +177,17 @@ tmap <M-s> <C-\><C-n><CR>:FloatermToggle<CR>
 
 " Try to automatically detect indentation settings
 au BufReadPost * :DetectIndent
+
+" Markdown stuff
+au FileType markdown set conceallevel=2
+au FileType markdown set nocursorline
+au FileType markdown set norelativenumber
+let g:vim_markdown_conceal_code_blocks = 0
+let g:vim_markdown_math = 1
+let g:vim_markdown_strikethrough = 1
+let g:vim_markdown_folding_disabled = 1
+let g:vim_markdown_new_list_item_indent = 2
+let g:vim_markdown_autowrite = 1
 
 " HTML stuff
 " Prevent delimitMate from conflicting with closetag
