@@ -1,0 +1,13 @@
+{
+	"cSpellExt.enableDictionaries": [
+		"french"
+	],
+	"cSpell.language": "en,fr",
+	"cSpell.enabledLanguageIds": [
+		"asciidoc",
+		"markdown",
+		"plaintext",
+		"restructuredtext",
+		"text"
+	]
+}
