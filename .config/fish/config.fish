@@ -1,6 +1,4 @@
 eval (starship init fish)
-bass source ~/.nvm/nvm.sh --no-use ';'
-nvm use default > /dev/null
 
 alias clemence="echo '❤️'"
 
@@ -27,8 +25,7 @@ fish_vi_key_bindings
 set -x EDITOR nvim
 set -x NODE_ENV development
 set -x THEFUCK_OVERRIDEN_ALIASES 'systemctl,powertop,bandwhich,ls,tree,cat,icat,git,open'
-set -U fish_user_paths ~/.cargo/bin
-set -U fish_user_paths $fish_user_paths ~/.local/bin
+set -x fish_user_paths ~/.cargo/bin ~/.local/bin
 
 # Export gpg-agent auth socket for authenticating to SSH servers with GPG keys
 set -x SSH_AUTH_SOCK (gpgconf --list-dirs agent-ssh-socket)
