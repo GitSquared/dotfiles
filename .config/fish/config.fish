@@ -1,4 +1,5 @@
 eval (starship init fish)
+nvm use lts
 
 alias clemence="echo '❤️'"
 
