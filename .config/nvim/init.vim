@@ -92,7 +92,7 @@ let g:BufKillCreateMappings = 0
 
 " Floaterm config
 let g:floaterm_autoclose = 1
-let g:floaterm_opener = ''
+let g:floaterm_opener = 'edit'
 let g:floaterm_rootmarkers = ['.project', '.git', '.hg', '.svn', '.root', '.gitignore']
 let g:floaterm_width = 0.8
 function s:floatermSettings()
@@ -128,6 +128,9 @@ let g:NERDCompactSexyComs = 1
 let g:NERDDefaultAlign = 'left'
 let g:NERDToggleCheckAllLines = 1
 
+" Highlight the symbol and its references when holding the cursor.
+autocmd CursorHold * silent call CocActionAsync('highlight')
+
 " New, write, quit/close
 nmap <Leader>b :enew<CR>
 nmap <Leader>w :w<CR>
@@ -139,6 +142,10 @@ map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>r <Plug>(coc-rename)
 map <Leader>c <Plug>(code-action)
 nmap <silent> K :call CocAction('doHover')<CR>
+nmap <silent> gd <Plug>(coc-definition)
+nmap <silent> gy <Plug>(coc-type-definition)
+nmap <silent> gi <Plug>(coc-implementation)
+nmap <silent> gr <Plug>(coc-references)
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 map <Leader>T :set ts=3 sw=3 noet<CR>
