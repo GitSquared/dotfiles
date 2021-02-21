@@ -22,7 +22,6 @@ Plug 'easymotion/vim-easymotion'
 Plug 'ryanoasis/vim-devicons'
 Plug 'ciaranm/detectindent'
 Plug 'gko/vim-coloresque'
-Plug 'majutsushi/tagbar'
 Plug 'qpkorr/vim-bufkill'
 Plug 'mattn/emmet-vim'
 " Rust stuff
@@ -137,12 +136,14 @@ nmap <Leader>Q :qa<CR>
 nmap <Leader>, :close<CR>
 " Editor utilities
 map <Leader>f <Plug>(easymotion-bd-w)
+map <Leader>r <Plug>(coc-rename)
+map <Leader>c <Plug>(code-action)
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 map <Leader>T :set ts=3 sw=3 noet<CR>
 let g:ctrlp_map = '<Leader>p'
 nmap <Leader><Enter> :ToggleWorkspace<CR>
-nmap <Leader>c :CloseHiddenBuffers<CR>
+nmap <Leader>C :CloseHiddenBuffers<CR>
 " Switch buffers
 nmap <Leader>n :bn<CR>
 nmap <Leader>v :bp<CR>
@@ -167,11 +168,10 @@ nmap <S-Down> :resize -3<CR>
 nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
-nmap <Leader>m :TagbarToggle<CR>
 nmap <Leader>t :NERDTreeToggle<CR>
 nmap <Leader>s :FloatermToggle<CR>
 nmap <M-s> :FloatermToggle<CR>
-nmap <Leader>r :FloatermNew ranger<CR>
+nmap <Leader>d :FloatermNew ranger<CR>
 " Terminal mode shortcuts
 tmap <C-Space> <C-\><C-N><CR>
 tmap <M-s> <C-\><C-n><CR>:FloatermToggle<CR>
