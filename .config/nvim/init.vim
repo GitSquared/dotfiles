@@ -138,6 +138,7 @@ nmap <Leader>, :close<CR>
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>r <Plug>(coc-rename)
 map <Leader>c <Plug>(code-action)
+nmap <silent> K :call CocAction('doHover')<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 map <Leader>T :set ts=3 sw=3 noet<CR>
