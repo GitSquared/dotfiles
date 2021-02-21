@@ -73,7 +73,7 @@ let g:airline_mode_map = {
 \ }
 " Less bloated Z section
 " let g:airline_section_z = "%3p%% %#__accent_bold#%{g:airline_symbols.linenr}%4l%#__restore__#%#__accent_bold#/%L%{g:airline_symbols.maxlinenr}%#__restore__# :%3v"
-let g:airline_section_z = "%#__accent_bold#%4l:%v"
+let g:airline_section_z = "%#__accent_bold#%4l:%v/%L %3p%% %#__accent_bold#%{g:airline_symbols.linenr}"
 
 " Workspace config
 let g:workspace_create_new_tabs = 0
