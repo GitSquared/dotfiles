@@ -20,13 +20,14 @@ alias cat='bat'
 alias icat='kitty +kitten icat'
 alias open='xdg-open'
 
+fish_add_path ~/.cargo/bin ~/.local/bin
+
 kitty + complete setup fish | source
 fish_vi_key_bindings
 
 set -x EDITOR nvim
 set -x NODE_ENV development
 set -x THEFUCK_OVERRIDEN_ALIASES 'systemctl,powertop,bandwhich,ls,tree,cat,icat,git,open'
-set -x fish_user_paths ~/.cargo/bin ~/.local/bin
 
 # Export gpg-agent auth socket for authenticating to SSH servers with GPG keys
 set -x SSH_AUTH_SOCK (gpgconf --list-dirs agent-ssh-socket)
