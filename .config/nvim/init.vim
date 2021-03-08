@@ -22,8 +22,9 @@ Plug 'easymotion/vim-easymotion'
 Plug 'ryanoasis/vim-devicons'
 Plug 'ciaranm/detectindent'
 Plug 'gko/vim-coloresque'
-Plug 'qpkorr/vim-bufkill'
 Plug 'mattn/emmet-vim'
+Plug 'kyazdani42/nvim-web-devicons'
+Plug 'romgrk/barbar.nvim'
 " Rust stuff
 Plug 'rust-lang/rust.vim', { 'for': 'rust' }
 " Markdown stuff
@@ -40,10 +41,20 @@ noremap <silent> <ScrollWheelUp>   :call comfortable_motion#flick(-40)<CR>
 
 let mapleader = ' '
 
+" Barbar tabline
+let bufferline = get(g:, 'bufferline', {})
+let bufferline.closable = v:false
+let bufferline.icon_custom_colors = v:true
+let bufferline.semantic_letters = v:true
+let bufferline.icon_separator_active = '▎'
+let bufferline.icon_separator_inactive = '▎'
+let bufferline.icon_close_tab = ''
+let bufferline.icon_close_tab_modified = '●'
+
 let g:airline#extensions#coc#enabled = 1
 let g:airline_theme = 'wal'
 let g:airline_powerline_fonts = 1
-let g:airline#extensions#tabline#enabled = 1
+let g:airline#extensions#tabline#enabled = 0
 " Disable powerline arrows
 let g:airline_right_alt_sep = ''
 let g:airline_right_sep = ''
@@ -87,8 +98,6 @@ let g:delimitMate_matchpairs = "(:),[:],{:},<:>"
 
 " Remove vim-gitgutter mappings
 let g:gitgutter_map_keys = 0
-" And Bufkill ones
-let g:BufKillCreateMappings = 0
 
 " Floaterm config
 let g:floaterm_autoclose = 1
@@ -134,11 +143,12 @@ autocmd CursorHold * silent call CocActionAsync('highlight')
 " New, write, quit/close
 nmap <Leader>b :enew<CR>
 nmap <Leader>w :w<CR>
-nmap <Leader>q :BD<CR>
+nmap <Leader>q :BufferClose<CR>
 nmap <Leader>Q :qa<CR>
 nmap <Leader>, :close<CR>
 " Editor utilities
 map <Leader>f <Plug>(easymotion-bd-w)
+map <Leader>F :BufferPick<CR>
 map <Leader>r <Plug>(coc-rename)
 map <Leader>c <Plug>(code-action)
 nmap <silent> K :call CocAction('doHover')<CR>
@@ -151,10 +161,12 @@ map <F10> :set invrelativenumber<CR>
 map <Leader>T :set ts=3 sw=3 noet<CR>
 let g:ctrlp_map = '<Leader>p'
 nmap <Leader><Enter> :ToggleWorkspace<CR>
-nmap <Leader>C :CloseHiddenBuffers<CR>
+nmap <Leader>C :BufferCloseAllButCurrent<CR>
 " Switch buffers
-nmap <Leader>n :bn<CR>
-nmap <Leader>v :bp<CR>
+nmap <Leader>v :BufferPrevious<CR>
+nmap <Leader>n :BufferNext<CR>
+nmap <Leader>V :BufferMovePrevious<CR>
+nmap <Leader>N :BufferMoveNext<CR>
 " Create windows
 nmap <Leader>; :split<CR>
 nmap <Leader>: :vsplit<CR>
