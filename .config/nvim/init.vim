@@ -25,6 +25,7 @@ Plug 'gko/vim-coloresque'
 Plug 'mattn/emmet-vim'
 Plug 'kyazdani42/nvim-web-devicons'
 Plug 'romgrk/barbar.nvim'
+Plug 'jeffkreeftmeijer/vim-numbertoggle'
 " Rust stuff
 Plug 'rust-lang/rust.vim', { 'for': 'rust' }
 " Markdown stuff
