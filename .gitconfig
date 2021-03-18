@@ -27,3 +27,5 @@
 	gpgSign = true
 [core]
 	editor = nvim
+[gpg]
+	program = gpg2
