@@ -29,3 +29,5 @@
 	editor = nvim
 [gpg]
 	program = gpg2
+[fetch]
+	prune = true
