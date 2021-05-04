@@ -24,6 +24,9 @@ fish_add_path ~/.cargo/bin ~/.local/bin
 kitty + complete setup fish | source
 fish_vi_key_bindings
 
+set --global tide_left_prompt_items pwd git newline prompt_char
+set --global tide_right_prompt_items status cmd_duration context jobs virtual_env rust time
+
 set -x EDITOR nvim
 set -x NODE_ENV development
 set -x THEFUCK_OVERRIDEN_ALIASES 'systemctl,powertop,bandwhich,ls,tree,cat,icat,git,open'
