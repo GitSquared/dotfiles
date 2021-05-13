@@ -31,8 +31,8 @@ Plug 'jeffkreeftmeijer/vim-numbertoggle'
 Plug 'rust-lang/rust.vim', { 'for': 'rust' }
 " Markdown stuff
 Plug 'plasticboy/vim-markdown', { 'for': 'markdown' }
-" Pywal colorscheme
-Plug 'GitSquared/wal.vim'
+" Colorscheme
+Plug 'ghifarit53/tokyonight-vim'
 
 call plug#end()
 
@@ -54,7 +54,7 @@ let bufferline.icon_close_tab = ''
 let bufferline.icon_close_tab_modified = '●'
 
 let g:airline#extensions#coc#enabled = 1
-let g:airline_theme = 'wal'
+let g:airline_theme = 'tokyonight'
 let g:airline_powerline_fonts = 1
 let g:airline#extensions#tabline#enabled = 0
 " Disable powerline arrows
@@ -107,7 +107,7 @@ let g:floaterm_opener = 'edit'
 let g:floaterm_rootmarkers = ['.project', '.git', '.hg', '.svn', '.root', '.gitignore']
 let g:floaterm_width = 0.8
 function s:floatermSettings()
-	setlocal notermguicolors
+	" setlocal notermguicolors
 	let t:floaterm_custom_opened = 1
 endfunction
 autocmd FileType floaterm call s:floatermSettings()
@@ -271,7 +271,8 @@ if has('nvim') || has('termguicolors')
 	set termguicolors
 endif
 
-colorscheme wal
+let g:tokyonight_style = "night"
+colorscheme tokyonight
 
 set switchbuf=useopen,vsplit
 set hidden
