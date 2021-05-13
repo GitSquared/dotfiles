@@ -27,6 +27,7 @@ Plug 'mattn/emmet-vim'
 Plug 'kyazdani42/nvim-web-devicons'
 Plug 'romgrk/barbar.nvim'
 Plug 'jeffkreeftmeijer/vim-numbertoggle'
+Plug 'liuchengxu/vim-which-key'
 " Rust stuff
 Plug 'rust-lang/rust.vim', { 'for': 'rust' }
 " Markdown stuff
@@ -41,11 +42,9 @@ set mouse+=a
 noremap <silent> <ScrollWheelDown> :call comfortable_motion#flick(40)<CR>
 noremap <silent> <ScrollWheelUp>   :call comfortable_motion#flick(-40)<CR>
 
-let mapleader = ' '
-
 " Barbar tabline
 let bufferline = get(g:, 'bufferline', {})
-let bufferline.closable = v:false
+let bufferline.closable = v:true
 let bufferline.icon_custom_colors = v:true
 let bufferline.semantic_letters = v:true
 let bufferline.icon_separator_active = '▎'
@@ -153,6 +152,11 @@ inoremap <silent><expr> <Tab>
 	\ coc#refresh()
 inoremap <expr> <Tab> pumvisible() ? "\<C-n>" : "\<Tab>"
 inoremap <expr> <S-Tab> pumvisible() ? "\<C-p>" : "\<S-Tab>"
+
+let mapleader = ' '
+
+" Open WhichKey on leader
+nnoremap <silent> <leader> :WhichKey '<Space>'<CR>
 
 " New, write, quit/close
 nmap <Leader>b :enew<CR>
