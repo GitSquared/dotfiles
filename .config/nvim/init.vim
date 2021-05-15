@@ -306,3 +306,9 @@ set ignorecase
 set smartcase
 set gdefault
 set clipboard=unnamedplus
+
+" Barbar : Change default visible-inactive that is brighter than active
+hi BufferVisible guibg=#232433 guifg=#a9b1d6
+hi BufferVisibleIndex guifg=#3b3d57 guibg=#232433
+hi BufferVisibleMod guifg=#3b3d57 guibg=#232433
+hi BufferVisibleSign guifg=#3b3d57 guibg=#232433
