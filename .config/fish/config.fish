@@ -11,7 +11,7 @@ alias cat='bat'
 source ~/.config/fish/colors/fish_tokyonight_night.fish
 
 set --global tide_left_prompt_items pwd git newline prompt_char
-set --global tide_right_prompt_items status cmd_duration context jobs virtual_env rust time
+set --global tide_right_prompt_items status cmd_duration context jobs virtual_env
 
 set -x EDITOR nvim
 set -x NODE_ENV development
