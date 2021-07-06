@@ -1,12 +1,12 @@
 nvm use lts > /dev/null
+zoxide init fish | source
 
-alias full_upgrade='npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim -c "PlugUpgrade|PlugUpdate|CocUpdateSync|qa"'
+alias full_upgrade='brew update; brew upgrade; npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim -c "PlugUpgrade|PlugUpdate|CocUpdateSync|qa"'
 alias weather='curl wttr.in'
 
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
 alias tree='exa -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
 alias cat='bat'
-alias z='zoxide'
 
 fish_vi_key_bindings
 source ~/.config/fish/colors/fish_tokyonight_night.fish
