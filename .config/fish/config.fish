@@ -1,3 +1,5 @@
+status is-interactive; and pyenv init --path | source
+pyenv init - | source
 zoxide init fish | source
 direnv hook fish | source
 
@@ -7,6 +9,8 @@ alias weather='curl wttr.in'
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
 alias tree='exa -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
 alias cat='bat'
+
+fish_add_path $PYENV_ROOT/bin
 
 fish_vi_key_bindings
 source ~/.config/fish/colors/fish_tokyonight_night.fish
