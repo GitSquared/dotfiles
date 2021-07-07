@@ -4,6 +4,16 @@
 	signingkey = 572E718D77705BF7FF25C6911D54190574716312
 [commit]
 	gpgsign = true
+[diff]
+	tool = kitty
+	guitool = kitty.gui
+[difftool]
+	prompt = false
+	trustExitCode = true
+[difftool "kitty"]
+	cmd = kitty +kitten diff $LOCAL $REMOTE
+[difftool "kitty.gui"]
+	cmd = kitty kitty +kitten diff $LOCAL $REMOTE
 # FROM <http://blog.kfish.org/2010/04/git-lola.html>
 [alias]
 	lolp = log --graph --pretty=format:\\"%C(yellow)%h%Creset%C(cyan)%C(bold)%d%Creset %C(cyan)(%cr)%Creset %C(green)%ce%Creset %s\\"
