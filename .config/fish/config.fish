@@ -1,4 +1,5 @@
 status is-interactive; and pyenv init --path | source
+source (rbenv init -|psub)
 pyenv init - | source
 zoxide init fish | source
 direnv hook fish | source
