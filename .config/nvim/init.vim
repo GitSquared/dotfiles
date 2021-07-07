@@ -22,6 +22,7 @@ Plug 'ctrlpvim/ctrlp.vim'
 Plug 'easymotion/vim-easymotion'
 Plug 'ryanoasis/vim-devicons'
 Plug 'ciaranm/detectindent'
+Plug 'nathanaelkane/vim-indent-guides'
 Plug 'ap/vim-css-color'
 Plug 'mattn/emmet-vim'
 Plug 'kyazdani42/nvim-web-devicons'
@@ -137,6 +138,13 @@ let g:NERDCommentEmptyLines = 1
 let g:NERDCompactSexyComs = 1
 let g:NERDDefaultAlign = 'left'
 let g:NERDToggleCheckAllLines = 1
+
+" Indent highlighting
+let g:indent_guides_enable_on_vim_startup = 1
+let g:indent_guides_guide_size = 1
+let g:indent_guides_auto_colors = 0
+autocmd VimEnter,Colorscheme * :hi IndentGuidesOdd  guibg='#1a1b26' ctermbg=0
+autocmd VimEnter,Colorscheme * :hi IndentGuidesEven guibg='#2a2b3d' ctermbg=3
 
 " Highlight the symbol and its references when holding the cursor.
 autocmd CursorHold * silent call CocActionAsync('highlight')
@@ -312,3 +320,8 @@ hi BufferVisible guibg=#232433 guifg=#a9b1d6
 hi BufferVisibleIndex guifg=#3b3d57 guibg=#232433
 hi BufferVisibleMod guifg=#3b3d57 guibg=#232433
 hi BufferVisibleSign guifg=#3b3d57 guibg=#232433
+
+
+" MacOS specific
+set shell=/usr/local/bin/fish
+let g:floaterm_shell='/usr/local/bin/fish'
