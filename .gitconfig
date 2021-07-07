@@ -1,7 +1,7 @@
 [user]
 	name = Gabriel Saillard
-	email = gabriel@saillard.dev
-	signingkey = 4F615B5FE436611A
+	email = gabriel.saillard@alan.eu
+	signingkey = 572E718D77705BF7FF25C6911D54190574716312
 [commit]
 	gpgsign = true
 [diff]
@@ -43,6 +43,6 @@
 [core]
 	editor = nvim
 [gpg]
-	program = gpg2
+	program = /usr/local/bin/gpg
 [fetch]
 	prune = true
