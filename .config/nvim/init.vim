@@ -108,6 +108,7 @@ let g:floaterm_rootmarkers = ['.project', '.git', '.hg', '.svn', '.root', '.giti
 let g:floaterm_width = 0.8
 function s:floatermSettings()
 	" setlocal notermguicolors
+	:IndentGuidesDisable
 	let t:floaterm_custom_opened = 1
 endfunction
 autocmd FileType floaterm call s:floatermSettings()
