@@ -3,6 +3,7 @@ source (rbenv init -|psub)
 pyenv init - | source
 zoxide init fish | source
 direnv hook fish | source
+thefuck --alias | source
 
 alias full_upgrade='brew update; brew upgrade; curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.38.0/install.sh | bash; npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim -c "PlugUpgrade|PlugUpdate|CocUpdateSync|qa"'
 alias weather='curl wttr.in'
