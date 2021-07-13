@@ -18,8 +18,9 @@ Plug 'alvan/vim-closetag'
 Plug 'tpope/vim-surround'
 Plug 'scrooloose/nerdcommenter'
 Plug 'airblade/vim-gitgutter'
-Plug 'ctrlpvim/ctrlp.vim'
 Plug 'easymotion/vim-easymotion'
+Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
+Plug 'junegunn/fzf.vim'
 Plug 'ryanoasis/vim-devicons'
 Plug 'ciaranm/detectindent'
 Plug 'nathanaelkane/vim-indent-guides'
@@ -130,10 +131,6 @@ augroup closeCustomTermDrawer
 	autocmd TermClose * :call CustomTermDrawerCloseHandler()
 augroup END
 
-" CtrlP: Ignore files in .gitignore
-let g:ctrlp_user_command = ['.git', 'cd %s && git ls-files -co --exclude-standard']
-let g:ctrpl_cmd = 'CtrlP'
-
 let g:NERDSpaceDelims = 1
 let g:NERDCommentEmptyLines = 1
 let g:NERDCompactSexyComs = 1
@@ -178,6 +175,8 @@ map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
 map <Leader>r <Plug>(coc-rename)
 map <Leader>c <Plug>(code-action)
+nmap <Leader>p :Files<CR>
+nmap <Leader>o :Ag<CR>
 nmap <silent> K :call CocAction('doHover')<CR>
 nmap <silent> gd <Plug>(coc-definition)
 nmap <silent> gy <Plug>(coc-type-definition)
@@ -186,7 +185,6 @@ nmap <silent> gr <Plug>(coc-references)
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 map <Leader>T :set ts=3 sw=3 noet<CR>
-let g:ctrlp_map = '<Leader>p'
 nmap <Leader><Enter> :ToggleWorkspace<CR>
 nmap <Leader>C :BufferCloseAllButCurrent<CR>
 " Switch buffers
