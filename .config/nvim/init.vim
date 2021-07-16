@@ -16,6 +16,7 @@ Plug 'inkarkat/vim-ingo-library'
 Plug 'inkarkat/vim-OnSyntaxChange'
 Plug 'alvan/vim-closetag'
 Plug 'tpope/vim-surround'
+Plug 'tpope/vim-fugitive'
 Plug 'scrooloose/nerdcommenter'
 Plug 'airblade/vim-gitgutter'
 Plug 'easymotion/vim-easymotion'
@@ -86,7 +87,7 @@ let g:airline_mode_map = {
 \ }
 " Less bloated Z section
 " let g:airline_section_z = "%3p%% %#__accent_bold#%{g:airline_symbols.linenr}%4l%#__restore__#%#__accent_bold#/%L%{g:airline_symbols.maxlinenr}%#__restore__# :%3v"
-let g:airline_section_z = "%#__accent_bold#%4l:%v/%L %3p%% %#__accent_bold#%{g:airline_symbols.linenr}"
+let g:airline_section_z = "%#__accent_bold# %4l/%L %{g:airline_symbols.maxlinenr}:%v"
 
 " Workspace config
 let g:workspace_create_new_tabs = 0
@@ -175,6 +176,7 @@ map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
 map <Leader>r <Plug>(coc-rename)
 map <Leader>c <Plug>(code-action)
+nmap <Leader>g :Git<CR>
 nmap <Leader>p :Files<CR>
 nmap <Leader>o :Ag<CR>
 nmap <silent> K :call CocAction('doHover')<CR>
