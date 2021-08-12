@@ -26,7 +26,7 @@ fish_vi_key_bindings
 source ~/.config/fish/colors/fish_tokyonight_night.fish
 
 set --global tide_left_prompt_items pwd git newline character
-set --global tide_right_prompt_items status cmd_duration context jobs venv rustc time
+set --global tide_right_prompt_items status cmd_duration context jobs virtual_env rustc time
 
 set -x EDITOR nvim
 set -x NODE_ENV development
