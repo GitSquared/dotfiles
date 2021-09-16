@@ -47,6 +47,8 @@ noremap <silent> <ScrollWheelUp>   :call comfortable_motion#flick(-40)<CR>
 
 " Barbar tabline
 let bufferline = get(g:, 'bufferline', {})
+let bufferline.animations = v:false
+let bufferline.maximum_length = 40
 let bufferline.closable = v:true
 let bufferline.icon_custom_colors = v:true
 let bufferline.semantic_letters = v:true
