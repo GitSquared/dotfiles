@@ -12,6 +12,8 @@ alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
 alias tree='exa -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
 alias cat='bat'
 alias icat='kitty +kitten icat'
+alias lg='lazygit'
+alias tf='terraform'
 
 fish_add_path $PYENV_ROOT/bin
 
