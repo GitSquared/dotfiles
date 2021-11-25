@@ -153,6 +153,11 @@ function! CustomTermOpenHandler()
 	endif
 endfunction
 function! CustomTermCloseHandler()
+	if get(b:, 'floaterm_title', 0) == 0
+		echo 'aborting'
+		return
+	endif
+
 	if b:floaterm_title == g:floaterm_shell
 		let t:floaterm_shell_opened = 0
 	elseif b:floaterm_title == 'ranger'
