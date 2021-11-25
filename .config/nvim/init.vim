@@ -142,6 +142,10 @@ function! CustomOneShotTerm(cmd)
 endfunction
 
 function! CustomTermOpenHandler()
+	if get(b:, 'floaterm_title', 1) == 1
+		return
+	endif
+
 	if b:floaterm_title == g:floaterm_shell
 		let t:floaterm_shell_opened = 1
 	elseif b:floaterm_title == 'ranger'
