@@ -16,7 +16,6 @@ Plug 'inkarkat/vim-ingo-library'
 Plug 'inkarkat/vim-OnSyntaxChange'
 Plug 'alvan/vim-closetag'
 Plug 'tpope/vim-surround'
-Plug 'tpope/vim-fugitive'
 Plug 'scrooloose/nerdcommenter'
 Plug 'airblade/vim-gitgutter'
 Plug 'easymotion/vim-easymotion'
@@ -113,25 +112,54 @@ let g:floaterm_width = 0.8
 function s:floatermSettings()
 	" setlocal notermguicolors
 	:IndentGuidesDisable
-	let t:floaterm_custom_opened = 1
 endfunction
 autocmd FileType floaterm call s:floatermSettings()
 
-" Custom terminal drawer function
-let t:floaterm_custom_opened = 0
-function RunInShell(cmd)
-	if t:floaterm_custom_opened
-		exe 'FloatermSend '.a:cmd
+" Custom terminal functions
+let t:floaterm_oneshot_opened = 0
+let t:floaterm_ranger_opened = 0
+let t:floaterm_lazygit_opened = 0
+
+function! CustomOneShotTerm(cmd)
+	if t:floaterm_oneshot_opened
+		exe 'FloatermSend --name=oneshot'.a:cmd
 	else
-		exe 'FloatermNew --height=0.8 --width=0.6 '.a:cmd
+		exe 'FloatermNew --height=0.8 --width=0.6 --name=oneshot --title=oneshot'.a:cmd
 	endif
 endfunction
-function CustomTermDrawerCloseHandler()
-	let t:floaterm_custom_opened = 0
+
+function! CustomTermToggle(cmd)
+	if a:cmd == 'ranger' && t:floaterm_ranger_opened == 1
+		exe 'FloatermToggle ranger'
+	elseif a:cmd == 'lazygit' && t:floaterm_lazygit_opened == 1
+		exe 'FloatermToggle lazygit'
+	else
+		exe 'FloatermNew --autoclose=2 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
+	endif
 endfunction
-augroup closeCustomTermDrawer
+
+function! CustomTermOpenHandler()
+	if b:floaterm_title == 'ranger'
+		let t:floaterm_ranger_opened = 1
+	elseif b:floaterm_title == 'lazygit'
+		let t:floaterm_lazygit_opened = 1
+	elseif b:floaterm_title == 'oneshot'
+		let t:floaterm_oneshot_opened = 1
+	endif
+endfunction
+function! CustomTermCloseHandler()
+	if b:floaterm_title == 'ranger'
+		let t:floaterm_ranger_opened = 0
+	elseif b:floaterm_title == 'lazygit'
+		let t:floaterm_lazygit_opened = 0
+	elseif b:floaterm_title == 'oneshot'
+		let t:floaterm_oneshot_opened = 0
+	endif
+endfunction
+augroup customTermAutocmds
 	autocmd!
-	autocmd TermClose * :call CustomTermDrawerCloseHandler()
+	autocmd TermOpen * :call CustomTermOpenHandler()
+	autocmd TermClose * :call CustomTermCloseHandler()
 augroup END
 
 let g:NERDSpaceDelims = 1
@@ -168,7 +196,7 @@ let mapleader = ' '
 " Open WhichKey on leader
 nnoremap <silent> <leader> :WhichKey '<Space>'<CR>
 
-" New, write, quit/close
+" New, wr   ite, quit/close
 nmap <Leader>b :enew<CR>
 nmap <Leader>w :w<CR>
 nmap <Leader>q :BufferClose<CR>
@@ -219,12 +247,13 @@ nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>t :NERDTreeToggle<CR>
-nmap <Leader>s :FloatermToggle<CR>
-nmap <M-s> :FloatermToggle<CR>
-nmap <Leader>d :FloatermNew ranger<CR>
+nmap <Leader>s :FloatermToggle --name=shell<CR>
+nmap <Leader>d :call CustomTermToggle('ranger')<CR>
+nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
+nmap <Leader>h :FloatermPrev<CR>
+nmap <Leader>l :FloatermNext<CR>
 " Terminal mode shortcuts
 tmap <C-Space> <C-\><C-N><CR>
-tmap <M-s> <C-\><C-n><CR>:FloatermToggle<CR>
 
 " Try to automatically detect indentation settings
 au BufReadPost * :DetectIndent
@@ -246,16 +275,16 @@ au FileType html,xml let b:delimitMate_matchpairs = "(:),[:],{:}"
 
 " Node stuff
 au FileType javascript set makeprg=npm\ build\
-au FileType javascript nmap <F4> :call RunInShell("clear; npm run lint\n")<CR>
-au FileType javascript nmap <F5> :call RunInShell("clear; npm start\n")<CR>
-au FileType javascript nmap <F6> :call RunInShell("clear; npm test\n")<CR>
-au FileType javascript nmap <F7> :call RunInShell("clear; npm run build\n")<CR>
+au FileType javascript nmap <F4> :call CustomOneShotTerm("clear; npm run lint\n")<CR>
+au FileType javascript nmap <F5> :call CustomOneShotTerm("clear; npm start\n")<CR>
+au FileType javascript nmap <F6> :call CustomOneShotTerm("clear; npm test\n")<CR>
+au FileType javascript nmap <F7> :call CustomOneShotTerm("clear; npm run build\n")<CR>
 
 au FileType typescript set makeprg=npm\ build\
-au FileType typescript nmap <F4> :call RunInShell("clear; npm run lint\n")<CR>
-au FileType typescript nmap <F5> :call RunInShell("clear; npm start\n")<CR>
-au FileType typescript nmap <F6> :call RunInShell("clear; npm test\n")<CR>
-au FileType typescript nmap <F7> :call RunInShell("clear; npm run build\n")<CR>
+au FileType typescript nmap <F4> :call CustomOneShotTerm("clear; npm run lint\n")<CR>
+au FileType typescript nmap <F5> :call CustomOneShotTerm("clear; npm start\n")<CR>
+au FileType typescript nmap <F6> :call CustomOneShotTerm("clear; npm test\n")<CR>
+au FileType typescript nmap <F7> :call CustomOneShotTerm("clear; npm run build\n")<CR>
 
 " Prevent delimitMate from conflicting with closetag in jsx/tsx regions
 au FileType javascriptreact,typescriptreact call OnSyntaxChange#Install('JsxRegion', '^jsxRegion$', 0, 'a')
@@ -269,18 +298,18 @@ let g:closetag_regions = {
 	\ 'typescriptreact': 'jsxRegion,tsxRegion',
 \ }
 au FileType javascriptreact,typescriptreact set makeprg=npm\ build\
-au FileType javascriptreact,typescriptreact nmap <F4> :call RunInShell("clear; npm run lint\n")<CR>
-au FileType javascriptreact,typescriptreact nmap <F5> :call RunInShell("clear; npm start\n")<CR>
-au FileType javascriptreact,typescriptreact nmap <F6> :call RunInShell("clear; npm test\n")<CR>
-au FileType javascriptreact,typescriptreact nmap <F7> :call RunInShell("clear; npm run build\n")<CR>
+au FileType javascriptreact,typescriptreact nmap <F4> :call CustomOneShotTerm("clear; npm run lint\n")<CR>
+au FileType javascriptreact,typescriptreact nmap <F5> :call CustomOneShotTerm("clear; npm start\n")<CR>
+au FileType javascriptreact,typescriptreact nmap <F6> :call CustomOneShotTerm("clear; npm test\n")<CR>
+au FileType javascriptreact,typescriptreact nmap <F7> :call CustomOneShotTerm("clear; npm run build\n")<CR>
 
 " Rust stuff
 au FileType rust set makeprg=cargo\ build\ -j\ 12
-au FileType rust nmap <leader>rt :call RunInShell("clear; cargo test\n")<CR>
-au FileType rust nmap <leader>rr :call RunInShell("clear; env RUST_BACKTRACE=1 cargo run\n")<CR>
+au FileType rust nmap <leader>rt :call CustomOneShotTerm("clear; cargo test\n")<CR>
+au FileType rust nmap <leader>rr :call CustomOneShotTerm("clear; env RUST_BACKTRACE=1 cargo run\n")<CR>
 au FileType rust nmap <leader>rc <F5>
-au FileType rust nmap <F5> :call RunInShell("clear; cargo build -j 12\n")<CR>
-au FileType rust nmap <F6> :call RunInShell("clear;cd " . expand("%:p:h") . ";rustc " . expand("%:t") . ";set -a nvim_rust_filename (basename " . expand("%:t") . " .rs);./$nvim_rust_filename;rm $nvim_rust_filename;set -e nvim_rust_filename\n")<CR><CR>
+au FileType rust nmap <F5> :call CustomOneShotTerm("clear; cargo build -j 12\n")<CR>
+au FileType rust nmap <F6> :call CustomOneShotTerm("clear;cd " . expand("%:p:h") . ";rustc " . expand("%:t") . ";set -a nvim_rust_filename (basename " . expand("%:t") . " .rs);./$nvim_rust_filename;rm $nvim_rust_filename;set -e nvim_rust_filename\n")<CR><CR>
 
 if has('nvim') || has('termguicolors')
 	" True Color support
