@@ -116,9 +116,22 @@ endfunction
 autocmd FileType floaterm call s:floatermSettings()
 
 " Custom terminal functions
-let t:floaterm_oneshot_opened = 0
+let t:floaterm_shell_opened = 0
 let t:floaterm_ranger_opened = 0
 let t:floaterm_lazygit_opened = 0
+let t:floaterm_oneshot_opened = 0
+
+function! CustomTermToggle(cmd)
+	if a:cmd == g:floaterm_shell && t:floaterm_shell_opened == 1
+		exe 'FloatermToggle '.a:cmd
+	elseif a:cmd == 'ranger' && t:floaterm_ranger_opened == 1
+		exe 'FloatermToggle ranger'
+	elseif a:cmd == 'lazygit' && t:floaterm_lazygit_opened == 1
+		exe 'FloatermToggle lazygit'
+	else
+		exe 'FloatermNew --autoclose=2 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
+	endif
+endfunction
 
 function! CustomOneShotTerm(cmd)
 	if t:floaterm_oneshot_opened
@@ -128,18 +141,10 @@ function! CustomOneShotTerm(cmd)
 	endif
 endfunction
 
-function! CustomTermToggle(cmd)
-	if a:cmd == 'ranger' && t:floaterm_ranger_opened == 1
-		exe 'FloatermToggle ranger'
-	elseif a:cmd == 'lazygit' && t:floaterm_lazygit_opened == 1
-		exe 'FloatermToggle lazygit'
-	else
-		exe 'FloatermNew --autoclose=2 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
-	endif
-endfunction
-
 function! CustomTermOpenHandler()
-	if b:floaterm_title == 'ranger'
+	if b:floaterm_title == g:floaterm_shell
+		let t:floaterm_shell_opened = 1
+	elseif b:floaterm_title == 'ranger'
 		let t:floaterm_ranger_opened = 1
 	elseif b:floaterm_title == 'lazygit'
 		let t:floaterm_lazygit_opened = 1
@@ -148,7 +153,9 @@ function! CustomTermOpenHandler()
 	endif
 endfunction
 function! CustomTermCloseHandler()
-	if b:floaterm_title == 'ranger'
+	if b:floaterm_title == g:floaterm_shell
+		let t:floaterm_shell_opened = 0
+	elseif b:floaterm_title == 'ranger'
 		let t:floaterm_ranger_opened = 0
 	elseif b:floaterm_title == 'lazygit'
 		let t:floaterm_lazygit_opened = 0
@@ -247,7 +254,7 @@ nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>t :NERDTreeToggle<CR>
-nmap <Leader>s :FloatermToggle --name=shell<CR>
+nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
 nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
 nmap <Leader>h :FloatermPrev<CR>
