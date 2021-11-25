@@ -153,8 +153,7 @@ function! CustomTermOpenHandler()
 	endif
 endfunction
 function! CustomTermCloseHandler()
-	if get(b:, 'floaterm_title', 0) == 0
-		echo 'aborting'
+	if get(b:, 'floaterm_title', 1) == 1
 		return
 	endif
 
