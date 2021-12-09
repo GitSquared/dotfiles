@@ -34,6 +34,8 @@ Plug 'liuchengxu/vim-which-key'
 Plug 'rust-lang/rust.vim', { 'for': 'rust' }
 " Markdown stuff
 Plug 'plasticboy/vim-markdown', { 'for': 'markdown' }
+" Testdriving the future
+Plug 'github/copilot.vim'
 " Colorscheme
 Plug 'ghifarit53/tokyonight-vim'
 
