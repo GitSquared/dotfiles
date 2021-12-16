@@ -16,6 +16,7 @@ alias lg='lazygit'
 alias tf='terraform'
 
 fish_add_path $PYENV_ROOT/bin
+fish_add_path $HOME/.local/bin
 
 kitty + complete setup fish | source
 fish_vi_key_bindings
