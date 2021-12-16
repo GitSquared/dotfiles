@@ -131,7 +131,7 @@ function! CustomTermToggle(cmd)
 	elseif a:cmd == 'lazygit' && t:floaterm_lazygit_opened == 1
 		exe 'FloatermToggle lazygit'
 	else
-		exe 'FloatermNew --autoclose=2 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
+		exe 'FloatermNew --height=0.8 --width=0.8 --autoclose=2 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
 	endif
 endfunction
 
