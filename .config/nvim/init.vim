@@ -23,7 +23,7 @@ Plug 'junegunn/fzf', { 'do': { -> fzf#install() } }
 Plug 'junegunn/fzf.vim'
 Plug 'ryanoasis/vim-devicons'
 Plug 'ciaranm/detectindent'
-Plug 'nathanaelkane/vim-indent-guides'
+Plug 'lukas-reineke/indent-blankline.nvim'
 Plug 'ap/vim-css-color'
 Plug 'mattn/emmet-vim'
 Plug 'kyazdani42/nvim-web-devicons'
@@ -58,8 +58,8 @@ let bufferline.icon_separator_inactive = '▎'
 let bufferline.icon_close_tab = ''
 let bufferline.icon_close_tab_modified = '●'
 
-let g:airline#extensions#coc#enabled = 1
 let g:airline_theme = 'tokyonight'
+let g:airline#extensions#coc#enabled = 1
 let g:airline_powerline_fonts = 1
 let g:airline#extensions#tabline#enabled = 0
 " Disable powerline arrows
@@ -113,7 +113,7 @@ let g:floaterm_rootmarkers = ['.project', '.git', '.hg', '.svn', '.root', '.giti
 let g:floaterm_width = 0.8
 function s:floatermSettings()
 	" setlocal notermguicolors
-	:IndentGuidesDisable
+	:IndentBlanklineDisable
 endfunction
 autocmd FileType floaterm call s:floatermSettings()
 
@@ -184,13 +184,6 @@ let g:NERDCommentEmptyLines = 1
 let g:NERDCompactSexyComs = 1
 let g:NERDDefaultAlign = 'left'
 let g:NERDToggleCheckAllLines = 1
-
-" Indent highlighting
-let g:indent_guides_enable_on_vim_startup = 1
-let g:indent_guides_guide_size = 1
-let g:indent_guides_auto_colors = 0
-autocmd VimEnter,Colorscheme * :hi IndentGuidesOdd  guibg='#1a1b26' ctermbg=0
-autocmd VimEnter,Colorscheme * :hi IndentGuidesEven guibg='#2a2b3d' ctermbg=3
 
 " Highlight the symbol and its references when holding the cursor.
 autocmd CursorHold * silent call CocActionAsync('highlight')
