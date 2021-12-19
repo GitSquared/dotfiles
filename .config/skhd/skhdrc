@@ -1,0 +1,2 @@
+# App shortcuts
+cmd + shift - t : /opt/homebrew/bin/kitty --single-instance -d ~
