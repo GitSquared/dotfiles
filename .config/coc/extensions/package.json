@@ -3,7 +3,7 @@
     "coc-cspell-dicts": ">=1.0.2",
     "coc-css": ">=1.2.6",
     "coc-cssmodules": ">=1.1.1",
-    "coc-deno": ">=3.9.1",
+    "coc-deno": ">=3.9.2",
     "coc-emmet": ">=1.1.6",
     "coc-html": ">=1.4.1",
     "coc-jedi": ">=0.29.15",

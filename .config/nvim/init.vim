@@ -371,6 +371,5 @@ hi BufferVisibleIndex guifg=#3b3d57 guibg=#232433
 hi BufferVisibleMod guifg=#3b3d57 guibg=#232433
 hi BufferVisibleSign guifg=#3b3d57 guibg=#232433
 
-" MacOS specific
-set shell=/usr/local/bin/fish
-let g:floaterm_shell='/usr/local/bin/fish'
+set shell=/opt/homebrew/bin/fish
+let g:floaterm_shell='/opt/homebrew/bin/fish'
