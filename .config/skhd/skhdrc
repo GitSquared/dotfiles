@@ -1,0 +1,23 @@
+# Yabai
+fn - h : yabai -m window --focus west
+fn - j : yabai -m window --focus south
+fn - k : yabai -m window --focus north
+fn - l : yabai -m window --focus east
+
+fn + cmd - h : yabai -m window --swap west
+fn + cmd - j : yabai -m window --swap south
+fn + cmd - k : yabai -m window --swap north
+fn + cmd - l : yabai -m window --swap east
+
+fn + cmd + shift - h : yabai -m window --warp west
+fn + cmd + shift - j : yabai -m window --warp south
+fn + cmd + shift - k : yabai -m window --warp north
+fn + cmd + shift - l : yabai -m window --warp east
+
+fn - f : yabai -m window --toggle float
+fn - p : yabai -m window --toggle float; yabai -m window --toggle pip; yabai -m window --toggle sticky; yabai -m window --toggle topmost
+
+fn - space : yabai -m space --balance
+
+# App shortcuts
+cmd + ctrl + shift - t : /opt/homebrew/bin/kitty --single-instance -d ~
