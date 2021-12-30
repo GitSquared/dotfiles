@@ -21,7 +21,7 @@ fish_add_path $HOME/.local/bin
 
 kitty + complete setup fish | source
 fish_vi_key_bindings
-source ~/.config/fish/colors/fish_tokyonight_night.fish
+source ~/.config/fish/colors/rose_pine.fish
 
 set --global tide_left_prompt_items pwd git newline character
 set --global tide_right_prompt_items status cmd_duration context jobs virtual_env time
