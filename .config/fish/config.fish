@@ -4,8 +4,9 @@ pyenv init - | source
 zoxide init fish | source
 direnv hook fish | source
 thefuck --alias | source
+nvm use default --silent
 
-alias full_upgrade='brew update; brew upgrade; curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.38.0/install.sh | bash; npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim -c "PlugUpgrade|PlugUpdate|CocUpdateSync|qa"'
+alias full_upgrade='brew update; brew upgrade; npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim --headless -c "autocmd User PackerComplete quitall" -c "PackerSync"'
 alias weather='curl wttr.in'
 
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
@@ -27,6 +28,7 @@ set --global tide_right_prompt_items status cmd_duration context jobs virtual_en
 
 set -x EDITOR nvim
 set -x NODE_ENV development
+set -x HOMEBREW_NO_ENV_HINTS 1
 
 # This is respected by most NPM packages postinstall scripts
 set -x ADBLOCK 1
