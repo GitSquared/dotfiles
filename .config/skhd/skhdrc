@@ -20,4 +20,4 @@ fn - p : yabai -m window --toggle float; yabai -m window --toggle pip; yabai -m 
 fn - space : yabai -m space --balance
 
 # App shortcuts
-fn - t : /opt/homebrew/bin/kitty --single-instance -d ~
+fn - t : /usr/local/bin/kitty --single-instance -d ~
