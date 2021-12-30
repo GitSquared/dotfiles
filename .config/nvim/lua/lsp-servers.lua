@@ -11,10 +11,10 @@ local capabilities = require('cmp_nvim_lsp').update_capabilities(
 
 lsp.bashls.setup({ capabilities = capabilities }) -- npm i -g bash-language-server
 lsp.cssls.setup({ capabilities = capabilities }) -- npm i -g vscode-langservers-extracted
--- lsp.eslint.setup({ capabilities = capabilities }) -- ↑↑↑
+lsp.eslint.setup({ capabilities = capabilities }) -- ↑↑↑
 lsp.html.setup({ capabilities = capabilities }) -- ↑↑↑
 lsp.jsonls.setup({ capabilities = capabilities }) -- ↑↑↑
--- lsp.denols.setup({ capabilities = capabilities }) -- brew install deno
+lsp.jedi_language_server.setup({ capabilities = capabilities }) -- pip install -U jedi-language-server
 local lua_runtime_path = vim.split(package.path, ';')
 table.insert(lua_runtime_path, "lua/?.lua")
 table.insert(lua_runtime_path, "lua/?/init.lua")
