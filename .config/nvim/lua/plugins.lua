@@ -55,7 +55,7 @@ return require('packer').startup(function(use)
 				mapping = {
 					-- key mappings for autocompletion window
 					['<C-Space>'] = cmp.mapping(cmp.mapping.complete(), { 'i', 'c' }),
-					['<Esc>'] = cmp.mapping({
+					['<S-Esc>'] = cmp.mapping({
 						i = cmp.mapping.abort(),
 						c = cmp.mapping.close(),
 					}),
@@ -120,7 +120,12 @@ return require('packer').startup(function(use)
 		end
 	}
 
-	use 'github/copilot.vim' -- codex-based autocompletion neural network frontend
+	use {
+		'github/copilot.vim', -- codex-based autocompletion neural network frontend
+		config = function()
+			vim.g.copilot_no_tab_map = true
+		end
+	}
 
 	-- ************
 	-- UI

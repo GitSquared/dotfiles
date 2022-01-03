@@ -20,6 +20,7 @@ nmap <silent> gd :lua vim.lsp.buf.definition()<CR>
 nmap <silent> gy :lua vim.lsp.buf.type_definition()<CR>
 nmap <silent> gi :lua vim.lsp.buf.implementation()<CR>
 nmap <silent> gr :lua vim.lsp.buf.references()<CR>
+imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 nmap <Leader><Enter> :ToggleWorkspace<CR>
