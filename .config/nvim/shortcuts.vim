@@ -11,6 +11,7 @@ map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
 map <Leader>r :lua vim.lsp.buf.rename()<CR>
 map <Leader>c :lua vim.lsp.buf.code_action()<CR>
+map <Leader>ca :EslintFixAll<CR>
 nmap <Leader>g :Git<CR>
 nmap <Leader>p :Files<CR>
 nmap <Leader>o :Ag<CR>
