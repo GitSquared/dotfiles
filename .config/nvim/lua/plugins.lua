@@ -25,7 +25,10 @@ return require('packer').startup(function(use)
 		run = ':TSUpdate',
 		config = function()
 			require('nvim-treesitter.configs').setup({
-				ensure_installed = 'maintained'
+				ensure_installed = 'maintained',
+				highlight = {
+					enable = true,
+				}
 			})
 		end
 	}
@@ -134,6 +137,7 @@ return require('packer').startup(function(use)
 		'rose-pine/neovim', -- theme/colorscheme
 		as = 'rose-pine',
 		config = function()
+			vim.g.rose_pine_disable_italics = true
 			vim.cmd('colorscheme rose-pine')
 		end
 	})
