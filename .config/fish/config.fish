@@ -14,6 +14,7 @@ alias icat='kitty +kitten icat'
 alias lg='lazygit'
 
 fish_add_path /opt/homebrew/bin
+fish_add_path ~/.cargo/bin
 
 kitty + complete setup fish | source
 fish_vi_key_bindings
