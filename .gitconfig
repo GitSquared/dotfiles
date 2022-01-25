@@ -14,13 +14,11 @@
 	cmd = kitty +kitten diff $LOCAL $REMOTE
 [difftool "kitty.gui"]
 	cmd = kitty kitty +kitten diff $LOCAL $REMOTE
-# FROM <http://blog.kfish.org/2010/04/git-lola.html>
 [alias]
-	lolp = log --graph --pretty=format:\\"%C(yellow)%h%Creset%C(cyan)%C(bold)%d%Creset %C(cyan)(%cr)%Creset %C(green)%ce%Creset %s\\"
 	lol = log --graph --decorate --pretty=oneline --abbrev-commit
 	lola = log --graph --decorate --pretty=oneline --abbrev-commit --all
-	lolap = log --graph --decorate --pretty=oneline --abbrev-commit --exclude='*prod*' --all
-	lolan = log --graph --decorate --pretty=oneline --abbrev-commit --all --name-status
+[merge]
+	conflictstyle = zdiff3
 [color]
 	branch = auto
 	diff = auto
