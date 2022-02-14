@@ -137,7 +137,9 @@ return require('packer').startup(function(use)
 		'rose-pine/neovim', -- theme/colorscheme
 		as = 'rose-pine',
 		config = function()
-			vim.g.rose_pine_disable_italics = true
+			require('rose-pine').setup({
+				disable_italics = true,
+			})
 			vim.cmd('colorscheme rose-pine')
 		end
 	})
