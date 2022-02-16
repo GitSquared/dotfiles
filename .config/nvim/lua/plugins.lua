@@ -269,7 +269,7 @@ return require('packer').startup(function(use)
 		end
 	}
 
-	use 'terryma/vim-multiple-cursors' -- multi-cursor support
+	use 'mg979/vim-visual-multi' -- multi-cursor support
 
 	use 'tpope/vim-surround' -- commands for working with {surrounding} marks
 
