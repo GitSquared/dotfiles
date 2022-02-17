@@ -42,10 +42,10 @@ nmap <Down> <C-W>j
 nmap <Left> <C-W>h
 nmap <Right> <C-W>l
 " Move windows
-nmap <Leader><Up> <C-W>K
-nmap <Leader><Down> <C-W>J
-nmap <Leader><Left> <C-W>H
-nmap <Leader><Right> <C-W>L
+nmap <C-Up> <C-W>K
+nmap <C-Down> <C-W>J
+nmap <C-Left> <C-W>H
+nmap <C-Right> <C-W>L
 " Resize windows
 nmap <Leader>= <C-W>=
 nmap <S-Up> :resize +3<CR>
