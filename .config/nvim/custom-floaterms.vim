@@ -1,15 +1,15 @@
 " Custom terminal functions
-let t:floaterm_shell_opened = 0
-let t:floaterm_ranger_opened = 0
-let t:floaterm_lazygit_opened = 0
-let t:floaterm_oneshot_opened = 0
+let g:floaterm_shell_opened = 0
+let g:floaterm_ranger_opened = 0
+let g:floaterm_lazygit_opened = 0
+let g:floaterm_oneshot_opened = 0
 
 function! CustomTermToggle(cmd)
-	if a:cmd == g:floaterm_shell && t:floaterm_shell_opened == 1
+	if a:cmd == g:floaterm_shell && g:floaterm_shell_opened == 1
 		exe 'FloatermToggle '.a:cmd
-	elseif a:cmd == 'ranger' && t:floaterm_ranger_opened == 1
+	elseif a:cmd == 'ranger' && g:floaterm_ranger_opened == 1
 		exe 'FloatermToggle ranger'
-	elseif a:cmd == 'lazygit' && t:floaterm_lazygit_opened == 1
+	elseif a:cmd == 'lazygit' && g:floaterm_lazygit_opened == 1
 		exe 'FloatermToggle lazygit'
 	else
 		exe 'FloatermNew --autoclose=2 --height=0.8 --width=0.8 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
@@ -17,7 +17,7 @@ function! CustomTermToggle(cmd)
 endfunction
 
 function! CustomOneShotTerm(cmd)
-	if t:floaterm_oneshot_opened
+	if g:floaterm_oneshot_opened
 		exe 'FloatermSend --name=oneshot'.a:cmd
 	else
 		exe 'FloatermNew --height=0.8 --width=0.6 --name=oneshot --title=oneshot'.a:cmd
@@ -30,13 +30,13 @@ function! CustomTermOpenHandler()
 	endif
 
 	if b:floaterm_title == g:floaterm_shell
-		let t:floaterm_shell_opened = 1
+		let g:floaterm_shell_opened = 1
 	elseif b:floaterm_title == 'ranger'
-		let t:floaterm_ranger_opened = 1
+		let g:floaterm_ranger_opened = 1
 	elseif b:floaterm_title == 'lazygit'
-		let t:floaterm_lazygit_opened = 1
+		let g:floaterm_lazygit_opened = 1
 	elseif b:floaterm_title == 'oneshot'
-		let t:floaterm_oneshot_opened = 1
+		let g:floaterm_oneshot_opened = 1
 	endif
 endfunction
 function! CustomTermCloseHandler()
@@ -45,13 +45,13 @@ function! CustomTermCloseHandler()
 	endif
 
 	if b:floaterm_title == g:floaterm_shell
-		let t:floaterm_shell_opened = 0
+		let g:floaterm_shell_opened = 0
 	elseif b:floaterm_title == 'ranger'
-		let t:floaterm_ranger_opened = 0
+		let g:floaterm_ranger_opened = 0
 	elseif b:floaterm_title == 'lazygit'
-		let t:floaterm_lazygit_opened = 0
+		let g:floaterm_lazygit_opened = 0
 	elseif b:floaterm_title == 'oneshot'
-		let t:floaterm_oneshot_opened = 0
+		let g:floaterm_oneshot_opened = 0
 	endif
 endfunction
 augroup customTermAutocmds
