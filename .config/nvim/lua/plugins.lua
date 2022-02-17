@@ -269,7 +269,25 @@ return require('packer').startup(function(use)
 		end
 	}
 
-	use 'mg979/vim-visual-multi' -- multi-cursor support
+	use {
+		'terryma/vim-multiple-cursors', -- multi-cursor support
+		config = function()
+			-- prevent delimitMate conflict
+			vim.cmd [[
+				function! Multiple_cursors_before()
+					if exists(':DelimitMateOff')==2
+						exe 'DelimitMateOff'
+					endif
+				endfunction
+
+				function! Multiple_cursors_after()
+					if exists(':DelimitMateOn')==2
+						exe 'DelimitMateOn'
+					endif
+				endfunction
+			]]
+		end
+	}
 
 	use 'tpope/vim-surround' -- commands for working with {surrounding} marks
 
