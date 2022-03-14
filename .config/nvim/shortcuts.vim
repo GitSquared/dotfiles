@@ -9,20 +9,10 @@ nmap <Leader>, :close<CR>
 " Editor utilities
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
-map <Leader>r :lua vim.lsp.buf.rename()<CR>
-map <Leader>c :lua vim.lsp.buf.code_action()<CR>
 map <Leader>e :EslintFixAll<CR>
 nmap <Leader>g :Git<CR>
 nmap <Leader>p :Files<CR>
 nmap <Leader>o :Ag<CR>
-nmap <Leader>t :TroubleToggle<CR>
-nmap <silent> K :lua vim.lsp.buf.hover()<CR>
-nmap <silent> gd :lua vim.lsp.buf.definition()<CR>
-nmap <silent> gy :lua vim.lsp.buf.type_definition()<CR>
-nmap <silent> gi :lua vim.lsp.buf.implementation()<CR>
-nmap <silent> gr :lua vim.lsp.buf.references()<CR>
-nmap <silent><Esc> :cclose<CR>
-imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 nmap <Leader><Enter> :ToggleWorkspace<CR>
@@ -58,5 +48,20 @@ nmap <Leader>d :call CustomTermToggle('ranger')<CR>
 nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
 nmap <Leader>h :FloatermPrev<CR>
 nmap <Leader>l :FloatermNext<CR>
+nmap <Leader>t :TroubleToggle<CR>
+nmap <silent><Esc> :cclose<CR>
+" IDE-like autocompletion and code navigation
+map <Leader>r :lua vim.lsp.buf.rename()<CR>
+map <Leader>c :lua vim.lsp.buf.code_action()<CR>
+nmap <silent> K :lua vim.lsp.buf.hover()<CR>
+nmap <silent> gd :lua vim.lsp.buf.definition()<CR>
+nmap <silent> gy :lua vim.lsp.buf.type_definition()<CR>
+nmap <silent> gi :lua vim.lsp.buf.implementation()<CR>
+nmap <silent> gr :lua vim.lsp.buf.references()<CR>
+imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
+" Git integration
+nmap gb :Gitsigns blame_line<CR>
+nmap gk :Gitsigns prev_hunk<CR>
+nmap gj :Gitsigns next_hunk<CR>
 " Terminal mode shortcuts
 tmap <C-Space> <C-\><C-N><CR>
