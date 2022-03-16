@@ -169,9 +169,18 @@ return require('packer').startup(function(use)
 				},
 				sections = {
 					lualine_a = {'mode'},
-					lualine_b = {'branch', 'diff', 'diagnostics'},
-					lualine_c = {'filename'},
-					lualine_x = {'encoding'},
+					lualine_b = {{'os.date("%H:%M", os.time())', icon = ' ', separator = ''}, function() return ' ' end, 'diff'},
+					lualine_c = {{
+						'branch',
+						fmt = function(s)
+							if string.len(s) > 26 then
+								return string.sub(s, 0, 26) .. '...'
+							else
+								return s
+							end
+						end
+					}},
+					lualine_x = {'diagnostics'},
 					lualine_y = {'filetype'},
 					lualine_z = {'location'}
 				}
