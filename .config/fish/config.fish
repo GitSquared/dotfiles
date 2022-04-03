@@ -6,7 +6,7 @@ direnv hook fish | source
 thefuck --alias | source
 nvm use default --silent
 
-alias full_upgrade='brew update; brew upgrade; npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim --headless -c "autocmd User PackerComplete quitall" -c "PackerSync"'
+alias full_upgrade='brew update; brew upgrade; npm update -g; fish_update_completions; ncu -g; fisher update; tldr --update;nvim --headless -c "TSUpdateSync" -c "autocmd User PackerComplete quitall" -c "PackerSync"'
 alias weather='curl wttr.in'
 
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
