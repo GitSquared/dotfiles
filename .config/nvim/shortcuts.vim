@@ -10,9 +10,6 @@ nmap <Leader>, :close<CR>
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
 map <Leader>e :EslintFixAll<CR>
-nmap <Leader>g :Git<CR>
-nmap <Leader>p :Files<CR>
-nmap <Leader>o :Ag<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 nmap <Leader><Enter> :ToggleWorkspace<CR>
@@ -43,6 +40,10 @@ nmap <S-Down> :resize -3<CR>
 nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
+nmap <Leader>m :SymbolsOutline<CR>
+nmap <Leader>g :Git<CR>
+nmap <Leader>p :Files<CR>
+nmap <Leader>o :Ag<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
 nmap <Leader>g :call CustomTermToggle('lazygit')<CR>

@@ -297,6 +297,8 @@ return require('packer').startup(function(use)
 		end
 	}
 
+	use 'simrat39/symbols-outline.nvim' -- symbols sidebar
+
 	use {
 		'terryma/vim-multiple-cursors', -- multi-cursor support
 		config = function()
