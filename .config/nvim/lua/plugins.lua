@@ -208,7 +208,19 @@ return require('packer').startup(function(use)
 
 	use 'jeffkreeftmeijer/vim-numbertoggle' -- automatically switch numbers to absolute instead of relative when buffers are inactive
 
-	use 'ap/vim-css-color' -- highlight color strings with the color they represent
+	use {
+		'norcalli/nvim-colorizer.lua', -- highlight color strings with the color they represent
+		config = function()
+			require('colorizer').setup({'*'}, {
+				RGB = false;
+				RRGGBB = true;
+				names = true;
+				RRGGBBAA = true;
+				rgb_fn = true;
+				hsl_fn = true;
+			})
+		end
+	}
 
 	use {
 		'lewis6991/gitsigns.nvim', -- shows git added/removed lines to the left of the line numbers
