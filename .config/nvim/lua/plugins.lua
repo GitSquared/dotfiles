@@ -251,6 +251,57 @@ return require('packer').startup(function(use)
 		end
 	}
 
+	use 'folke/twilight.nvim' -- hide unfocused blocks while in zen mode
+
+	use {
+		'folke/zen-mode.nvim', -- zen mode for deep focus on complex algos
+		config = function()
+			require('zen-mode').setup({
+				window = {
+					backdrop = 0.95, -- shade the backdrop of the Zen window. Set to 1 to keep the same as Normal
+					-- height and width can be:
+					-- * an absolute number of cells when > 1
+					-- * a percentage of the width / height of the editor when <= 1
+					-- * a function that returns the width or the height
+					width = 120, -- width of the Zen window
+					height = 1, -- height of the Zen window
+					-- by default, no options are changed for the Zen window
+					-- uncomment any of the options below, or add other vim.wo options you want to apply
+					options = {
+						signcolumn = "no", -- disable signcolumn
+						-- number = false, -- disable number column
+					},
+				},
+				plugins = {
+					-- disable some global vim options (vim.o...)
+					options = {
+						enabled = true,
+						ruler = false, -- disables the ruler text in the cmd line area
+						showcmd = false, -- disables the command in the last line of the screen
+					},
+					twilight = { enabled = true }, -- enable to start Twilight when zen mode opens
+					gitsigns = { enabled = true }, -- disables git signs
+					-- this will change the font size on kitty when in zen mode
+					-- to make this work, you need to set the following kitty options:
+					-- - allow_remote_control socket-only
+					-- - listen_on unix:/tmp/kitty
+					kitty = {
+						enabled = true,
+						font = "+2", -- font size increment
+					},
+				},
+				-- callback where you can add custom code when the Zen window opens
+				on_open = function()
+					vim.cmd('Copilot disable') -- prevent focus loss by looking at AI autocompletions :)
+				end,
+				-- callback where you can add custom code when the Zen window closes
+				on_close = function()
+					vim.cmd('Copilot enable')
+				end,
+			})
+		end
+	}
+
 	-- ************
 	-- Commands, utils & tools
 	-- ************

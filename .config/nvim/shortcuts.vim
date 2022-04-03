@@ -7,6 +7,7 @@ nmap <Leader>q :BufferClose<CR>
 nmap <Leader>Q :qa<CR>
 nmap <Leader>, :close<CR>
 " Editor utilities
+map <Leader>z :ZenMode<CR>
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
 map <Leader>e :EslintFixAll<CR>
