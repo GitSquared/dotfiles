@@ -35,6 +35,13 @@ return require('packer').startup(function(use)
 
 	use 'neovim/nvim-lspconfig' -- helper configs for neovim built-in LSP client
 
+	use {
+		'j-hui/fidget.nvim', -- print status updates of LSP servers
+		config = function()
+			require('fidget').setup()
+		end
+	}
+
 	use 'L3MON4D3/LuaSnip' -- snippet plugin (leveraged by autocompletion engine)
 
 	use {
