@@ -44,3 +44,5 @@
 	program = /usr/local/bin/gpg
 [fetch]
 	prune = true
+[maintenance]
+	repo = /Users/gabriel.saillard/Documents/git/alan-web
