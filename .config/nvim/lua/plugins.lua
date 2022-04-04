@@ -134,7 +134,7 @@ return require('packer').startup(function(use)
 							fallback()
 						end
 					end, { "i", "s" }),
-					-- ctrl-tab/shft-tab to scroll docs
+					-- mapping to scroll docs
 					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
 					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
 				}
@@ -447,12 +447,9 @@ return require('packer').startup(function(use)
 	}
 
 	use {
-		'yuttie/comfortable-motion.vim', -- smooth scrolling
+		'karb94/neoscroll.nvim', -- smooth scrolling
 		config = function()
-			vim.api.nvim_set_keymap('n', '<ScrollWheelDown>', [[<cmd>call comfortable_motion#flick(40)<CR>]],
-				{ noremap = true, silent = true })
-			vim.api.nvim_set_keymap('n', '<ScrollWheelUp>', [[<cmd>call comfortable_motion#flick(-40)<CR>]],
-				{ noremap = true, silent = true })
+			require('neoscroll').setup()
 		end
 	}
 
