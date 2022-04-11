@@ -41,10 +41,10 @@ nmap <S-Down> :resize -3<CR>
 nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
+nmap / :Telescope current_buffer_fuzzy_find<CR>
 nmap <Leader>m :SymbolsOutline<CR>
-nmap <Leader>g :Git<CR>
-nmap <Leader>p :Files<CR>
-nmap <Leader>o :Ag<CR>
+nmap <Leader>p :Telescope find_files<CR>
+nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
 nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
@@ -54,12 +54,12 @@ nmap <Leader>t :TroubleToggle<CR>
 nmap <silent><Esc> :cclose<CR>
 " IDE-like autocompletion and code navigation
 map <Leader>r :lua vim.lsp.buf.rename()<CR>
-map <Leader>c :lua vim.lsp.buf.code_action()<CR>
+map <Leader>c :Telescope lsp_code_actions<CR>
 nmap <silent> K :lua vim.lsp.buf.hover()<CR>
-nmap <silent> gd :lua vim.lsp.buf.definition()<CR>
-nmap <silent> gy :lua vim.lsp.buf.type_definition()<CR>
-nmap <silent> gi :lua vim.lsp.buf.implementation()<CR>
-nmap <silent> gr :lua vim.lsp.buf.references()<CR>
+nmap <silent> gd :Telescope lsp_definitions<CR>
+nmap <silent> gy :Telescope lsp_type_definitions<CR>
+nmap <silent> gi :Telescope lsp_implementations<CR>
+nmap <silent> gr :Telescope lsp_references<CR>
 imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 " Git integration
 nmap gb :Gitsigns blame_line<CR>
