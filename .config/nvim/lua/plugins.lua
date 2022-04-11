@@ -25,7 +25,7 @@ return require('packer').startup(function(use)
 		run = ':TSUpdate',
 		config = function()
 			require('nvim-treesitter.configs').setup({
-				ensure_installed = 'maintained',
+				ensure_installed = 'all',
 				highlight = {
 					enable = true,
 				}
@@ -304,12 +304,16 @@ return require('packer').startup(function(use)
 	-- ************
 	-- Commands, utils & tools
 	-- ************
-	use {
-		'junegunn/fzf', -- generic fuzzy finder
-		run = 'fzf#install()' -- install fzf core binary
-	}
+	use {'nvim-telescope/telescope-fzf-native.nvim', run = 'make' } -- native fzf sorter for Telescope, faster
 
-	use 'junegunn/fzf.vim' -- commands that leverage fzf to search for stuff (like :Files)
+	use {
+		'nvim-telescope/telescope.nvim', -- fuzzy finder
+		requires = { {'nvim-lua/plenary.nvim'} },
+		config = function()
+			require('telescope').setup()
+			require('telescope').load_extension('fzf')
+		end
+	}
 
 	use {
 		'voldikss/vim-floaterm', -- terminal windows management
