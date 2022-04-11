@@ -19,6 +19,10 @@ alias tf='terraform'
 fish_add_path $PYENV_ROOT/bin
 fish_add_path $HOME/.local/bin
 
+set -x ANDROID_SDK_ROOT $HOME/Library/Android/sdk
+fish_add_path $ANDROID_SDK_ROOT/emulator
+fish_add_path $ANDROID_SDK_ROOT/platform-tools
+
 kitty + complete setup fish | source
 fish_vi_key_bindings
 source ~/.config/fish/colors/rose_pine.fish
