@@ -41,8 +41,8 @@
 [core]
 	editor = nvim
 [gpg]
-	program = /usr/local/bin/gpg
+	program = /opt/homebrew/bin/gpg
 [fetch]
 	prune = true
 [maintenance]
-	repo = /Users/gabriel.saillard/Documents/git/alan-web
+	repo = /Users/alan-gs/Documents/git/alan-web

@@ -1,4 +1,4 @@
-set shell=/usr/local/bin/fish
+set shell=/opt/homebrew/bin/fish
 
 set switchbuf=useopen,vsplit
 set hidden

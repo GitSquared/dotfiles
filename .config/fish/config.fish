@@ -16,6 +16,8 @@ alias icat='kitty +kitten icat'
 alias lg='lazygit'
 alias tf='terraform'
 
+fish_add_path /opt/homebrew/bin
+fish_add_path /opt/homebrew/sbin
 fish_add_path $PYENV_ROOT/bin
 fish_add_path $HOME/.local/bin
 
