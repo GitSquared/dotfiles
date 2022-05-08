@@ -21,6 +21,8 @@ fish_add_path /opt/homebrew/sbin
 fish_add_path $PYENV_ROOT/bin
 fish_add_path $HOME/.local/bin
 
+fish_add_path /opt/homebrew/opt/postgresql@11/bin
+
 set -x ANDROID_SDK_ROOT $HOME/Library/Android/sdk
 fish_add_path $ANDROID_SDK_ROOT/emulator
 fish_add_path $ANDROID_SDK_ROOT/platform-tools
