@@ -25,7 +25,32 @@ return require('packer').startup(function(use)
 		run = ':TSUpdate',
 		config = function()
 			require('nvim-treesitter.configs').setup({
-				ensure_installed = 'all',
+				ensure_installed = {
+					"vim",
+					"lua",
+					"rust",
+					"regex",
+					"typescript",
+					"tsx",
+					"javascript",
+					"ruby",
+					"scss",
+					"yaml",
+					"python",
+					"toml",
+					"latex",
+					"html",
+					"json",
+					"jsdoc",
+					"http",
+					"graphql",
+					"go",
+					"fish",
+					"dockerfile",
+					"bash",
+					"css",
+					"c"
+				},
 				highlight = {
 					enable = true,
 				}
