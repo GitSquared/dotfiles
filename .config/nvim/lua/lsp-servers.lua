@@ -39,4 +39,28 @@ lsp.sumneko_lua.setup({  -- brew install lua-language-server
 lsp.tsserver.setup({ capabilities = capabilities }) -- npm i -g typescript typescript-language-server
 lsp.vimls.setup({ capabilities = capabilities }) -- npm i -g vim-language-server
 lsp.yamlls.setup({ capabilities = capabilities }) -- npm i -g yaml-language-server
-lsp.pylsp.setup({ capabilities = capabilities }) -- pip install -U 'python-lsp-server[flake8]' preload pyls-flake8 python-lsp-black pyls-mypy pyls-isort
+lsp.pylsp.setup({ -- pip install -U 'python-lsp-server[all]' preload pyls-flake8 python-lsp-black pyls-mypy pyls-isort
+	capabilities = capabilities,
+	settings = {
+		pylsp = {
+			plugins = {
+				pycodestyle = {enabled = false},
+				black = {
+					enabled = true,
+					cache_config = true,
+				},
+				flake8 = {
+					enabled = true,
+				},
+				mypy = {
+					enabled = true,
+					live_mode = true,
+					dmypy = true,
+				},
+				isort = {
+					enabled = true,
+				},
+			}
+		}
+	},
+})
