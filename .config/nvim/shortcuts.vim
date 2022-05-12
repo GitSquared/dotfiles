@@ -54,7 +54,7 @@ nmap <Leader>t :TroubleToggle<CR>
 nmap <silent><Esc> :cclose<CR>
 " IDE-like autocompletion and code navigation
 map <Leader>r :lua vim.lsp.buf.rename()<CR>
-map <Leader>c :Telescope lsp_code_actions<CR>
+map <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <silent> K :lua vim.lsp.buf.hover()<CR>
 nmap <silent> gd :Telescope lsp_definitions<CR>
 nmap <silent> gy :Telescope lsp_type_definitions<CR>
