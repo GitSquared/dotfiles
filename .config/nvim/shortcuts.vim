@@ -47,6 +47,7 @@ nmap <Leader>p :Telescope find_files<CR>
 nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
+nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
 nmap <Leader>h :FloatermPrev<CR>
 nmap <Leader>l :FloatermNext<CR>
