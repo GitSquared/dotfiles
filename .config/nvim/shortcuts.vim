@@ -14,7 +14,6 @@ map <Leader>e :EslintFixAll<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 nmap <Leader><Enter> :ToggleWorkspace<CR>
-nmap <Leader>C :BufferCloseAllButCurrent<CR>
 " Switch buffers
 nmap <Leader>v :BufferPrevious<CR>
 nmap <Leader>n :BufferNext<CR>
@@ -42,8 +41,9 @@ nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
 nmap / :Telescope current_buffer_fuzzy_find<CR>
-nmap <Leader>m :SymbolsOutline<CR>
 nmap <Leader>p :Telescope find_files<CR>
+nmap <Leader>C :TSContextToggle<CR>
+nmap <Leader>m :SymbolsOutline<CR>
 nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
