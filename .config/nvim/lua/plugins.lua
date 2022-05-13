@@ -229,6 +229,15 @@ return require('packer').startup(function(use)
 	})
 
 	use({
+		'nvim-treesitter/nvim-treesitter-context', -- show nest/indent context at top of file, leveraging treesitter
+		config = function()
+			require('treesitter-context').setup({
+				enable = false, -- disable by default, toggle with shortcut
+			})
+		end
+	})
+
+	use({
 		'lukas-reineke/indent-blankline.nvim', -- indentation guides
 		config = function()
 			require('indent_blankline').setup({
