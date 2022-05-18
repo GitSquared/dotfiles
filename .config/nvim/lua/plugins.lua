@@ -166,13 +166,47 @@ return require('packer').startup(function(use)
 	-- UI
 	-- ************
 	use({
-		'rose-pine/neovim', -- theme/colorscheme
-		as = 'rose-pine',
+		'catppuccin/nvim', -- theme/colorscheme
+		as = 'catppuccin',
 		config = function()
-			require('rose-pine').setup({
-				disable_italics = true,
+			require('catppuccin').setup({
+				transparent_background = true,
+				term_colors = true,
+				styles = {
+					comments = 'italic',
+					functions = 'bold',
+					keywords = 'italic',
+					strings = 'NONE',
+					variables = 'NONE',
+				},
+				integration = {
+					cmp = true,
+					barbar = true,
+					gitsigns = true,
+					lsp_trouble = true,
+					markdown = true,
+					symbols_outline = true,
+					telescope = true,
+					treesitter = true,
+					indent_blankline = {
+						enabled = true,
+						colored_indent_levels = true,
+					},
+					native_lsp = {
+						enabled = true,
+						underlines = {
+							errors = 'underline',
+							warnings = 'undercurl',
+							hints = 'underdash',
+							information = 'underdot',
+						}
+					},
+					nvimtree = {
+						enabled = true,
+					}
+				}
 			})
-			vim.cmd('colorscheme rose-pine')
+			vim.cmd[[colorscheme catppuccin]]
 		end
 	})
 
@@ -196,6 +230,8 @@ return require('packer').startup(function(use)
 		config = function()
 			require('lualine').setup({
 				options = {
+					icons_enabled = true,
+					theme = 'catppuccin',
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '╱', right = '╱' }
 				},
@@ -214,7 +250,7 @@ return require('packer').startup(function(use)
 					}},
 					lualine_x = {'diagnostics'},
 					lualine_y = {'filetype'},
-					lualine_z = {'location'}
+					lualine_z = {'location'},
 				}
 			})
 		end
@@ -243,7 +279,17 @@ return require('packer').startup(function(use)
 			require('indent_blankline').setup({
 				use_treesitter = true,
 				show_current_context = true,
+				show_current_context_start = false,
 				show_trailing_blankline_indent = false,
+				space_char_blankline = ' ',
+				char_highlight_list = {
+					"IndentBlanklineIndent1",
+					"IndentBlanklineIndent2",
+					"IndentBlanklineIndent3",
+					"IndentBlanklineIndent4",
+					"IndentBlanklineIndent5",
+					"IndentBlanklineIndent6",
+				},
 			})
 		end
 	})
