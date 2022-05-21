@@ -190,7 +190,7 @@ return require('packer').startup(function(use)
 					treesitter = true,
 					indent_blankline = {
 						enabled = true,
-						colored_indent_levels = true,
+						colored_indent_levels = false,
 					},
 					native_lsp = {
 						enabled = true,
@@ -282,14 +282,6 @@ return require('packer').startup(function(use)
 				show_current_context_start = false,
 				show_trailing_blankline_indent = false,
 				space_char_blankline = ' ',
-				char_highlight_list = {
-					"IndentBlanklineIndent1",
-					"IndentBlanklineIndent2",
-					"IndentBlanklineIndent3",
-					"IndentBlanklineIndent4",
-					"IndentBlanklineIndent5",
-					"IndentBlanklineIndent6",
-				},
 			})
 		end
 	})
