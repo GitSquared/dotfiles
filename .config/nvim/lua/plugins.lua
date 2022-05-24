@@ -487,4 +487,12 @@ return require('packer').startup(function(use)
 	}
 
 	use 'alvan/vim-closetag' -- autoclose html/jsx tags
+
+	use {
+			'ruifm/gitlinker.nvim', -- copy link to code on GitHub
+			requires = 'nvim-lua/plenary.nvim',
+			config = function()
+				require("gitlinker").setup()
+			end
+	}
 end)
