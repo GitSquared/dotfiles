@@ -3,7 +3,7 @@ let mapleader = ' '
 " New, write, quit/close
 nmap <Leader>b :enew<CR>
 nmap <Leader>w :w<CR>
-nmap <Leader>q :BufferClose<CR>
+nmap <Leader>q :BufferWipeout<CR>
 nmap <Leader>Q :qa<CR>
 nmap <Leader>, :close<CR>
 " Editor utilities
