@@ -169,9 +169,11 @@ return require('packer').startup(function(use)
 		'catppuccin/nvim', -- theme/colorscheme
 		as = 'catppuccin',
 		config = function()
+			vim.opt.termguicolors = true
+			vim.g.catppuccin_flavour = "mocha"
 			require('catppuccin').setup({
-				transparent_background = true,
-				term_colors = true,
+				transparent_background = false,
+				term_colors = false,
 				styles = {
 					comments = 'italic',
 					functions = 'bold',
