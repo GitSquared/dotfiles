@@ -53,10 +53,23 @@ return require('packer').startup(function(use)
 				},
 				highlight = {
 					enable = true,
+				},
+				indent = {
+					enable = false, -- see this issue: https://github.com/nvim-treesitter/nvim-treesitter/issues/1136
 				}
 			})
 		end
 	}
+
+	use({
+		'yioneko/nvim-yati', -- cf. above issue, better treesitter-based indentation config while the native one gets patched up.
+		requires = 'nvim-treesitter/nvim-treesitter',
+		config = function()
+			require('nvim-treesitter.configs').setup({
+				yati = { enable = true },
+			})
+		end
+	})
 
 	use 'neovim/nvim-lspconfig' -- helper configs for neovim built-in LSP client
 
