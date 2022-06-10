@@ -10,7 +10,6 @@ nmap <Leader>, :close<CR>
 map <Leader>z :ZenMode<CR>
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
-map <Leader>e :EslintFixAll<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 nmap <Leader><Enter> :ToggleWorkspace<CR>
@@ -53,10 +52,12 @@ nmap <Leader>h :FloatermPrev<CR>
 nmap <Leader>l :FloatermNext<CR>
 nmap <Leader>t :TroubleToggle<CR>
 nmap <silent><Esc> :cclose<CR>
-" IDE-like autocompletion and code navigation
+" LSP features
 map <Leader>r :lua vim.lsp.buf.rename()<CR>
 map <Leader>c :lua vim.lsp.buf.code_action()<CR>
+map <Leader>e :lua vim.lsp.buf.formatting()<CR>
 nmap <silent> K :lua vim.lsp.buf.hover()<CR>
+nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
 nmap <silent> gd :Telescope lsp_definitions<CR>
 nmap <silent> gy :Telescope lsp_type_definitions<CR>
 nmap <silent> gi :Telescope lsp_implementations<CR>

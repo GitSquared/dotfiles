@@ -229,13 +229,9 @@ return require('packer').startup(function(use)
 		'romgrk/barbar.nvim', -- buffers management (="tab bar")
 		requires = {'kyazdani42/nvim-web-devicons'},
 		config = function()
-			-- Fix visible-inactive-modified being brighter than active
-			vim.cmd([[
-				hi BufferVisible guibg=#232433 guifg=#a9b1d6
-				hi BufferVisibleIndex guifg=#3b3d57 guibg=#232433
-				hi BufferVisibleMod guifg=#3b3d57 guibg=#232433
-				hi BufferVisibleSign guifg=#3b3d57 guibg=#232433
-			]])
+			require('bufferline').setup({
+				closable = false,
+			})
 		end
 	}
 
@@ -442,7 +438,9 @@ return require('packer').startup(function(use)
 		'folke/trouble.nvim', -- list lsp diagnostics
 		requires = 'kyazdani42/nvim-web-devicons',
 		config = function()
-			require('trouble').setup()
+			require('trouble').setup({
+				mode = "document_diagnostics"
+			})
 		end
 	}
 
