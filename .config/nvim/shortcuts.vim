@@ -53,9 +53,10 @@ nmap <Leader>l :FloatermNext<CR>
 nmap <Leader>t :TroubleToggle<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
-map <Leader>r :lua vim.lsp.buf.rename()<CR>
-map <Leader>c :lua vim.lsp.buf.code_action()<CR>
-map <Leader>e :lua vim.lsp.buf.formatting()<CR>
+nmap <Leader>r :lua vim.lsp.buf.rename()<CR>
+nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
+nmap <Leader>e :lua vim.lsp.buf.formatting()<CR>
+autocmd FileType js,javascript,ts,typescript,typescriptreact nnoremap <buffer> <Leader>e :EslintFixAll<CR>
 nmap <silent> K :lua vim.lsp.buf.hover()<CR>
 nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
 nmap <silent> gd :Telescope lsp_definitions<CR>
