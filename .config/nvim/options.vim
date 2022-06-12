@@ -1,5 +1,6 @@
 set shell=/opt/homebrew/bin/fish
 
+set timeoutlen=200
 set switchbuf=useopen,vsplit
 set hidden
 set nobackup
