@@ -11,37 +11,13 @@ local capabilities = require('cmp_nvim_lsp').update_capabilities(
 
 lsp.bashls.setup({ capabilities = capabilities }) -- npm i -g bash-language-server
 lsp.cssls.setup({ capabilities = capabilities }) -- npm i -g vscode-langservers-extracted
--- lsp.eslint.setup({ capabilities = capabilities }) -- ↑↑↑
+lsp.eslint.setup({ capabilities = capabilities }) -- ↑↑↑
 lsp.html.setup({ capabilities = capabilities }) -- ↑↑↑
 lsp.jsonls.setup({ capabilities = capabilities }) -- ↑↑↑
 lsp.tsserver.setup({ autostart = true, capabilities = capabilities }) -- npm i -g typescript typescript-language-server
+lsp.denols.setup({ capabilities = capabilities }) -- brew install deno
 lsp.vimls.setup({ capabilities = capabilities }) -- npm i -g vim-language-server
 lsp.yamlls.setup({ capabilities = capabilities }) -- npm i -g yaml-language-server
-lsp.pylsp.setup({ -- pip install -U 'python-lsp-server[all]' preload pyls-flake8 python-lsp-black pyls-mypy pyls-isort
-	capabilities = capabilities,
-	settings = {
-		pylsp = {
-			plugins = {
-				pycodestyle = {enabled = false},
-				black = {
-					enabled = true,
-					cache_config = true,
-				},
-				flake8 = {
-					enabled = true,
-				},
-				mypy = {
-					enabled = true,
-					live_mode = true,
-					dmypy = true,
-				},
-				isort = {
-					enabled = true,
-				},
-			}
-		}
-	},
-})
 local lua_runtime_path = vim.split(package.path, ';')
 table.insert(lua_runtime_path, "lua/?.lua")
 table.insert(lua_runtime_path, "lua/?/init.lua")
