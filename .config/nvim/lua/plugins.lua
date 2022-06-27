@@ -194,7 +194,7 @@ return require('packer').startup(function(use)
 					strings = 'NONE',
 					variables = 'NONE',
 				},
-				integration = {
+				integrations = {
 					cmp = true,
 					barbar = true,
 					gitsigns = true,
