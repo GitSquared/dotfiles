@@ -43,8 +43,8 @@ set -x HOMEBREW_NO_ENV_HINTS 1
 set -x ADBLOCK 1
 
 # M1 + Alan
-set -x CFLAGS "-I(brew --prefix openssl)/include -I(brew --prefix bzip2)/include -I(brew --prefix readline)/include -I(xcrun --show-sdk-path)/usr/include"
-set -x LDFLAGS "-L(brew --prefix openssl)/lib -L(brew --prefix readline)/lib -L(brew --prefix zlib)/lib -L(brew --prefix bzip2)/lib"
+set -x CFLAGS "-I$(brew --prefix openssl)/include -I$(brew --prefix bzip2)/include -I$(brew --prefix readline)/include -I$(xcrun --show-sdk-path)/usr/include"
+set -x LDFLAGS "-L$(brew --prefix openssl)/lib -L$(brew --prefix readline)/lib -L$(brew --prefix zlib)/lib -L$(brew --prefix bzip2)/lib"
 
 function fish_greeting
 	fortune -s
