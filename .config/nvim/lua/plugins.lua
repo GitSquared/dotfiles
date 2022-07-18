@@ -188,11 +188,11 @@ return require('packer').startup(function(use)
 				transparent_background = false,
 				term_colors = false,
 				styles = {
-					comments = 'italic',
-					functions = 'bold',
-					keywords = 'italic',
-					strings = 'NONE',
-					variables = 'NONE',
+					comments = { 'italic' },
+					functions = { 'bold' },
+					keywords = { 'italic' },
+					strings = {},
+					variables = {},
 				},
 				integrations = {
 					cmp = true,
@@ -210,10 +210,10 @@ return require('packer').startup(function(use)
 					native_lsp = {
 						enabled = true,
 						underlines = {
-							errors = 'underline',
-							warnings = 'undercurl',
-							hints = 'underdash',
-							information = 'underdot',
+							errors = { 'underline' },
+							warnings = { 'undercurl' },
+							hints = { 'underdash' },
+							information = { 'underdot' },
 						}
 					},
 					nvimtree = {
