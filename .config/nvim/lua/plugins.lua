@@ -148,27 +148,6 @@ return require('packer').startup(function(use)
 	use 'hrsh7th/cmp-path' -- paths on local file system
 
 	use {
-		'hrsh7th/cmp-cmdline', -- completions for vim command line
-		config = function()
-			-- autocomplete commands using vim docs and paths on local fs
-			require('cmp').setup.cmdline(':', {
-				sources = require('cmp').config.sources({
-					{ name = 'path' }
-				}, {
-					{ name = 'cmdline' }
-				})
-			})
-
-			-- autocomplete searches using words in current buffer
-			require('cmp').setup.cmdline('/', {
-				sources = {
-					{ name = 'buffer' }
-				}
-			})
-		end
-	}
-
-	use {
 		'williamboman/nvim-lsp-installer', -- install and manage LSP servers
 		requires = { 'neovim/nvim-lspconfig' }
 	}
@@ -245,6 +224,46 @@ return require('packer').startup(function(use)
 				},
 			})
 		end
+	}
+
+	use {
+		'gelguy/wilder.nvim', -- command menu autocompletion
+		requires = { 'romgrk/fzy-lua-native', 'kyazdani42/nvim-web-devicons' },
+		config = function()
+			local wilder = require('wilder')
+			wilder.setup({ modes = { ':', '/', '?' } })
+			-- Disable Python remote plugin
+			wilder.set_option('use_python_remote_plugin', 0)
+
+			wilder.set_option('pipeline', {
+				wilder.branch(
+					wilder.cmdline_pipeline({
+						fuzzy = 1,
+						fuzzy_filter = wilder.lua_fzy_filter(),
+					}),
+					wilder.vim_search_pipeline()
+				)
+			})
+
+			wilder.set_option('renderer', wilder.popupmenu_renderer(
+				wilder.popupmenu_palette_theme({
+					border = 'rounded',
+					max_height = '30%',
+					min_height = 0,
+					prompt_position = 'top',
+					reverse = 0,
+					highlighter = wilder.lua_fzy_highlighter(),
+					left = {
+						' ',
+						wilder.popupmenu_devicons()
+					},
+					right = {
+						' ',
+						wilder.popupmenu_scrollbar()
+					},
+				})
+			))
+		end,
 	}
 
 	use {

@@ -40,7 +40,7 @@ nmap <S-Down> :resize -3<CR>
 nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
-nmap / :Telescope current_buffer_fuzzy_find<CR>
+nmap <Leader>/ :Telescope current_buffer_fuzzy_find<CR>
 nmap <Leader>p :Telescope find_files<CR>
 nmap <Leader>C :TSContextToggle<CR>
 nmap <Leader>m :SymbolsOutline<CR>
