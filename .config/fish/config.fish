@@ -1,4 +1,8 @@
-status is-interactive; and pyenv init --path | source
+if not status is-interactive
+	exit
+end
+
+pyenv init --path | source
 source (rbenv init -|psub)
 pyenv init - | source
 zoxide init fish | source
