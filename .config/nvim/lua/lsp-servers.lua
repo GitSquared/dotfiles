@@ -17,7 +17,7 @@ lsp.jsonls.setup({ capabilities = capabilities }) -- ↑↑↑
 lsp.tsserver.setup({ autostart = true, capabilities = capabilities }) -- npm i -g typescript typescript-language-server
 lsp.vimls.setup({ capabilities = capabilities }) -- npm i -g vim-language-server
 lsp.yamlls.setup({ capabilities = capabilities }) -- npm i -g yaml-language-server
-lsp.pylsp.setup({ -- pip install -U 'python-lsp-server[all]' preload pyls-flake8 python-lsp-black pyls-mypy pyls-isort
+lsp.pylsp.setup({ -- pip install --user -U 'python-lsp-server[all]' preload pyls-flake8 python-lsp-black pyls-mypy pyls-isort
 	capabilities = capabilities,
 	settings = {
 		pylsp = {
