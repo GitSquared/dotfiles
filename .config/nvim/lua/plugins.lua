@@ -383,6 +383,14 @@ return require('packer').startup(function(use)
 		end
 	})
 
+	use {
+		'folke/todo-comments.nvim',
+		requires = 'nvim-lua/plenary.nvim',
+		config = function()
+			require('todo-comments').setup({})
+		end
+	}
+
 	use 'jeffkreeftmeijer/vim-numbertoggle' -- automatically switch numbers to absolute instead of relative when buffers are inactive
 
 	use {
