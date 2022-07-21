@@ -10,6 +10,7 @@ nmap <Leader>, :close<CR>
 map <Leader>z :ZenMode<CR>
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
+map <Leader>B :Telescope buffers<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 nmap <Leader><Enter> :ToggleWorkspace<CR>
