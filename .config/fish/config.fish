@@ -1,3 +1,8 @@
+if not status is-interactive
+	exit
+end
+source (rbenv init -|psub)
+pyenv init - | source
 zoxide init fish | source
 thefuck --alias | source
 nvm use default --silent
