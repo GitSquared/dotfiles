@@ -2,7 +2,7 @@
 local install_path = vim.fn.stdpath 'data' .. '/site/pack/packer/start/packer.nvim'
 
 if vim.fn.empty(vim.fn.glob(install_path)) > 0 then
-  vim.fn.execute('!git clone https://github.com/wbthomason/packer.nvim ' .. install_path)
+	vim.fn.execute('!git clone https://github.com/wbthomason/packer.nvim ' .. install_path)
 end
 
 -- Auto recompile config when file is changed
@@ -84,7 +84,7 @@ return require('packer').startup(function(use)
 
 	use {
 		'hrsh7th/nvim-cmp', -- autocompletion engine
-		config = function ()
+		config = function()
 			local cmp = require('cmp')
 			local luasnip = require('luasnip')
 
@@ -169,6 +169,84 @@ return require('packer').startup(function(use)
 	}
 
 	use {
+		'williamboman/nvim-lsp-installer', -- install and manage LSP servers
+		requires = { 'neovim/nvim-lspconfig' }
+	}
+
+	use {
+		'junnplus/nvim-lsp-setup', -- manage lsp installation and config in one place
+		requires = {
+			'neovim/nvim-lspconfig',
+			'williamboman/nvim-lsp-installer',
+		},
+		config = function()
+			require('nvim-lsp-setup').setup({
+				installer = {
+					automatic_installation = false,
+					ui = {
+						icons = {
+							server_installed = '✓',
+							server_pending = '➜',
+							server_uninstalled = '✗'
+						}
+					}
+				},
+				default_mappings = false, -- cf ../shortcuts.vim
+				servers = {
+					bashls = {},
+					cssls = {},
+					eslint = {},
+					html = {},
+					jsonls = {},
+					tsserver = {
+						autostart = true,
+					},
+					vimls = {},
+					yamlls = {},
+					pylsp = {
+						settings = {
+							pylsp = {
+								plugins = {
+									pycodestyle = { enabled = false },
+									black = {
+										enabled = true,
+										cache_config = true,
+									},
+									flake8 = {
+										enabled = true,
+									},
+									mypy = {
+										enabled = true,
+										live_mode = true,
+										dmypy = true,
+									},
+									isort = {
+										enabled = true,
+									},
+								}
+							}
+						},
+					},
+					sumneko_lua = {
+						settings = {
+							Lua = {
+								diagnostics = {
+									-- recognize the `vim` global
+									globals = { 'vim' }
+								},
+								workspace = {
+									-- recognize vim api
+									library = vim.api.nvim_get_runtime_file("", true)
+								}
+							},
+						}
+					}
+				},
+			})
+		end
+	}
+
+	use {
 		'github/copilot.vim', -- codex-based autocompletion neural network frontend
 		config = function()
 			vim.g.copilot_no_tab_map = true
@@ -221,13 +299,13 @@ return require('packer').startup(function(use)
 					}
 				}
 			})
-			vim.cmd[[colorscheme catppuccin]]
+			vim.cmd [[colorscheme catppuccin]]
 		end
 	})
 
 	use {
 		'romgrk/barbar.nvim', -- buffers management (="tab bar")
-		requires = {'kyazdani42/nvim-web-devicons'},
+		requires = { 'kyazdani42/nvim-web-devicons' },
 		config = function()
 			require('bufferline').setup({
 				closable = false,
@@ -237,7 +315,7 @@ return require('packer').startup(function(use)
 
 	use {
 		'nvim-lualine/lualine.nvim', -- fancy status line with mode indicator and cursor position
-		requires = {'kyazdani42/nvim-web-devicons'},
+		requires = { 'kyazdani42/nvim-web-devicons' },
 		config = function()
 			require('lualine').setup({
 				options = {
@@ -247,9 +325,9 @@ return require('packer').startup(function(use)
 					component_separators = { left = '╱', right = '╱' }
 				},
 				sections = {
-					lualine_a = {'mode'},
-					lualine_b = {{'os.date("%H:%M", os.time())', icon = ' ', separator = ''}, function() return ' ' end, 'diff'},
-					lualine_c = {{
+					lualine_a = { 'mode' },
+					lualine_b = { { 'os.date("%H:%M", os.time())', icon = ' ', separator = '' }, function() return ' ' end, 'diff' },
+					lualine_c = { {
 						'branch',
 						fmt = function(s)
 							if string.len(s) > 26 then
@@ -258,10 +336,10 @@ return require('packer').startup(function(use)
 								return s
 							end
 						end
-					}},
-					lualine_x = {'diagnostics'},
-					lualine_y = {'filetype'},
-					lualine_z = {'location'},
+					} },
+					lualine_x = { 'diagnostics' },
+					lualine_y = { 'filetype' },
+					lualine_z = { 'location' },
 				}
 			})
 		end
@@ -269,7 +347,7 @@ return require('packer').startup(function(use)
 
 	use({
 		'kyazdani42/nvim-tree.lua', -- sidebar tree view file explorer, for when Ranger pop-up isn't enough
-		requires = {'kyazdani42/nvim-web-devicons'},
+		requires = { 'kyazdani42/nvim-web-devicons' },
 		config = function()
 			require('nvim-tree').setup()
 		end
@@ -309,7 +387,7 @@ return require('packer').startup(function(use)
 	use {
 		'norcalli/nvim-colorizer.lua', -- highlight color strings with the color they represent
 		config = function()
-			require('colorizer').setup({'*'}, {
+			require('colorizer').setup({ '*' }, {
 				RGB = false;
 				RRGGBB = true;
 				names = true;
@@ -395,11 +473,11 @@ return require('packer').startup(function(use)
 	-- ************
 	-- Commands, utils & tools
 	-- ************
-	use {'nvim-telescope/telescope-fzf-native.nvim', run = 'make' } -- native fzf sorter for Telescope, faster
+	use { 'nvim-telescope/telescope-fzf-native.nvim', run = 'make' } -- native fzf sorter for Telescope, faster
 
 	use {
 		'nvim-telescope/telescope.nvim', -- fuzzy finder
-		requires = { {'nvim-lua/plenary.nvim'} },
+		requires = { { 'nvim-lua/plenary.nvim' } },
 		config = function()
 			require('telescope').setup()
 			require('telescope').load_extension('fzf')
@@ -411,7 +489,7 @@ return require('packer').startup(function(use)
 		config = function()
 			vim.g.floaterm_autoclose = true
 			vim.g.floaterm_opener = 'edit'
-			vim.g.floaterm_rootmarkers = {'.project', '.git', '.hg', '.svn', '.root', '.gitignore'}
+			vim.g.floaterm_rootmarkers = { '.project', '.git', '.hg', '.svn', '.root', '.gitignore' }
 			vim.g.floaterm_width = 0.8
 			vim.g.floaterm_shell = vim.o.shell
 			vim.cmd([[
@@ -501,12 +579,14 @@ return require('packer').startup(function(use)
 	use 'alvan/vim-closetag' -- autoclose html/jsx tags
 
 	use {
-			'ruifm/gitlinker.nvim', -- copy link to code on GitHub
-			requires = 'nvim-lua/plenary.nvim',
-			config = function()
-				require("gitlinker").setup()
-				vim.api.nvim_set_keymap('n', '<leader>gY', '<cmd>lua require"gitlinker".get_repo_url()<cr>', {silent = true})
-				vim.api.nvim_set_keymap('n', '<leader>gB', '<cmd>lua require"gitlinker".get_repo_url({action_callback = require"gitlinker.actions".open_in_browser})<cr>', {silent = true})
-			end
+		'ruifm/gitlinker.nvim', -- copy link to code on GitHub
+		requires = 'nvim-lua/plenary.nvim',
+		config = function()
+			require("gitlinker").setup()
+			vim.api.nvim_set_keymap('n', '<leader>gY', '<cmd>lua require"gitlinker".get_repo_url()<cr>', { silent = true })
+			vim.api.nvim_set_keymap('n', '<leader>gB',
+				'<cmd>lua require"gitlinker".get_repo_url({action_callback = require"gitlinker.actions".open_in_browser})<cr>',
+				{ silent = true })
+		end
 	}
 end)
