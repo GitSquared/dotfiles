@@ -190,6 +190,8 @@ return require('packer').startup(function(use)
 							pylsp = {
 								plugins = {
 									pycodestyle = { enabled = false },
+									autopep8 = { enabled = false },
+									yapf = { enabled = false },
 									black = {
 										enabled = true,
 										cache_config = true,
@@ -203,6 +205,9 @@ return require('packer').startup(function(use)
 										dmypy = true,
 									},
 									isort = {
+										enabled = true,
+									},
+									rope = {
 										enabled = true,
 									},
 								}
