@@ -171,6 +171,9 @@ return require('packer').startup(function(use)
 					}
 				},
 				default_mappings = false, -- cf ../shortcuts.vim
+				on_attach = function()
+					-- disable auto format on save
+				end,
 				servers = {
 					bashls = {},
 					cssls = {},
