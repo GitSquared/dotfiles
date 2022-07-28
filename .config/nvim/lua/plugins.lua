@@ -148,15 +148,11 @@ return require('packer').startup(function(use)
 	use 'hrsh7th/cmp-path' -- paths on local file system
 
 	use {
-		'williamboman/nvim-lsp-installer', -- install and manage LSP servers
-		requires = { 'neovim/nvim-lspconfig' }
-	}
-
-	use {
 		'junnplus/nvim-lsp-setup', -- manage lsp installation and config in one place
 		requires = {
 			'neovim/nvim-lspconfig',
-			'williamboman/nvim-lsp-installer',
+        'williamboman/mason.nvim',
+        'williamboman/mason-lspconfig.nvim',
 		},
 		config = function()
 			require('nvim-lsp-setup').setup({
