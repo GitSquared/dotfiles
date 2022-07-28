@@ -148,11 +148,18 @@ return require('packer').startup(function(use)
 	use 'hrsh7th/cmp-path' -- paths on local file system
 
 	use {
+		'williamboman/mason.nvim', -- manager for external libs like LSP clients, language syntaxes, etc
+		config = function()
+			require('mason').setup()
+		end
+	}
+
+	use {
 		'junnplus/nvim-lsp-setup', -- manage lsp installation and config in one place
 		requires = {
 			'neovim/nvim-lspconfig',
-        'williamboman/mason.nvim',
-        'williamboman/mason-lspconfig.nvim',
+			'williamboman/mason.nvim',
+			'williamboman/mason-lspconfig.nvim',
 		},
 		config = function()
 			require('nvim-lsp-setup').setup({
@@ -442,8 +449,10 @@ return require('packer').startup(function(use)
 	use {
 		'yuttie/comfortable-motion.vim', -- smooth scrolling
 		config = function()
-			vim.api.nvim_set_keymap('n', '<ScrollWheelDown>', [[<cmd>call comfortable_motion#flick(40)<CR>]], { noremap = true, silent = true })
-			vim.api.nvim_set_keymap('n', '<ScrollWheelUp>', [[<cmd>call comfortable_motion#flick(-40)<CR>]], { noremap = true, silent = true })
+			vim.api.nvim_set_keymap('n', '<ScrollWheelDown>', [[<cmd>call comfortable_motion#flick(40)<CR>]],
+				{ noremap = true, silent = true })
+			vim.api.nvim_set_keymap('n', '<ScrollWheelUp>', [[<cmd>call comfortable_motion#flick(-40)<CR>]],
+				{ noremap = true, silent = true })
 		end
 	}
 
