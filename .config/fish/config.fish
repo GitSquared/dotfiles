@@ -12,6 +12,7 @@ nvm use default --silent
 
 # Homebrew updates disabled here as they need to be one with the main user account
 alias full_upgrade='npm update -g;pip list --user | tail -n +3 | awk "{print $1}" | xargs pip install --user -U; fish_update_completions; ncu -g; fisher update; tldr --update;nvim --headless -c "TSUpdateSync" -c "autocmd User PackerComplete quitall" -c "PackerSync"'
+alias pinentry='pinentry-mac'
 alias weather='curl wttr.in'
 
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
