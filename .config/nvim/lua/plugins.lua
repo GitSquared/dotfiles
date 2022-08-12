@@ -186,7 +186,6 @@ return require('packer').startup(function(use)
 					tsserver = {
 						autostart = true,
 					},
-					denols = {},
 					vimls = {},
 					yamlls = {},
 					pylsp = {
