@@ -15,6 +15,8 @@ alias full_upgrade='npm update -g;pip list --user | tail -n +3 | awk "{print $1}
 alias pinentry='pinentry-mac'
 alias weather='curl wttr.in'
 
+alias ranger='ranger-cd' # with fish integration via fisher plugin
+
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
 alias tree='exa -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
 alias cat='bat'
