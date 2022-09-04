@@ -11,7 +11,7 @@ alias pinentry='pinentry-mac'
 alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "TSUpdateSync" -c "autocmd User PackerComplete quitall" -c "PackerSync"'
 alias weather='curl wttr.in'
 
-alias clemence="echo '❤️'"
+alias ranger='ranger-cd' # with fish integration via fisher plugin
 
 alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
 alias tree='exa -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
