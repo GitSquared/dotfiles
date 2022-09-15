@@ -18,6 +18,10 @@ set shortmess+=c
 set signcolumn=yes
 set showmatch
 set number relativenumber
+augroup nolinenoforterm
+	autocmd!
+	autocmd TermOpen * setlocal nonumber norelativenumber
+augroup END
 set list
 set listchars=tab:⇝\ ,trail:·,nbsp:·
 set formatoptions+=o
