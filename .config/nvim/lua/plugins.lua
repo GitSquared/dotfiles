@@ -177,14 +177,14 @@ return require('packer').startup(function(use)
 	}
 
 	use {
-		'junnplus/nvim-lsp-setup', -- manage lsp installation and config in one place
+		'junnplus/lsp-setup.nvim', -- manage lsp installation and config in one place
 		requires = {
 			'neovim/nvim-lspconfig',
 			'williamboman/mason.nvim',
 			'williamboman/mason-lspconfig.nvim',
 		},
 		config = function()
-			require('nvim-lsp-setup').setup({
+			require('lsp-setup').setup({
 				installer = {
 					automatic_installation = false,
 					ui = {
