@@ -339,12 +339,6 @@ return require('packer').startup(function(use)
 					},
 					native_lsp = {
 						enabled = true,
-						underlines = {
-							errors = { 'underline' },
-							warnings = { 'undercurl' },
-							hints = { 'underdash' },
-							information = { 'underdot' },
-						}
 					},
 					nvimtree = {
 						enabled = true,
