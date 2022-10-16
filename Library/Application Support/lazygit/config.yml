@@ -1,3 +1,11 @@
 gui:
   showIcons: true
+  theme:
+    activeBorderColor:
+      - cyan
+      - bold
+    selectedLineBgColor:
+      - reverse
+    selectedRangeBgColor:
+      - reverse
 quitOnTopLevelReturn: true
