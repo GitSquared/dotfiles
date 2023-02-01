@@ -52,3 +52,5 @@ yabai -m rule --add app="^Finder$" manage=off
 yabai -m rule --add app="^Stats$" manage=off
 yabai -m rule --add app="^Lunar$" manage=off
 yabai -m rule --add app="^Arc$" title="^Picture in Picture$" manage=off
+yabai -m rule --add app="^Neat$" manage=off
+yabai -m rule --add app="^Todoist$" manage=off
