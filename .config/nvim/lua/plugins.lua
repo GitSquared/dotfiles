@@ -392,8 +392,8 @@ return require('packer').startup(function(use)
 	}
 
 	use({
-		'kyazdani42/nvim-tree.lua', -- sidebar tree view file explorer, for when Ranger pop-up isn't enough
-		requires = { 'kyazdani42/nvim-web-devicons' },
+		'nvim-tree/nvim-tree.lua', -- sidebar tree view file explorer, for when Ranger pop-up isn't enough
+		requires = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			require('nvim-tree').setup()
 		end
