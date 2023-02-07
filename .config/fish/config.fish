@@ -38,7 +38,6 @@ fish_add_path $ANDROID_SDK_ROOT/emulator
 fish_add_path $ANDROID_SDK_ROOT/platform-tools
 fish_add_path /Applications/Android\ Studio.app/Contents/jre/Contents/Home/bin
 
-kitty + complete setup fish | source
 fish_vi_key_bindings
 
 set --global tide_left_prompt_items pwd git newline character
