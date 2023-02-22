@@ -113,7 +113,8 @@ return require('packer').startup(function(use)
 					["<Tab>"] = cmp.mapping(function(fallback)
 						local has_words_before = function()
 							local line, col = unpack(vim.api.nvim_win_get_cursor(0))
-							return col ~= 0 and vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
+							return col ~= 0 and
+								 vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
 						end
 						if cmp.visible() then
 							cmp.select_next_item()
@@ -128,15 +129,15 @@ return require('packer').startup(function(use)
 					["<S-Tab>"] = cmp.mapping(function(fallback)
 						if cmp.visible() then
 							cmp.select_prev_item()
-						elseif luasnip.jumpable(-1) then
-							luasnip.jump(-1)
+						elseif luasnip.jumpable( -1) then
+							luasnip.jump( -1)
 						else
 							fallback()
 						end
 					end, { "i", "s" }),
 					-- mapping to scroll docs
 					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
-					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
+					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs( -4), { 'i', 'c' })
 				}
 			})
 		end
@@ -442,12 +443,12 @@ return require('packer').startup(function(use)
 		'norcalli/nvim-colorizer.lua', -- highlight color strings with the color they represent
 		config = function()
 			require('colorizer').setup({ '*' }, {
-				RGB = false;
-				RRGGBB = true;
-				names = true;
-				RRGGBBAA = true;
-				rgb_fn = true;
-				hsl_fn = true;
+				RGB = false,
+				RRGGBB = true,
+				names = true,
+				RRGGBBAA = true,
+				rgb_fn = true,
+				hsl_fn = true,
 			})
 		end
 	}
@@ -576,7 +577,12 @@ return require('packer').startup(function(use)
 		end
 	}
 
-	use 'simrat39/symbols-outline.nvim' -- symbols sidebar
+	use {
+		'simrat39/symbols-outline.nvim', -- symbols sidebar
+		config = function()
+			require('symbols-outline').setup()
+		end
+	}
 
 	use {
 		'terryma/vim-multiple-cursors', -- multi-cursor support
