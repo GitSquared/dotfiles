@@ -47,3 +47,4 @@
 	prune = true
 [maintenance]
 	repo = /Users/alan-gs/Documents/git/alan-web
+	repo = /Users/alan-gs/Documents/git/alan-backend
