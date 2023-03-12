@@ -38,4 +38,4 @@ set showcmd
 set ignorecase
 set smartcase
 set gdefault
-set clipboard=unnamedplus
+set clipboard^=unnamed
