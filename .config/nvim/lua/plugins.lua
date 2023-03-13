@@ -240,7 +240,7 @@ return require('packer').startup(function(use)
 							}
 						},
 					},
-					sumneko_lua = {
+					lua_ls = {
 						settings = {
 							Lua = {
 								diagnostics = {
