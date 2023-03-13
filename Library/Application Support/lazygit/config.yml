@@ -1,11 +1,23 @@
 gui:
   showIcons: true
+  # use the mocha catpuccin theme
   theme:
+    lightTheme: false
     activeBorderColor:
-      - cyan
+      - "#a6e3a1" # Green
       - bold
+    inactiveBorderColor:
+      - "#cdd6f4" # Text
+    optionsTextColor:
+      - "#89b4fa" # Blue
     selectedLineBgColor:
-      - reverse
+      - "#313244" # Surface0
     selectedRangeBgColor:
-      - reverse
+      - "#313244" # Surface0
+    cherryPickedCommitBgColor:
+      - "#94e2d5" # Teal
+    cherryPickedCommitFgColor:
+      - "#89b4fa" # Blue
+    unstagedChangesColor:
+      - red # Red
 quitOnTopLevelReturn: true
