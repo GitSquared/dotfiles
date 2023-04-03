@@ -18,7 +18,7 @@ return require('packer').startup(function(use)
 	-- SYSTEM / IDE
 	-- ************
 	use 'wbthomason/packer.nvim' -- plugins manager
-	use 'tpope/vim-sensible' -- sensible default config
+	use 'tpope/vim-sensible'   -- sensible default config
 
 	use {
 		'nvim-treesitter/nvim-treesitter', -- syntax highlighting and general language understanding facilities
@@ -108,7 +108,6 @@ return require('packer').startup(function(use)
 						c = cmp.mapping.close(),
 					}),
 					['<CR>'] = cmp.mapping.confirm({ select = false }),
-
 					-- use tab and shift-tab to browse completion list displayed by luasnip
 					["<Tab>"] = cmp.mapping(function(fallback)
 						local has_words_before = function()
@@ -129,24 +128,24 @@ return require('packer').startup(function(use)
 					["<S-Tab>"] = cmp.mapping(function(fallback)
 						if cmp.visible() then
 							cmp.select_prev_item()
-						elseif luasnip.jumpable( -1) then
-							luasnip.jump( -1)
+						elseif luasnip.jumpable(-1) then
+							luasnip.jump(-1)
 						else
 							fallback()
 						end
 					end, { "i", "s" }),
 					-- mapping to scroll docs
 					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
-					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs( -4), { 'i', 'c' })
+					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
 				}
 			})
 		end
 	}
 	-- autocompletion engine completion sources:
 	use 'saadparwaiz1/cmp_luasnip' -- saved snippets
-	use 'hrsh7th/cmp-nvim-lsp' -- LSP clients
-	use 'hrsh7th/cmp-buffer' -- buffer words
-	use 'hrsh7th/cmp-path' -- paths on local file system
+	use 'hrsh7th/cmp-nvim-lsp'   -- LSP clients
+	use 'hrsh7th/cmp-buffer'     -- buffer words
+	use 'hrsh7th/cmp-path'       -- paths on local file system
 
 	use {
 		'jose-elias-alvarez/null-ls.nvim',
@@ -160,7 +159,7 @@ return require('packer').startup(function(use)
 					require("null-ls").builtins.diagnostics.fish,
 					require("null-ls").builtins.diagnostics.mypy,
 					require("null-ls").builtins.diagnostics.proselint,
-					require("null-ls").builtins.diagnostics.tsc,
+					-- require("null-ls").builtins.diagnostics.tsc,
 					require("null-ls").builtins.formatting.autopep8,
 					require("null-ls").builtins.formatting.black,
 					require("null-ls").builtins.formatting.eslint_d,
@@ -350,7 +349,10 @@ return require('packer').startup(function(use)
 		requires = { 'kyazdani42/nvim-web-devicons' },
 		config = function()
 			require('bufferline').setup({
-				closable = false,
+				icons = {
+					inactive = { button = '' },
+					current = { button = '' },
+				}
 			})
 		end
 	}
@@ -368,7 +370,8 @@ return require('packer').startup(function(use)
 				},
 				sections = {
 					lualine_a = { 'mode' },
-					lualine_b = { { 'os.date("%H:%M", os.time())', icon = ' ', separator = '' }, function() return ' ' end, 'diff' },
+					lualine_b = { { 'os.date("%H:%M", os.time())', icon = ' ', separator = '' }, function() return ' ' end,
+						'diff' },
 					lualine_c = { {
 						'branch',
 						fmt = function(s)
@@ -494,8 +497,8 @@ return require('packer').startup(function(use)
 					-- disable some global vim options (vim.o...)
 					options = {
 						enabled = true,
-						ruler = false, -- disables the ruler text in the cmd line area
-						showcmd = false, -- disables the command in the last line of the screen
+						ruler = false,    -- disables the ruler text in the cmd line area
+						showcmd = false,  -- disables the command in the last line of the screen
 					},
 					twilight = { enabled = true }, -- enable to start Twilight when zen mode opens
 					gitsigns = { enabled = true }, -- disables git signs
