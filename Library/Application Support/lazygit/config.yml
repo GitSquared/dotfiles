@@ -13,7 +13,8 @@ gui:
     selectedLineBgColor:
       - "#313244" # Surface0
     selectedRangeBgColor:
-      - "#313244" # Surface0
+      - black
+      - bold
     cherryPickedCommitBgColor:
       - "#94e2d5" # Teal
     cherryPickedCommitFgColor:
