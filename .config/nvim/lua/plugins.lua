@@ -370,7 +370,7 @@ return require('packer').startup(function(use)
 				},
 				sections = {
 					lualine_a = { 'mode' },
-					lualine_b = { { 'os.date("%H:%M", os.time())', icon = ' ', separator = '' }, function() return ' ' end,
+					lualine_b = { { 'os.date("%H:%M", os.time())', icon = '', separator = '󰅐' }, function() return ' ' end,
 						'diff' },
 					lualine_c = { {
 						'branch',
