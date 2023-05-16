@@ -1,7 +1,7 @@
 let mapleader = ' '
 
 " New, write, quit/close
-nmap <Leader>b :enew<CR>
+nmap <Leader>B :enew<CR>
 nmap <Leader>w :w<CR>
 nmap <Leader>q :BufferClose<CR>
 nmap <Leader>Q :qa<CR>
@@ -10,10 +10,10 @@ nmap <Leader>, :close<CR>
 map <Leader>z :ZenMode<CR>
 map <Leader>f <Plug>(easymotion-bd-w)
 map <Leader>F :BufferPick<CR>
-map <Leader>B :Telescope buffers<CR>
+map <Leader>b :Telescope buffers<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
-nmap <Leader><Enter> :ToggleWorkspace<CR>
+nmap <Leader><Enter> :SSave<CR>
 " Switch buffers
 nmap <Leader>v :BufferPrevious<CR>
 nmap <Leader>n :BufferNext<CR>
@@ -43,7 +43,7 @@ nmap <S-Right> :vertical resize +3<CR>
 nmap <Leader>/ :Telescope current_buffer_fuzzy_find<CR>
 nmap <Leader>p :Telescope find_files<CR>
 nmap <Leader>C :TSContextToggle<CR>
-nmap <Leader>m :SymbolsOutline<CR>
+nmap <Leader>m :Navbuddy<CR>
 nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>

@@ -310,14 +310,23 @@ return require('packer').startup(function(use)
 			vim.opt.termguicolors = true
 			vim.g.catppuccin_flavour = "mocha"
 			require('catppuccin').setup({
+				background = {
+					light = "latte",
+					dark = "mocha"
+				},
 				transparent_background = false,
-				term_colors = false,
+				term_colors = true,
 				styles = {
 					comments = { 'italic' },
 					functions = { 'bold' },
 					keywords = { 'italic' },
 					strings = {},
 					variables = {},
+				},
+				dim_inactive = {
+					enabled = true,
+					shade = "dark",
+					percentage = 0.15,
 				},
 				integrations = {
 					cmp = true,
@@ -328,21 +337,71 @@ return require('packer').startup(function(use)
 					symbols_outline = true,
 					telescope = true,
 					treesitter = true,
+					fidget = true,
 					indent_blankline = {
 						enabled = true,
-						colored_indent_levels = false,
+						colored_indent_levels = true,
 					},
 					native_lsp = {
 						enabled = true,
+						virtual_text = {
+							errors = { "italic" },
+							hints = { "italic" },
+							warnings = { "italic" },
+							information = { "italic" },
+						},
+						underlines = {
+							errors = { "underline" },
+							hints = { "undercurl" },
+							warnings = { "undercurl" },
+							information = { "underline" },
+						},
+					},
+					barbecue = {
+						dim_dirname = true,
+						bold_basename = true,
+						dim_context = true,
 					},
 					nvimtree = {
 						enabled = true,
-					}
+					},
 				}
 			})
 			vim.cmd [[colorscheme catppuccin]]
 		end
 	})
+
+	use {
+		'mhinz/vim-startify', -- start screen
+		config = function()
+			vim.g.startify_lists = {
+				{ header = { '   Sessions' },  type = 'sessions' },
+				{
+					header = {
+						'   MRU [' .. vim.fn.fnamemodify(vim.fn.getcwd(), ':~') .. ']',
+					},
+					type = 'dir',
+				},
+				{ header = { '   Files' },     type = 'files' },
+				{ header = { '   Commands' },  type = 'commands' },
+				{ header = { '   Bookmarks' }, type = 'bookmarks' },
+			}
+			vim.g.startify_skiplist = {
+				'COMMIT_EDITMSG',
+				'^/tmp',
+				vim.fn.escape(
+					vim.fn.fnamemodify(vim.fn.resolve(vim.env.VIMRUNTIME), ':p'),
+					'\\'
+				) .. 'doc',
+				'plugged/.*/doc',
+				'pack/.*/doc',
+			}
+			vim.g.startify_relative_path = 1
+			vim.g.startify_session_delete_buffers = 1
+			vim.g.startify_session_persistence = 1
+			vim.g.startify_session_sort = 1
+		end
+	}
 
 	use {
 		'romgrk/barbar.nvim', -- buffers management (="tab bar")
@@ -352,6 +411,7 @@ return require('packer').startup(function(use)
 				icons = {
 					inactive = { button = '' },
 					current = { button = '' },
+					visible = { button = '' },
 				}
 			})
 		end
@@ -413,9 +473,19 @@ return require('packer').startup(function(use)
 			require('indent_blankline').setup({
 				use_treesitter = true,
 				show_current_context = true,
-				show_current_context_start = false,
+				show_current_context_start = true,
 				show_trailing_blankline_indent = false,
 				space_char_blankline = ' ',
+				-- space_char_highlight_list = {
+				--    "IndentBlanklineIndent1",
+				--    "IndentBlanklineIndent2",
+				--    "IndentBlanklineIndent3",
+				--    "IndentBlanklineIndent4",
+				--    "IndentBlanklineIndent5",
+				--    "IndentBlanklineIndent6",
+				-- },
+				indent_blankline_filetype_exclude = { 'lspinfo', 'packer', 'checkhealth', 'help', 'man',
+					'NvimTree' }
 			})
 		end
 	})
@@ -556,16 +626,6 @@ return require('packer').startup(function(use)
 	}
 
 	use {
-		'thaerkh/vim-workspace', -- leverage vim sessions to save opened buffers and undo history
-		config = function()
-			vim.g.workspace_create_new_tabs = false
-			vim.g.workspace_session_directory = vim.env.HOME .. '/.nvim/sessions/'
-			vim.g.workspace_undodir = vim.env.HOME .. '/.nvim/undohistory/'
-			vim.g.workspace_autosave = false
-		end
-	}
-
-	use {
 		'folke/trouble.nvim', -- list lsp diagnostics
 		requires = 'kyazdani42/nvim-web-devicons',
 		config = function()
@@ -576,9 +636,35 @@ return require('packer').startup(function(use)
 	}
 
 	use {
-		'simrat39/symbols-outline.nvim', -- symbols sidebar
+		'utilyre/barbecue.nvim', -- show lsp symbols breadcrumbs in winbar
+		tag = "*",
+		requires = {
+			'SmiteshP/nvim-navic',
+			'nvim-tree/nvim-web-devicons', -- optional dependency
+		},
+		after = 'nvim-web-devicons', -- keep this if you're using NvChad
 		config = function()
-			require('symbols-outline').setup()
+			require('barbecue').setup({
+				theme = 'catppuccin'
+			})
+		end,
+	}
+
+	use {
+		'SmiteshP/nvim-navbuddy', -- navigate LSP symbols in a ranger-like view
+		requires = {
+			'neovim/nvim-lspconfig',
+			'SmiteshP/nvim-navic',
+			'MunifTanjim/nui.nvim',
+			'numToStr/Comment.nvim',  -- Optional
+			'nvim-telescope/telescope.nvim' -- Optional
+		},
+		config = function()
+			require('nvim-navbuddy').setup({
+				lsp = {
+					auto_attach = true
+				}
+			})
 		end
 	}
 
