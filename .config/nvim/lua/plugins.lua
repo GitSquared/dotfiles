@@ -402,6 +402,8 @@ return require('packer').startup(function(use)
 			vim.g.startify_session_delete_buffers = 1
 			vim.g.startify_session_persistence = 1
 			vim.g.startify_session_sort = 1
+			vim.g.startify_change_to_dir = 0
+			vim.g.startify_change_to_vcs_root = 1
 		end
 	}
 
