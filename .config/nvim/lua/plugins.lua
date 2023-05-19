@@ -368,6 +368,8 @@ return require('packer').startup(function(use)
 				}
 			})
 			vim.cmd [[colorscheme catppuccin]]
+			-- barbar fix
+			vim.cmd [[highlight BufferTabpageFill guibg=#181824]]
 		end
 	})
 
