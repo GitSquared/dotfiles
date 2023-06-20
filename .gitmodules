@@ -1,0 +1,3 @@
+[submodule "/Users/gaby/.config/ranger/plugins/zoxide"]
+	path = /Users/gaby/.config/ranger/plugins/zoxide
+	url = git@github.com:jchook/ranger-zoxide.git
