@@ -15,8 +15,8 @@ cmd + ctrl + shift - j : yabai -m window --stack south
 cmd + ctrl + shift - k : yabai -m window --stack north
 cmd + ctrl + shift - l : yabai -m window --stack east
 
-cmd - a : yabai -m window --focus stack.prev
-cmd - d : yabai -m window --focus stack.next
+cmd + shift - a : yabai -m window --focus stack.prev
+cmd + shift - d : yabai -m window --focus stack.next
 
 fn - f : yabai -m window --toggle float
 fn - p : yabai -m window --toggle float; yabai -m window --toggle pip; yabai -m window --toggle sticky; yabai -m window --toggle topmost
