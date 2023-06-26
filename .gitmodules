@@ -1,0 +1,6 @@
+[submodule ".config/ranger/plugins/zoxide"]
+	path = .config/ranger/plugins/zoxide
+	url = git@github.com:jchook/ranger-zoxide.git
+[submodule ".hammerspoon/stackline"]
+	path = .hammerspoon/stackline
+	url = git@github.com:AdamWagner/stackline.git
