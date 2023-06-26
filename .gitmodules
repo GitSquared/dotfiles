@@ -1,3 +1,6 @@
 [submodule "/Users/alan-gs/.config/ranger/plugins/zoxide"]
 	path = /Users/alan-gs/.config/ranger/plugins/zoxide
 	url = git@github.com:jchook/ranger-zoxide.git
+[submodule "/Users/alan-gs/.hammerspoon/stackline"]
+	path = /Users/alan-gs/.hammerspoon/stackline
+	url = git@github.com:AdamWagner/stackline.git
