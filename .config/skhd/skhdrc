@@ -1,18 +1,22 @@
 # Yabai
-fn - h : yabai -m window --focus west
-fn - j : yabai -m window --focus south
-fn - k : yabai -m window --focus north
-fn - l : yabai -m window --focus east
+cmd - h : yabai -m window --focus west
+cmd - j : yabai -m window --focus south
+cmd - k : yabai -m window --focus north
+cmd - l : yabai -m window --focus east
 
-fn + cmd - h : yabai -m window --swap west
-fn + cmd - j : yabai -m window --swap south
-fn + cmd - k : yabai -m window --swap north
-fn + cmd - l : yabai -m window --swap east
+cmd + ctrl - h : yabai -m window --warp west
+cmd + ctrl - j : yabai -m window --warp south
+cmd + ctrl - k : yabai -m window --warp north
+cmd + ctrl - l : yabai -m window --warp east
 
-fn + cmd + shift - h : yabai -m window --warp west
-fn + cmd + shift - j : yabai -m window --warp south
-fn + cmd + shift - k : yabai -m window --warp north
-fn + cmd + shift - l : yabai -m window --warp east
+cmd + ctrl - s : yabai -m window --stack recent
+cmd + ctrl + shift - h : yabai -m window --stack west
+cmd + ctrl + shift - j : yabai -m window --stack south
+cmd + ctrl + shift - k : yabai -m window --stack north
+cmd + ctrl + shift - l : yabai -m window --stack east
+
+cmd - a : yabai -m window --focus stack.prev
+cmd - d : yabai -m window --focus stack.next
 
 fn - f : yabai -m window --toggle float
 fn - p : yabai -m window --toggle float; yabai -m window --toggle pip; yabai -m window --toggle sticky; yabai -m window --toggle topmost
