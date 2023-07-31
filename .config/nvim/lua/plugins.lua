@@ -159,7 +159,7 @@ return require('packer').startup(function(use)
 					require("null-ls").builtins.diagnostics.fish,
 					require("null-ls").builtins.diagnostics.mypy,
 					require("null-ls").builtins.diagnostics.proselint,
-					-- require("null-ls").builtins.diagnostics.tsc,
+					require("null-ls").builtins.diagnostics.tsc,
 					require("null-ls").builtins.formatting.autopep8,
 					require("null-ls").builtins.formatting.black,
 					require("null-ls").builtins.formatting.eslint_d,
@@ -186,7 +186,7 @@ return require('packer').startup(function(use)
 		config = function()
 			require('lsp-setup').setup({
 				installer = {
-					automatic_installation = false,
+					automatic_installation = true,
 					ui = {
 						icons = {
 							server_installed = '✓',
@@ -211,6 +211,7 @@ return require('packer').startup(function(use)
 					vimls = {},
 					yamlls = {},
 					pylsp = {
+						autostart = true,
 						settings = {
 							pylsp = {
 								plugins = {
@@ -219,15 +220,16 @@ return require('packer').startup(function(use)
 										enabled = true,
 										cache_config = true,
 									},
-									flake8 = {
+									pyls_flake8 = {
 										enabled = true,
 									},
-									mypy = {
+									pylsp_mypy = {
 										enabled = true,
 										live_mode = true,
 										dmypy = true,
+										report_progress = true,
 									},
-									isort = {
+									pyls_isort = {
 										enabled = true,
 									},
 								}
