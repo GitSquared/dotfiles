@@ -228,6 +228,7 @@ return require('packer').startup(function(use)
 									pylsp_mypy = {
 										enabled = true,
 										live_mode = true,
+										dmypy = true,
 										report_progress = true,
 										overrides = { "--python-executable", py_path, true },
 									},
