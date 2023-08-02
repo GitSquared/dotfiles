@@ -33,7 +33,6 @@ return require('packer').startup(function(use)
 					"typescript",
 					"tsx",
 					"javascript",
-					"ruby",
 					"scss",
 					"yaml",
 					"python",
@@ -41,10 +40,8 @@ return require('packer').startup(function(use)
 					"latex",
 					"html",
 					"json",
-					"jsdoc",
 					"http",
 					"graphql",
-					"go",
 					"fish",
 					"dockerfile",
 					"bash",
@@ -75,18 +72,22 @@ return require('packer').startup(function(use)
 
 	use {
 		'j-hui/fidget.nvim', -- print status updates of LSP servers
+		tag = 'legacy',
 		config = function()
 			require('fidget').setup()
 		end
 	}
 
-	use 'L3MON4D3/LuaSnip' -- snippet plugin (leveraged by autocompletion engine)
+	use 'L3MON4D3/LuaSnip'   -- snippet plugin (leveraged by autocompletion engine)
+
+	use 'onsails/lspkind-nvim' -- icons in autocompletion window
 
 	use {
 		'hrsh7th/nvim-cmp', -- autocompletion engine
 		config = function()
 			local cmp = require('cmp')
 			local luasnip = require('luasnip')
+			local lspkind = require('lspkind')
 
 			cmp.setup({
 				snippet = {
@@ -137,7 +138,14 @@ return require('packer').startup(function(use)
 					-- mapping to scroll docs
 					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
 					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
-				}
+				},
+				formatting = {
+					format = lspkind.cmp_format({
+						mode = 'symbol',
+						maxwidth = 50,
+						ellipsis_char = '…',
+					})
+				},
 			})
 		end
 	}
@@ -184,21 +192,16 @@ return require('packer').startup(function(use)
 			'williamboman/mason-lspconfig.nvim',
 		},
 		config = function()
+			local venv_path = os.getenv('VIRTUAL_ENV')
+			local py_path = nil
+			-- decide which python executable to use for mypy
+			if venv_path ~= nil then
+				py_path = venv_path .. "/bin/python3"
+			else
+				py_path = vim.g.python3_host_prog
+			end
 			require('lsp-setup').setup({
-				installer = {
-					automatic_installation = true,
-					ui = {
-						icons = {
-							server_installed = '✓',
-							server_pending = '➜',
-							server_uninstalled = '✗'
-						}
-					}
-				},
 				default_mappings = false, -- cf ../shortcuts.vim
-				on_attach = function()
-					-- disable auto format on save
-				end,
 				servers = {
 					bashls = {},
 					cssls = {},
@@ -222,21 +225,20 @@ return require('packer').startup(function(use)
 										enabled = true,
 										cache_config = true,
 									},
-									pyls_flake8 = {
-										enabled = true,
-									},
 									pylsp_mypy = {
 										enabled = true,
 										live_mode = true,
-										dmypy = true,
 										report_progress = true,
+										overrides = { "--python-executable", py_path, true },
 									},
-									pyls_isort = {
+									isort = {
 										enabled = true,
 									},
-									rope = {
-										enabled = true,
-									},
+									jedi_completion = { fuzzy = true },
+									-- to install plugins:
+									-- :PylspInstall pylsp-mypy
+									-- :PylspInstall pyls-isort
+									-- :PylspInstall python-lsp-black
 								}
 							}
 						},
@@ -256,9 +258,42 @@ return require('packer').startup(function(use)
 						}
 					}
 				},
+				flags = {
+					debounce_text_changes = 200,
+				},
+				on_attach = function(client, bufnr)
+					-- Highlight the current variable and its usages in the buffer.
+					if client.server_capabilities.documentHighlightProvider then
+						vim.cmd([[
+							hi! link LspReferenceRead Visual
+							hi! link LspReferenceText Visual
+							hi! link LspReferenceWrite Visual
+						]])
+
+						local gid = vim.api.nvim_create_augroup("lsp_document_highlight", { clear = true })
+						vim.api.nvim_create_autocmd("CursorHold", {
+							group = gid,
+							buffer = bufnr,
+							callback = function()
+								vim.lsp.buf.document_highlight()
+							end
+						})
+
+						vim.api.nvim_create_autocmd("CursorMoved", {
+							group = gid,
+							buffer = bufnr,
+							callback = function()
+								vim.lsp.buf.clear_references()
+							end
+						})
+					end
+				end,
+				capabilities = require('cmp_nvim_lsp').default_capabilities()
 			})
 		end
 	}
+
+	use 'stevearc/dressing.nvim' -- better vim ui input for e.g lsp rename
 
 	use {
 		'gelguy/wilder.nvim', -- command menu autocompletion
