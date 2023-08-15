@@ -161,16 +161,16 @@ return require('packer').startup(function(use)
 		config = function()
 			require("null-ls").setup({
 				sources = {
-					require("null-ls").builtins.code_actions.eslint_d,
+					require("null-ls").builtins.code_actions.eslint,
 					require("null-ls").builtins.code_actions.gitsigns,
-					require("null-ls").builtins.diagnostics.eslint_d,
+					require("null-ls").builtins.diagnostics.eslint,
 					require("null-ls").builtins.diagnostics.fish,
 					require("null-ls").builtins.diagnostics.mypy,
 					require("null-ls").builtins.diagnostics.proselint,
 					require("null-ls").builtins.diagnostics.tsc,
 					require("null-ls").builtins.formatting.autopep8,
 					require("null-ls").builtins.formatting.black,
-					require("null-ls").builtins.formatting.eslint_d,
+					require("null-ls").builtins.formatting.eslint,
 					require("null-ls").builtins.formatting.isort,
 				},
 			})
