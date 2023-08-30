@@ -345,72 +345,18 @@ return require('packer').startup(function(use)
 	-- UI
 	-- ************
 	use({
-		'catppuccin/nvim', -- theme/colorscheme
-		as = 'catppuccin',
+		'Luxed/ayu-vim', -- theme/colorscheme
+		as = 'ayu',
 		config = function()
 			vim.opt.termguicolors = true
-			vim.g.catppuccin_flavour = "mocha"
-			require('catppuccin').setup({
-				background = {
-					light = "latte",
-					dark = "mocha"
-				},
-				transparent_background = false,
-				term_colors = true,
-				styles = {
-					comments = { 'italic' },
-					functions = { 'bold' },
-					keywords = { 'italic' },
-					strings = {},
-					variables = {},
-				},
-				dim_inactive = {
-					enabled = true,
-					shade = "dark",
-					percentage = 0.15,
-				},
-				integrations = {
-					cmp = true,
-					barbar = true,
-					gitsigns = true,
-					lsp_trouble = true,
-					markdown = true,
-					symbols_outline = true,
-					telescope = true,
-					treesitter = true,
-					fidget = true,
-					indent_blankline = {
-						enabled = true,
-						colored_indent_levels = true,
-					},
-					native_lsp = {
-						enabled = true,
-						virtual_text = {
-							errors = { "italic" },
-							hints = { "italic" },
-							warnings = { "italic" },
-							information = { "italic" },
-						},
-						underlines = {
-							errors = { "underline" },
-							hints = { "undercurl" },
-							warnings = { "undercurl" },
-							information = { "underline" },
-						},
-					},
-					barbecue = {
-						dim_dirname = true,
-						bold_basename = true,
-						dim_context = true,
-					},
-					nvimtree = {
-						enabled = true,
-					},
-				}
-			})
-			vim.cmd [[colorscheme catppuccin]]
-			-- barbar fix
-			vim.cmd [[highlight BufferTabpageFill guibg=#181824]]
+			vim.g.ayucolor = 'dark'
+			vim.g.ayu_italic_comment = 1
+			vim.g.ayu_sign_contrast = 1
+			vim.g.ayu_extended_palette = 1
+			vim.cmd [[colorscheme ayu]]
+			-- brighter background color on buffers
+			vim.cmd [[highlight Normal guibg=#10141c]]
+			vim.cmd [[highlight BufferCurrent guibg=#10141c]]
 		end
 	})
 
@@ -469,7 +415,6 @@ return require('packer').startup(function(use)
 			require('lualine').setup({
 				options = {
 					icons_enabled = true,
-					theme = 'catppuccin',
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '╱', right = '╱' }
 				},
