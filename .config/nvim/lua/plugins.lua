@@ -398,10 +398,18 @@ return require('packer').startup(function(use)
 			vim.g.ayu_italic_comment = 1
 			vim.g.ayu_sign_contrast = 1
 			vim.g.ayu_extended_palette = 1
-			vim.cmd [[colorscheme ayu]]
-			-- brighter background color on buffers
-			vim.cmd [[highlight Normal guibg=#10141c]]
-			vim.cmd [[highlight BufferCurrent guibg=#10141c]]
+			vim.cmd([[colorscheme ayu]])
+			-- brighter background color on active buffer
+			vim.cmd([[highlight Normal guibg=#10141c]])
+			vim.cmd([[highlight WindowInactive guibg=#0e1016]])
+			vim.cmd([[highlight BufferCurrent guibg=#10141c]])
+			vim.api.nvim_exec([[
+				augroup WindowHighlight
+				  autocmd!
+				  autocmd WinEnter * set winhighlight=Normal:WindowActive
+				  autocmd WinLeave * set winhighlight=Normal:WindowInactive
+				augroup END
+			]], false)
 		end
 	})
 
