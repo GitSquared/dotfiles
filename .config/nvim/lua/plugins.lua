@@ -165,56 +165,57 @@ return require('packer').startup(function(use)
 					require("null-ls").builtins.code_actions.gitsigns,
 					require("null-ls").builtins.diagnostics.eslint,
 					require("null-ls").builtins.diagnostics.fish,
-					require("null-ls").builtins.diagnostics.mypy,  -- disabled because too slow
-					-- require("null-ls").builtins.diagnostics.mypy.with({ -- use dmypy instead
-					--    command = 'poetry',
-					--    args = function(params)
-					--       local t1 = {
-					--          'run',
-					--          '--',
-					--          'dmypy',
-					--          'run',
-					--          '--timeout',
-					--          '500000',
-					--          '--',
-					--          '--hide-error-context',
-					--          '--no-color-output',
-					--          '--show-absolute-path',
-					--          '--show-column-numbers',
-					--          '--show-error-codes',
-					--          '--no-error-summary',
-					--          '--no-pretty',
-					--          '--cache-fine-grained',
-					--          '--sqlite-cache',
-					--          '--shadow-file',
-					--          params.bufname,
-					--          params.temp_path,
-					--          params.bufname,
-					--       }
-					--       -- local t2 = vim.lsp.buf.list_workspace_folders()
-					--       -- for _, v in ipairs(t2) do
-					--       --    table.insert(t1, v)
-					--       -- end
-					--       return t1
-					--    end,
-					--    timeout = 500000,
-					--    -- Do not run when inside of a .venv area
-					--    runtime_condition = function(params)
-					--       return true
-					--       -- if string.find(params.bufname, '.venv') then
-					--       --    return false
-					--       -- else
-					--       --    return true
-					--       -- end
-					--    end,
-					-- }),
+					-- require("null-ls").builtins.diagnostics.mypy,  -- disabled because too slow
+					require("null-ls").builtins.diagnostics.mypy.with({ -- use dmypy instead
+						command = 'poetry',
+						args = function(params)
+							local t1 = {
+								'run',
+								'--',
+								'dmypy',
+								'run',
+								'--timeout',
+								'500000',
+								'--',
+								'--hide-error-context',
+								'--no-color-output',
+								'--show-absolute-path',
+								'--show-column-numbers',
+								'--show-error-codes',
+								'--no-error-summary',
+								'--no-pretty',
+								'--cache-fine-grained',
+								'--sqlite-cache',
+								'--shadow-file',
+								params.bufname,
+								params.temp_path,
+								params.bufname,
+							}
+							-- local t2 = vim.lsp.buf.list_workspace_folders()
+							-- for _, v in ipairs(t2) do
+							--    table.insert(t1, v)
+							-- end
+							return t1
+						end,
+						timeout = 500000,
+						-- Do not run when inside of a .venv area
+						runtime_condition = function(params)
+							return true
+							-- if string.find(params.bufname, '.venv') then
+							--    return false
+							-- else
+							--    return true
+							-- end
+						end,
+					}),
 					require("null-ls").builtins.diagnostics.flake8,
 					require("null-ls").builtins.diagnostics.proselint,
+					require("null-ls").builtins.diagnostics.ruff,
+					require("null-ls").builtins.diagnostics.black,
 					require("null-ls").builtins.diagnostics.tsc,
-					require("null-ls").builtins.formatting.autopep8,
 					require("null-ls").builtins.formatting.black,
+					require("null-ls").builtins.formatting.ruff,
 					require("null-ls").builtins.formatting.eslint,
-					require("null-ls").builtins.formatting.isort,
 				},
 			})
 		end
@@ -264,9 +265,12 @@ return require('packer').startup(function(use)
 									pycodestyle = { enabled = false },
 									autopep8 = { enabled = false },
 									yapf = { enabled = false },
+									isort = { enabled = false },
 									black = {
+										enabled = true
+									},
+									ruff = {
 										enabled = true,
-										cache_config = true,
 									},
 									pylsp_mypy = {
 										enabled = false, -- ran through null-ls instead
@@ -274,9 +278,6 @@ return require('packer').startup(function(use)
 										dmypy = true,
 										report_progress = false,
 										overrides = { "--python-executable", py_path, true },
-									},
-									isort = {
-										enabled = true,
 									},
 									jedi_completion = { fuzzy = true },
 									-- to install plugins:
