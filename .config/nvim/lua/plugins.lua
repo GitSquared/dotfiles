@@ -513,21 +513,14 @@ return require('packer').startup(function(use)
 
 	use({
 		'lukas-reineke/indent-blankline.nvim', -- indentation guides
+		main = "ibl",
 		config = function()
-			require('indent_blankline').setup({
+			require('ibl').setup({
 				use_treesitter = true,
 				show_current_context = true,
 				show_current_context_start = true,
 				show_trailing_blankline_indent = false,
 				space_char_blankline = ' ',
-				-- space_char_highlight_list = {
-				--    "IndentBlanklineIndent1",
-				--    "IndentBlanklineIndent2",
-				--    "IndentBlanklineIndent3",
-				--    "IndentBlanklineIndent4",
-				--    "IndentBlanklineIndent5",
-				--    "IndentBlanklineIndent6",
-				-- },
 				indent_blankline_filetype_exclude = { 'lspinfo', 'packer', 'checkhealth', 'help', 'man',
 					'NvimTree' }
 			})
