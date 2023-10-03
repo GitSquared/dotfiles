@@ -1,6 +1,7 @@
 if not status is-interactive
 	exit
 end
+direnv hook fish | source
 source (rbenv init -|psub)
 pyenv init - | source
 zoxide init fish | source
