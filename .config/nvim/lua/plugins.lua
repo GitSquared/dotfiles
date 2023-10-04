@@ -1,26 +1,24 @@
--- Install packer
-local install_path = vim.fn.stdpath 'data' .. '/site/pack/packer/start/packer.nvim'
-
-if vim.fn.empty(vim.fn.glob(install_path)) > 0 then
-	vim.fn.execute('!git clone https://github.com/wbthomason/packer.nvim ' .. install_path)
+local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+if not vim.loop.fs_stat(lazypath) then
+	vim.fn.system({
+		"git",
+		"clone",
+		"--filter=blob:none",
+		"https://github.com/folke/lazy.nvim.git",
+		"--branch=stable", -- latest stable release
+		lazypath,
+	})
 end
+vim.opt.rtp:prepend(lazypath)
 
--- Auto recompile config when file is changed
-vim.cmd([[
-	augroup packer_user_config
-		autocmd!
-		autocmd BufWritePost plugins.lua source <afile> | PackerCompile
-	augroup end
-]])
-
-return require('packer').startup(function(use)
+return require('lazy').setup({
 	-- ************
 	-- SYSTEM / IDE
 	-- ************
-	use 'wbthomason/packer.nvim' -- plugins manager
-	use 'tpope/vim-sensible'   -- sensible default config
+	'wbthomason/packer.nvim', -- plugins manager
+	'tpope/vim-sensible',   -- sensible default config
 
-	use {
+	{
 		'nvim-treesitter/nvim-treesitter', -- syntax highlighting and general language understanding facilities
 		run = ':TSUpdate',
 		config = function()
@@ -56,33 +54,33 @@ return require('packer').startup(function(use)
 				}
 			})
 		end
-	}
+	},
 
-	use({
+	{
 		'yioneko/nvim-yati', -- cf. above issue, better treesitter-based indentation config while the native one gets patched up.
-		requires = 'nvim-treesitter/nvim-treesitter',
+		dependencies = { 'nvim-treesitter/nvim-treesitter' },
 		config = function()
 			require('nvim-treesitter.configs').setup({
 				yati = { enable = true },
 			})
 		end
-	})
+	},
 
-	use 'neovim/nvim-lspconfig' -- helper configs for neovim built-in LSP client
+	'neovim/nvim-lspconfig', -- helper configs for neovim built-in LSP client
 
-	use {
+	{
 		'j-hui/fidget.nvim', -- print status updates of LSP servers
 		tag = 'legacy',
 		config = function()
 			require('fidget').setup()
 		end
-	}
+	},
 
-	use 'L3MON4D3/LuaSnip'   -- snippet plugin (leveraged by autocompletion engine)
+	'L3MON4D3/LuaSnip',   -- snippet plugin (leveraged by autocompletion engine)
 
-	use 'onsails/lspkind-nvim' -- icons in autocompletion window
+	'onsails/lspkind-nvim', -- icons in autocompletion window
 
-	use {
+	{
 		'hrsh7th/nvim-cmp', -- autocompletion engine
 		config = function()
 			local cmp = require('cmp')
@@ -148,16 +146,16 @@ return require('packer').startup(function(use)
 				},
 			})
 		end
-	}
+	},
 	-- autocompletion engine completion sources:
-	use 'saadparwaiz1/cmp_luasnip' -- saved snippets
-	use 'hrsh7th/cmp-nvim-lsp'   -- LSP clients
-	use 'hrsh7th/cmp-buffer'     -- buffer words
-	use 'hrsh7th/cmp-path'       -- paths on local file system
+	'saadparwaiz1/cmp_luasnip', -- saved snippets
+	'hrsh7th/cmp-nvim-lsp',   -- LSP clients
+	'hrsh7th/cmp-buffer',     -- buffer words
+	'hrsh7th/cmp-path',       -- paths on local file system
 
-	use {
+	{
 		'jose-elias-alvarez/null-ls.nvim',
-		requires = 'nvim-lua/plenary.nvim',
+		dependencies = { 'nvim-lua/plenary.nvim' },
 		config = function()
 			require("null-ls").setup({
 				sources = {
@@ -219,18 +217,18 @@ return require('packer').startup(function(use)
 				},
 			})
 		end
-	}
+	},
 
-	use {
+	{
 		'williamboman/mason.nvim', -- manager for external libs like LSP clients, language syntaxes, etc
 		config = function()
 			require('mason').setup()
 		end
-	}
+	},
 
-	use {
+	{
 		'junnplus/lsp-setup.nvim', -- manage lsp installation and config in one place
-		requires = {
+		dependencies = {
 			'neovim/nvim-lspconfig',
 			'williamboman/mason.nvim',
 			'williamboman/mason-lspconfig.nvim',
@@ -336,13 +334,13 @@ return require('packer').startup(function(use)
 				capabilities = require('cmp_nvim_lsp').default_capabilities()
 			})
 		end
-	}
+	},
 
-	use 'stevearc/dressing.nvim' -- better vim ui input for e.g lsp rename
+	'stevearc/dressing.nvim', -- better vim ui input for e.g lsp rename
 
-	use {
+	{
 		'gelguy/wilder.nvim', -- command menu autocompletion
-		requires = { 'romgrk/fzy-lua-native', 'kyazdani42/nvim-web-devicons' },
+		dependencies = { 'romgrk/fzy-lua-native', 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			local wilder = require('wilder')
 			wilder.setup({ modes = { ':', '/', '?' } })
@@ -378,21 +376,21 @@ return require('packer').startup(function(use)
 				})
 			))
 		end,
-	}
+	},
 
-	use {
+	{
 		'github/copilot.vim', -- codex-based autocompletion neural network frontend
 		config = function()
 			vim.g.copilot_no_tab_map = true
 		end
-	}
+	},
 
 	-- ************
 	-- UI
 	-- ************
-	use({
+	{
 		'Luxed/ayu-vim', -- theme/colorscheme
-		as = 'ayu',
+		name = 'ayu',
 		config = function()
 			vim.opt.termguicolors = true
 			vim.g.ayucolor = 'dark'
@@ -412,9 +410,9 @@ return require('packer').startup(function(use)
 				augroup END
 			]], false)
 		end
-	})
+	},
 
-	use {
+	{
 		'mhinz/vim-startify', -- start screen
 		config = function()
 			vim.g.startify_lists = {
@@ -446,11 +444,11 @@ return require('packer').startup(function(use)
 			vim.g.startify_change_to_dir = 0
 			vim.g.startify_change_to_vcs_root = 1
 		end
-	}
+	},
 
-	use {
+	{
 		'romgrk/barbar.nvim', -- buffers management (="tab bar")
-		requires = { 'kyazdani42/nvim-web-devicons' },
+		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			require('bufferline').setup({
 				icons = {
@@ -460,11 +458,11 @@ return require('packer').startup(function(use)
 				}
 			})
 		end
-	}
+	},
 
-	use {
+	{
 		'nvim-lualine/lualine.nvim', -- fancy status line with mode indicator and cursor position
-		requires = { 'kyazdani42/nvim-web-devicons' },
+		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			require('lualine').setup({
 				options = {
@@ -492,59 +490,68 @@ return require('packer').startup(function(use)
 				}
 			})
 		end
-	}
+	},
 
-	use({
+	{
 		'nvim-tree/nvim-tree.lua', -- sidebar tree view file explorer, for when Ranger pop-up isn't enough
-		requires = { 'nvim-tree/nvim-web-devicons' },
+		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			require('nvim-tree').setup()
 		end
-	})
+	},
 
-	use({
+	{
 		'nvim-treesitter/nvim-treesitter-context', -- show nest/indent context at top of file, leveraging treesitter
 		config = function()
 			require('treesitter-context').setup({
 				enable = false, -- disable by default, toggle with shortcut
 			})
 		end
-	})
+	},
 
-	use({
+	{
 		'lukas-reineke/indent-blankline.nvim', -- indentation guides
 		main = "ibl",
-		config = function()
-			require('ibl').setup({
-				use_treesitter = true,
-				show_current_context = true,
-				show_current_context_start = true,
-				show_trailing_blankline_indent = false,
-				space_char_blankline = ' ',
-				indent_blankline_filetype_exclude = { 'lspinfo', 'packer', 'checkhealth', 'help', 'man',
-					'NvimTree' }
-			})
-		end
-	})
+		opts = {
+			indent = {
+				char = '▏',
+				tab_char = '▏',
+			},
+			exclude = {
+				filetypes = {
+					'lspinfo',
+					'packer',
+					'checkhealth',
+					'help',
+					'man',
+					'NvimTree'
+				}
+			}
+		}
+	},
 
-	use({
+	{
 		'mvllow/modes.nvim', -- change line background color to reflect current mode
 		config = function()
-			require('modes').setup()
+			require('modes').setup({
+				set_cursor = true,
+				set_cursorline = true,
+				set_number = false,
+				line_opacity = 0.3,
+			})
 		end
-	})
+	},
 
-	use {
+	{
 		'folke/todo-comments.nvim',
-		requires = 'nvim-lua/plenary.nvim',
+		dependencies = { 'nvim-lua/plenary.nvim' },
 		config = function()
 			require('todo-comments').setup({})
 		end
-	}
+	},
+	'jeffkreeftmeijer/vim-numbertoggle', -- automatically switch numbers to absolute instead of relative when buffers are inactive
 
-	use 'jeffkreeftmeijer/vim-numbertoggle' -- automatically switch numbers to absolute instead of relative when buffers are inactive
-
-	use {
+	{
 		'norcalli/nvim-colorizer.lua', -- highlight color strings with the color they represent
 		config = function()
 			require('colorizer').setup({ '*' }, {
@@ -556,11 +563,11 @@ return require('packer').startup(function(use)
 				hsl_fn = true,
 			})
 		end
-	}
+	},
 
-	use {
+	{
 		'lewis6991/gitsigns.nvim', -- shows git added/removed lines to the left of the line numbers
-		requires = {
+		dependencies = {
 			'nvim-lua/plenary.nvim'
 		},
 		config = function()
@@ -570,18 +577,18 @@ return require('packer').startup(function(use)
 				}
 			})
 		end
-	}
+	},
 
-	use {
+	{
 		'karb94/neoscroll.nvim', -- smooth scrolling
 		config = function()
 			require('neoscroll').setup()
 		end
-	}
+	},
 
-	use 'folke/twilight.nvim' -- hide unfocused blocks while in zen mode
+	'folke/twilight.nvim', -- hide unfocused blocks while in zen mode
 
-	use {
+	{
 		'folke/zen-mode.nvim', -- zen mode for deep focus on complex algos
 		config = function()
 			require('zen-mode').setup({
@@ -628,23 +635,23 @@ return require('packer').startup(function(use)
 				end,
 			})
 		end
-	}
+	},
 
 	-- ************
 	-- Commands, utils & tools
 	-- ************
-	use { 'nvim-telescope/telescope-fzf-native.nvim', run = 'make' } -- native fzf sorter for Telescope, faster
+	{ 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' }, -- native fzf sorter for Telescope, faster
 
-	use {
+	{
 		'nvim-telescope/telescope.nvim', -- fuzzy finder
-		requires = { { 'nvim-lua/plenary.nvim' } },
+		dependencies = { 'nvim-lua/plenary.nvim' },
 		config = function()
 			require('telescope').setup()
 			require('telescope').load_extension('fzf')
 		end
-	}
+	},
 
-	use {
+	{
 		'voldikss/vim-floaterm', -- terminal windows management
 		config = function()
 			vim.g.floaterm_autoclose = true
@@ -655,41 +662,37 @@ return require('packer').startup(function(use)
 			vim.cmd([[
 				function s:floatermSettings()
 					" setlocal notermguicolors
-					:IndentBlanklineDisable
 				endfunction
 				autocmd FileType floaterm call s:floatermSettings()
 			]])
 		end
-	}
+	},
 
-	use {
+	{
 		'folke/trouble.nvim', -- list lsp diagnostics
-		requires = 'kyazdani42/nvim-web-devicons',
+		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			require('trouble').setup({
 				mode = "document_diagnostics"
 			})
 		end
-	}
+	},
 
-	use {
+	{
 		'utilyre/barbecue.nvim', -- show lsp symbols breadcrumbs in winbar
-		tag = "*",
-		requires = {
+		version = "*",
+		dependencies = {
 			'SmiteshP/nvim-navic',
 			'nvim-tree/nvim-web-devicons', -- optional dependency
 		},
-		after = 'nvim-web-devicons', -- keep this if you're using NvChad
-		config = function()
-			require('barbecue').setup({
-				theme = 'catppuccin'
-			})
-		end,
-	}
+		opts = {
+			theme = 'catppuccin'
+		}
+	},
 
-	use {
+	{
 		'SmiteshP/nvim-navbuddy', -- navigate LSP symbols in a ranger-like view
-		requires = {
+		dependencies = {
 			'neovim/nvim-lspconfig',
 			'SmiteshP/nvim-navic',
 			'MunifTanjim/nui.nvim',
@@ -703,9 +706,9 @@ return require('packer').startup(function(use)
 				}
 			})
 		end
-	}
+	},
 
-	use {
+	{
 		'terryma/vim-multiple-cursors', -- multi-cursor support
 		config = function()
 			-- prevent delimitMate conflict
@@ -723,11 +726,11 @@ return require('packer').startup(function(use)
 				endfunction
 			]]
 		end
-	}
+	},
 
-	use 'tpope/vim-surround' -- commands for working with {surrounding} marks
+	'tpope/vim-surround', -- commands for working with {surrounding} marks
 
-	use {
+	{
 		'preservim/nerdcommenter', -- commands for toggling comments
 		config = function()
 			vim.g.NERDSpaceDelims = true
@@ -736,11 +739,11 @@ return require('packer').startup(function(use)
 			vim.g.NERDDefaultAlign = 'left'
 			vim.g.NERDToggleCheckAllLines = true
 		end
-	}
+	},
 
-	use 'easymotion/vim-easymotion' -- quickly jump around in current buffer
+	'easymotion/vim-easymotion', -- quickly jump around in current buffer
 
-	use {
+	{
 		'Raimondi/delimitMate', -- automatic closing of surroundings in insert mode
 		config = function()
 			vim.g.delimitMate_expand_cr = 2
@@ -748,20 +751,20 @@ return require('packer').startup(function(use)
 			vim.g.delimitMate_matchpairs = "(:),[:],{:},<:>"
 			vim.cmd([[au FileType html,xml let b:delimitMate_matchpairs = "(:),[:],{:}"]])
 		end
-	}
+	},
 
-	use {
+	{
 		'ciaranm/detectindent', -- auto detect indent style and update settings accordingly
 		config = function()
 			vim.cmd([[au BufReadPost * :DetectIndent]])
 		end
-	}
+	},
 
-	use 'alvan/vim-closetag' -- autoclose html/jsx tags
+	'alvan/vim-closetag', -- autoclose html/jsx tags
 
-	use {
+	{
 		'ruifm/gitlinker.nvim', -- copy link to code on GitHub
-		requires = 'nvim-lua/plenary.nvim',
+		dependencies = { 'nvim-lua/plenary.nvim' },
 		config = function()
 			require("gitlinker").setup()
 			vim.api.nvim_set_keymap('n', '<leader>gY', '<cmd>lua require"gitlinker".get_repo_url()<cr>', { silent = true })
@@ -769,5 +772,5 @@ return require('packer').startup(function(use)
 				'<cmd>lua require"gitlinker".get_repo_url({action_callback = require"gitlinker.actions".open_in_browser})<cr>',
 				{ silent = true })
 		end
-	}
-end)
+	},
+})
