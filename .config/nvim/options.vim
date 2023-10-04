@@ -9,12 +9,6 @@ set termguicolors
 set nowritebackup
 set mouse=a
 set cmdheight=2
-set cursorline
-augroup cursorlinetoggle
-	autocmd!
-	autocmd BufEnter,FocusGained,InsertLeave,WinEnter * set cursorline
-	autocmd BufLeave,FocusLost,InsertEnter,WinLeave * set nocursorline
-augroup END
 set shortmess+=c
 set signcolumn=yes
 set showmatch

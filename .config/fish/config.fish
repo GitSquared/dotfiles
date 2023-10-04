@@ -9,7 +9,7 @@ thefuck --alias | source
 nvm use default --silent
 
 alias pinentry='pinentry-mac'
-alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "TSUpdateSync" -c "autocmd User PackerComplete quitall" -c "PackerSync"'
+alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "Lazy! sync" -c "TSUpdateSync" +qa'
 alias weather='curl wttr.in'
 
 alias ranger='ranger-cd' # with fish integration via fisher plugin
