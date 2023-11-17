@@ -1,26 +1,37 @@
 # Yabai
+
+# move focus
 cmd - left : yabai -m window --focus west
 cmd - down : yabai -m window --focus south
 cmd - up : yabai -m window --focus north
 cmd - right : yabai -m window --focus east
 
+# move windows
 cmd + ctrl - left : yabai -m window --warp west
 cmd + ctrl - down : yabai -m window --warp south
 cmd + ctrl - up : yabai -m window --warp north
 cmd + ctrl - right : yabai -m window --warp east
 
+# create stacks
 cmd + ctrl - s : yabai -m window --stack recent
 cmd + ctrl + shift - left : yabai -m window --stack west
 cmd + ctrl + shift - down : yabai -m window --stack south
 cmd + ctrl + shift - up : yabai -m window --stack north
 cmd + ctrl + shift - right : yabai -m window --stack east
 
+# navigate stack
 cmd + shift - s : yabai -m window --focus stack.prev
 cmd + shift - x : yabai -m window --focus stack.next
 
+# float and pin
 fn - f : yabai -m window --toggle float
 fn - p : yabai -m window --toggle float; yabai -m window --toggle pip; yabai -m window --toggle sticky; yabai -m window --toggle topmost
 
+# opacity
+cmd - 0x2F : yabai -m window --opacity $(yabai -m query --windows --window | jq -r '.opacity + 0.1') # cmd + .
+cmd - 0x2B : yabai -m window --opacity $(yabai -m query --windows --window | jq -r '.opacity - 0.1') # cmd + ,
+
+# balance splits
 fn - space : yabai -m space --balance
 
 # App shortcuts
