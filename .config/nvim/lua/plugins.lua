@@ -729,4 +729,6 @@ return require('lazy').setup({
 				{ silent = true })
 		end
 	},
+
+	'sophacles/vim-processing', -- make art not war
 })

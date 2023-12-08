@@ -57,3 +57,4 @@ yabai -m rule --add app="^Todoist$" manage=off
 yabai -m rule --add app="^Loom$" manage=off
 yabai -m rule --add app="^Cardhop$" manage=off
 yabai -m rule --add app="^Raycast$" manage=off
+yabai -m rule --add app="^demo_" manage=off  # demos and Processing stuff
