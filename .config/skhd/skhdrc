@@ -23,13 +23,8 @@ cmd + ctrl + shift - right : yabai -m window --stack east
 cmd + shift - s : yabai -m window --focus stack.prev
 cmd + shift - x : yabai -m window --focus stack.next
 
-# float and pin
+# float
 fn - f : yabai -m window --toggle float
-fn - p : yabai -m window --toggle float; yabai -m window --toggle pip; yabai -m window --toggle sticky; yabai -m window --toggle topmost
-
-# opacity
-cmd - 0x2F : yabai -m window --opacity $(yabai -m query --windows --window | jq -r 'if (.opacity + 0.1) == 1 then "1.0" else (.opacity + 0.1) end') # cmd + .
-cmd - 0x2B : yabai -m window --opacity $(yabai -m query --windows --window | jq -r '.opacity - 0.1') # cmd + ,
 
 # balance splits
 fn - space : yabai -m space --balance
