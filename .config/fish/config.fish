@@ -1,12 +1,9 @@
 if not status is-interactive
 	exit
 end
-direnv hook fish | source
 source (rbenv init -|psub)
-pyenv init - | source
 zoxide init fish | source
 thefuck --alias | source
-nvm use default --silent
 
 alias pinentry='pinentry-mac'
 alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "Lazy! sync" -c "TSUpdateSync" +qa'
