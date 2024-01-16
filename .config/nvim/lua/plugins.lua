@@ -26,6 +26,7 @@ return require('lazy').setup({
 				ensure_installed = {
 					"vim",
 					"lua",
+					"sql",
 					"rust",
 					"regex",
 					"typescript",
@@ -211,6 +212,8 @@ return require('lazy').setup({
 					tsserver = {
 						autostart = true,
 					},
+					tailwindcss = {},
+					prismals = {},
 					vimls = {},
 					yamlls = {},
 					pylsp = {
