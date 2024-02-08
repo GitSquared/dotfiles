@@ -31,3 +31,4 @@ fn - space : yabai -m space --balance
 
 # App shortcuts
 fn - t : /opt/homebrew/bin/kitty --single-instance -d ~
+fn - h : /usr/bin/open ~
