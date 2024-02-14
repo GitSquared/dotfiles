@@ -166,7 +166,7 @@ return require('lazy').setup({
 					require("null-ls").builtins.diagnostics.fish,
 					require("null-ls").builtins.diagnostics.mypy,
 					require("null-ls").builtins.diagnostics.proselint,
-					require("null-ls").builtins.diagnostics.tsc,
+					-- require("null-ls").builtins.diagnostics.tsc,
 					require("null-ls").builtins.formatting.autopep8,
 					require("null-ls").builtins.formatting.black,
 					-- require("null-ls").builtins.formatting.eslint,
