@@ -36,7 +36,7 @@
 	default = current
 	autoSetupRemote = true
 [init]
-	defaultBranch = master
+	defaultBranch = main
 [tag]
 	gpgSign = true
 [core]
