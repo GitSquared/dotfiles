@@ -1,15 +1,64 @@
 gui:
-  showIcons: true
+  nerdFontsVersion: "3"
+  animateExplosion: true
   theme:
-    lightTheme: false
     activeBorderColor:
       - "#ff5a00"
       - bold
     selectedLineBgColor:
       - "#313244"
-    selectedRangeBgColor:
-      - "#ff5a00"
-      - bold
     unstagedChangesColor:
       - yellow
 quitOnTopLevelReturn: true
+customCommands:
+  - key: "<c-v>"
+    context: "global"
+    description: "Create new conventional commit"
+    prompts:
+      - type: "menu"
+        key: "Type"
+        title: "Type of change"
+        options:
+          - name: "build"
+            description: "Changes that affect the build system or external dependencies"
+            value: "build"
+          - name: "feat"
+            description: "A new feature"
+            value: "feat"
+          - name: "fix"
+            description: "A bug fix"
+            value: "fix"
+          - name: "chore"
+            description: "Other changes that don't modify src or test files"
+            value: "chore"
+          - name: "ci"
+            description: "Changes to CI configuration files and scripts"
+            value: "ci"
+          - name: "docs"
+            description: "Documentation only changes"
+            value: "docs"
+          - name: "perf"
+            description: "A code change that improves performance"
+            value: "perf"
+          - name: "refactor"
+            description: "A code change that neither fixes a bug nor adds a feature"
+            value: "refactor"
+          - name: "revert"
+            description: "Reverts a previous commit"
+            value: "revert"
+          - name: "style"
+            description: "Changes that do not affect the meaning of the code"
+            value: "style"
+          - name: "test"
+            description: "Adding missing tests or correcting existing tests"
+            value: "test"
+      - type: "input"
+        title: "Scope - Add '(<scope>)'"
+        key: "Scope"
+        initialValue: ""
+      - type: "input"
+        title: "Write commit message"
+        key: "CommitMsg"
+        initialValue: "{{.Form.Type}}({{.Form.Scope}}): "
+    command: "git commit --message '{{.Form.CommitMsg}}'"
+    loadingText: "Creating conventional commit..."
