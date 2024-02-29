@@ -69,9 +69,9 @@ return require('lazy').setup({
 
 	'neovim/nvim-lspconfig', -- helper configs for neovim built-in LSP client
 
-	'j-hui/fidget.nvim', -- print status updates of LSP servers
+	'j-hui/fidget.nvim',   -- print status updates of LSP servers
 
-	'L3MON4D3/LuaSnip',   -- snippet plugin (leveraged by autocompletion engine)
+	'L3MON4D3/LuaSnip',    -- snippet plugin (leveraged by autocompletion engine)
 
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
@@ -743,39 +743,39 @@ return require('lazy').setup({
 
 			-- display count of folded lines in virtual text
 			local handler = function(virtText, lnum, endLnum, width, truncate)
-				 local newVirtText = {}
-				 local suffix = (' 󰁂 %d lines folded '):format(endLnum - lnum)
-				 local sufWidth = vim.fn.strdisplaywidth(suffix)
-				 local targetWidth = width - sufWidth
-				 local curWidth = 0
-				 for _, chunk in ipairs(virtText) do
-					  local chunkText = chunk[1]
-					  local chunkWidth = vim.fn.strdisplaywidth(chunkText)
-					  if targetWidth > curWidth + chunkWidth then
-							table.insert(newVirtText, chunk)
-					  else
-							chunkText = truncate(chunkText, targetWidth - curWidth)
-							local hlGroup = chunk[2]
-							table.insert(newVirtText, {chunkText, hlGroup})
-							chunkWidth = vim.fn.strdisplaywidth(chunkText)
-							-- str width returned from truncate() may less than 2nd argument, need padding
-							if curWidth + chunkWidth < targetWidth then
-								 suffix = suffix .. (' '):rep(targetWidth - curWidth - chunkWidth)
-							end
-							break
-					  end
-					  curWidth = curWidth + chunkWidth
-				 end
-				 table.insert(newVirtText, {suffix, 'MoreMsg'})
-				 return newVirtText
+				local newVirtText = {}
+				local suffix = (' 󰁂 %d lines folded '):format(endLnum - lnum)
+				local sufWidth = vim.fn.strdisplaywidth(suffix)
+				local targetWidth = width - sufWidth
+				local curWidth = 0
+				for _, chunk in ipairs(virtText) do
+					local chunkText = chunk[1]
+					local chunkWidth = vim.fn.strdisplaywidth(chunkText)
+					if targetWidth > curWidth + chunkWidth then
+						table.insert(newVirtText, chunk)
+					else
+						chunkText = truncate(chunkText, targetWidth - curWidth)
+						local hlGroup = chunk[2]
+						table.insert(newVirtText, { chunkText, hlGroup })
+						chunkWidth = vim.fn.strdisplaywidth(chunkText)
+						-- str width returned from truncate() may less than 2nd argument, need padding
+						if curWidth + chunkWidth < targetWidth then
+							suffix = suffix .. (' '):rep(targetWidth - curWidth - chunkWidth)
+						end
+						break
+					end
+					curWidth = curWidth + chunkWidth
+				end
+				table.insert(newVirtText, { suffix, 'MoreMsg' })
+				return newVirtText
 			end
 
 			-- Only depend on `nvim-treesitter/queries/filetype/folds.scm`,
 			-- performance and stability are better than `foldmethod=nvim_treesitter#foldexpr()`
 			require('ufo').setup({
-				 provider_selector = function(bufnr, filetype, buftype)
-					  return {'treesitter', 'indent'}
-				 end,
+				provider_selector = function(bufnr, filetype, buftype)
+					return { 'treesitter', 'indent' }
+				end,
 				fold_virt_text_handler = handler
 			})
 		end
@@ -785,14 +785,18 @@ return require('lazy').setup({
 		config = function()
 			local builtin = require('statuscol.builtin')
 			require('statuscol').setup(
-			  {
-				 relculright = true,
-				 segments = {
-					{text = {'%s'}, click = 'v:lua.ScSa'},
-					{text = {builtin.foldfunc}, click = 'v:lua.ScFa'},
-					{text = {builtin.lnumfunc, ' '}, click = 'v:lua.ScLa'}
-				 }
-			  }
+				{
+					relculright = true,
+					segments = {
+						{ text = { '%s' },             click = 'v:lua.ScSa' },
+						{ text = { builtin.foldfunc }, click = 'v:lua.ScFa' },
+						{
+							text = { builtin.lnumfunc, ' ' },
+							condition = { true, builtin.not_empty },
+							click = 'v:lua.ScLa',
+						}
+					}
+				}
 			)
 		end
 	},
