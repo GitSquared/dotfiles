@@ -69,13 +69,7 @@ return require('lazy').setup({
 
 	'neovim/nvim-lspconfig', -- helper configs for neovim built-in LSP client
 
-	{
-		'j-hui/fidget.nvim', -- print status updates of LSP servers
-		tag = 'legacy',
-		config = function()
-			require('fidget').setup()
-		end
-	},
+	'j-hui/fidget.nvim', -- print status updates of LSP servers
 
 	'L3MON4D3/LuaSnip',   -- snippet plugin (leveraged by autocompletion engine)
 
