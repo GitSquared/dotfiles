@@ -49,7 +49,7 @@ nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
 nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
-nmap <Leader>t :TroubleToggle<CR>
+nmap <Leader>t :TroubleToggle document_diagnostics<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
 nmap <Leader>r :lua vim.lsp.buf.rename()<CR>
