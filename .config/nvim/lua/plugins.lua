@@ -15,7 +15,6 @@ return require('lazy').setup({
 	-- ************
 	-- SYSTEM / IDE
 	-- ************
-	'wbthomason/packer.nvim', -- plugins manager
 	'tpope/vim-sensible',   -- sensible default config
 
 	{
@@ -342,7 +341,7 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'Luxed/ayu-vim', -- theme/colorscheme
+		'ayu-theme/ayu-vim', -- theme/colorscheme
 		name = 'ayu',
 		config = function()
 			vim.opt.termguicolors = true
