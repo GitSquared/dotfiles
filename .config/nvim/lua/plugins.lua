@@ -15,7 +15,7 @@ return require('lazy').setup({
 	-- ************
 	-- SYSTEM / IDE
 	-- ************
-	'tpope/vim-sensible',   -- sensible default config
+	'tpope/vim-sensible', -- sensible default config
 
 	{
 		'nvim-treesitter/nvim-treesitter', -- syntax highlighting and general language understanding facilities
@@ -341,26 +341,18 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'ayu-theme/ayu-vim', -- theme/colorscheme
+		'Shatur/neovim-ayu', -- theme/colorscheme
 		name = 'ayu',
 		config = function()
 			vim.opt.termguicolors = true
-			vim.g.ayucolor = 'dark'
-			vim.g.ayu_italic_comment = 1
-			vim.g.ayu_sign_contrast = 1
-			vim.g.ayu_extended_palette = 1
+			require('ayu').setup({
+				overrides = function()
+					-- dim inactive windows
+					return { NormalNC = { bg = '#06070a', fg = '#808080' } }
+				end
+			})
+
 			vim.cmd([[colorscheme ayu]])
-			-- brighter background color on active buffer
-			vim.cmd([[highlight Normal guibg=#10141c]])
-			vim.cmd([[highlight WindowInactive guibg=#0e1016]])
-			vim.cmd([[highlight BufferCurrent guibg=#10141c]])
-			vim.api.nvim_exec([[
-				augroup WindowHighlight
-				  autocmd!
-				  autocmd WinEnter * set winhighlight=Normal:WindowActive
-				  autocmd WinLeave * set winhighlight=Normal:WindowInactive
-				augroup END
-			]], false)
 		end
 	},
 
@@ -418,14 +410,14 @@ return require('lazy').setup({
 		config = function()
 			require('lualine').setup({
 				options = {
+					theme = 'ayu',
 					icons_enabled = true,
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '╱', right = '╱' }
 				},
 				sections = {
 					lualine_a = { 'mode' },
-					lualine_b = { { 'os.date("%H:%M", os.time())', icon = '', separator = '󰅐' }, function() return ' ' end,
-						'diff' },
+					lualine_b = { 'filename', 'diff' },
 					lualine_c = { {
 						'branch',
 						fmt = function(s)
@@ -439,7 +431,15 @@ return require('lazy').setup({
 					lualine_x = { 'diagnostics' },
 					lualine_y = { 'filetype' },
 					lualine_z = { 'location' },
-				}
+				},
+				inactive_sections = {
+					lualine_a = { 'filename' },
+					lualine_b = {},
+					lualine_c = {},
+					lualine_x = {},
+					lualine_y = { 'diagnostics' },
+					lualine_z = { 'filetype' },
+				},
 			})
 		end
 	},
