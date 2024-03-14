@@ -30,7 +30,10 @@ yabai -m config top_padding                  12
 yabai -m config bottom_padding               12
 yabai -m config left_padding                 12
 yabai -m config right_padding                12
-yabai -m config window_gap                   06
+yabai -m config window_gap                   10
+
+# By default, open new windows in a float at the center of the screen
+yabai -m rule --add app="." manage=off grid=8:6:1:1:4:6
 
 # exclusions
 yabai -m rule --add app="^System Settings$" manage=off
