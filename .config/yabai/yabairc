@@ -36,8 +36,8 @@ yabai -m config window_gap                   10
 yabai -m rule --add app="." manage=off grid=8:6:1:1:4:6
 
 # exclusions
-yabai -m rule --add app="^System Settings$" manage=off
-yabai -m rule --add app="^Finder$" manage=off
+yabai -m rule --add app="^System Settings$" manage=off grid=8:6:2:2:1:4
+yabai -m rule --add app="^Finder$" manage=off grid=8:3:1:2:1:3
 yabai -m rule --add app="^Stats$" manage=off
 yabai -m rule --add app="^Lunar$" manage=off
 yabai -m rule --add app="^Arc$" title="^Picture in Picture$" manage=off
