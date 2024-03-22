@@ -341,18 +341,11 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'Shatur/neovim-ayu', -- theme/colorscheme
-		name = 'ayu',
+		'nyoom-engineering/oxocarbon.nvim', -- theme/colorscheme
+		name = 'oxocarbon',
 		config = function()
 			vim.opt.termguicolors = true
-			require('ayu').setup({
-				overrides = function()
-					-- dim inactive windows
-					return { NormalNC = { bg = '#06070a', fg = '#808080' } }
-				end
-			})
-
-			vim.cmd([[colorscheme ayu]])
+			vim.cmd([[colorscheme oxocarbon]])
 		end
 	},
 
@@ -410,7 +403,7 @@ return require('lazy').setup({
 		config = function()
 			require('lualine').setup({
 				options = {
-					theme = 'ayu',
+					theme = 'oxocarbon',
 					icons_enabled = true,
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '╱', right = '╱' }
