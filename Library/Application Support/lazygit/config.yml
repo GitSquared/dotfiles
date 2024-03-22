@@ -3,14 +3,6 @@ git:
 gui:
   nerdFontsVersion: "3"
   animateExplosion: true
-  theme:
-    activeBorderColor:
-      - "#ff5a00"
-      - bold
-    selectedLineBgColor:
-      - "#313244"
-    unstagedChangesColor:
-      - yellow
 quitOnTopLevelReturn: true
 customCommands:
   - key: "<c-v>"
