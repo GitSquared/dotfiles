@@ -66,116 +66,6 @@ return require('lazy').setup({
 		end
 	},
 
-	'neovim/nvim-lspconfig', -- helper configs for neovim built-in LSP client
-
-	'j-hui/fidget.nvim',   -- print status updates of LSP servers
-
-	'L3MON4D3/LuaSnip',    -- snippet plugin (leveraged by autocompletion engine)
-
-	'onsails/lspkind-nvim', -- icons in autocompletion window
-
-	{
-		'hrsh7th/nvim-cmp', -- autocompletion engine
-		config = function()
-			local cmp = require('cmp')
-			local luasnip = require('luasnip')
-			local lspkind = require('lspkind')
-
-			cmp.setup({
-				snippet = {
-					expand = function(args)
-						luasnip.lsp_expand(args.body) -- bind to snippet plugin
-					end
-				},
-				sources = cmp.config.sources({
-					{ name = 'nvim_lsp' },
-					{ name = 'luasnip' }
-				}, {
-					{ name = 'buffer' }
-				}),
-				mapping = {
-					-- key mappings for autocompletion window
-					['<C-Space>'] = cmp.mapping(cmp.mapping.complete(), { 'i', 'c' }),
-					['<S-Esc>'] = cmp.mapping({
-						i = cmp.mapping.abort(),
-						c = cmp.mapping.close(),
-					}),
-					['<CR>'] = cmp.mapping.confirm({ select = false }),
-					-- use tab and shift-tab to browse completion list displayed by luasnip
-					["<Tab>"] = cmp.mapping(function(fallback)
-						local has_words_before = function()
-							local line, col = unpack(vim.api.nvim_win_get_cursor(0))
-							return col ~= 0 and
-								 vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
-						end
-						if cmp.visible() then
-							cmp.select_next_item()
-						elseif luasnip.expand_or_jumpable() then
-							luasnip.expand_or_jump()
-						elseif has_words_before() then
-							cmp.complete()
-						else
-							fallback()
-						end
-					end, { "i", "s" }),
-					["<S-Tab>"] = cmp.mapping(function(fallback)
-						if cmp.visible() then
-							cmp.select_prev_item()
-						elseif luasnip.jumpable(-1) then
-							luasnip.jump(-1)
-						else
-							fallback()
-						end
-					end, { "i", "s" }),
-					-- mapping to scroll docs
-					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
-					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
-				},
-				formatting = {
-					format = lspkind.cmp_format({
-						mode = 'symbol_text',
-						maxwidth = 50,
-						ellipsis_char = '…',
-					})
-				},
-			})
-		end
-	},
-	-- autocompletion engine completion sources:
-	'saadparwaiz1/cmp_luasnip', -- saved snippets
-	'hrsh7th/cmp-nvim-lsp',   -- LSP clients
-	'hrsh7th/cmp-buffer',     -- buffer words
-	'hrsh7th/cmp-path',       -- paths on local file system
-
-	{
-		'jose-elias-alvarez/null-ls.nvim',
-		dependencies = { 'nvim-lua/plenary.nvim' },
-		config = function()
-			require("null-ls").setup({
-				sources = {
-					-- require("null-ls").builtins.code_actions.eslint,
-					require("null-ls").builtins.code_actions.gitsigns,
-					-- require("null-ls").builtins.diagnostics.eslint,
-					require("null-ls").builtins.diagnostics.fish,
-					require("null-ls").builtins.diagnostics.mypy,
-					require("null-ls").builtins.diagnostics.proselint,
-					-- require("null-ls").builtins.diagnostics.tsc,
-					require("null-ls").builtins.formatting.autopep8,
-					require("null-ls").builtins.formatting.black,
-					-- require("null-ls").builtins.formatting.eslint,
-					require("null-ls").builtins.formatting.isort,
-				},
-			})
-		end
-	},
-
-	{
-		'williamboman/mason.nvim', -- manager for external libs like LSP clients, language syntaxes, etc
-		config = function()
-			require('mason').setup()
-		end
-	},
-
 	{
 		'junnplus/lsp-setup.nvim', -- manage lsp installation and config in one place
 		dependencies = {
@@ -284,6 +174,98 @@ return require('lazy').setup({
 					end
 				end,
 				capabilities = require('cmp_nvim_lsp').default_capabilities()
+			})
+		end
+	},
+
+	'j-hui/fidget.nvim',  -- print status updates of LSP servers
+
+	'onsails/lspkind-nvim', -- icons in autocompletion window
+
+	'L3MON4D3/LuaSnip',   -- snippet plugin (leveraged by autocompletion engine)
+
+	{
+		'hrsh7th/nvim-cmp', -- autocompletion engine
+		config = function()
+			local cmp = require('cmp')
+			local luasnip = require('luasnip')
+			local lspkind = require('lspkind')
+
+			cmp.setup({
+				snippet = {
+					expand = function(args)
+						luasnip.lsp_expand(args.body) -- bind to snippet plugin
+					end
+				},
+				sources = cmp.config.sources({
+					{ name = 'nvim_lsp' },
+					{ name = 'luasnip' }
+				}, {
+					{ name = 'buffer' }
+				}),
+				mapping = {
+					-- key mappings for autocompletion window
+					['<C-Space>'] = cmp.mapping(cmp.mapping.complete(), { 'i', 'c' }),
+					['<S-Esc>'] = cmp.mapping({
+						i = cmp.mapping.abort(),
+						c = cmp.mapping.close(),
+					}),
+					['<CR>'] = cmp.mapping.confirm({ select = false }),
+					-- use tab and shift-tab to browse completion list displayed by luasnip
+					["<Tab>"] = cmp.mapping(function(fallback)
+						local has_words_before = function()
+							local line, col = unpack(vim.api.nvim_win_get_cursor(0))
+							return col ~= 0 and
+								 vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
+						end
+						if cmp.visible() then
+							cmp.select_next_item()
+						elseif luasnip.expand_or_jumpable() then
+							luasnip.expand_or_jump()
+						elseif has_words_before() then
+							cmp.complete()
+						else
+							fallback()
+						end
+					end, { "i", "s" }),
+					["<S-Tab>"] = cmp.mapping(function(fallback)
+						if cmp.visible() then
+							cmp.select_prev_item()
+						elseif luasnip.jumpable(-1) then
+							luasnip.jump(-1)
+						else
+							fallback()
+						end
+					end, { "i", "s" }),
+					-- mapping to scroll docs
+					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
+					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
+				},
+				formatting = {
+					format = lspkind.cmp_format({
+						mode = 'symbol_text',
+						maxwidth = 50,
+						ellipsis_char = '…',
+					})
+				},
+			})
+		end
+	},
+	-- autocompletion engine completion sources:
+	'hrsh7th/cmp-nvim-lsp', -- LSP clients
+	'hrsh7th/cmp-buffer', -- buffer words
+	'hrsh7th/cmp-path',   -- paths on local file system
+
+	{
+		'jose-elias-alvarez/null-ls.nvim',
+		dependencies = { 'nvim-lua/plenary.nvim' },
+		config = function()
+			require("null-ls").setup({
+				sources = {
+					require("null-ls").builtins.code_actions.gitsigns,
+					require("null-ls").builtins.diagnostics.fish,
+					require("null-ls").builtins.diagnostics.proselint,
+				},
 			})
 		end
 	},
