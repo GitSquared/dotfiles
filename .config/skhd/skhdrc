@@ -23,12 +23,19 @@ cmd + ctrl + shift - right : yabai -m window --stack east
 cmd + shift - s : yabai -m window --focus stack.prev
 cmd + shift - x : yabai -m window --focus stack.next
 
+# for the following: fn key doesn't work on all keyboard, so i remap it to rctrl when needed
+# e.g K3 Max
+
 # float
 fn - f : yabai -m window --toggle float
+rctrl - f : yabai -m window --toggle float
 
 # balance splits
 fn - space : yabai -m space --balance
+rctrl - space : yabai -m space --balance
 
 # App shortcuts
 fn - t : /opt/homebrew/bin/kitty --single-instance -d ~
+rctrl - t : /opt/homebrew/bin/kitty --single-instance -d ~
 fn - h : /usr/bin/open ~
+rctrl - h : /usr/bin/open ~
