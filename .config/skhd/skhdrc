@@ -23,7 +23,7 @@ cmd + ctrl + shift - right : yabai -m window --stack east
 cmd + shift - s : yabai -m window --focus stack.prev
 cmd + shift - x : yabai -m window --focus stack.next
 
-# for the following: fn key doesn't work on all keyboard, so i remap it to rctrl when needed
+# for the following: fn key doesn't work on all keyboard, so i use rctrl when needed
 # e.g K3 Max
 
 # float
