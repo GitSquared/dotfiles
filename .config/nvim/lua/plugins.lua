@@ -647,26 +647,6 @@ return require('lazy').setup({
 		end
 	},
 
-	{
-		'terryma/vim-multiple-cursors', -- multi-cursor support
-		config = function()
-			-- prevent delimitMate conflict
-			vim.cmd [[
-				function! Multiple_cursors_before()
-					if exists(':DelimitMateOff')==2
-						exe 'DelimitMateOff'
-					endif
-				endfunction
-
-				function! Multiple_cursors_after()
-					if exists(':DelimitMateOn')==2
-						exe 'DelimitMateOn'
-					endif
-				endfunction
-			]]
-		end
-	},
-
 	'tpope/vim-surround', -- commands for working with {surrounding} marks
 
 	{
@@ -785,6 +765,20 @@ return require('lazy').setup({
 				}
 			)
 		end
+	},
+
+	{
+		"m4xshen/hardtime.nvim", -- educate my dumb ape brain
+		dependencies = { "MunifTanjim/nui.nvim", "nvim-lua/plenary.nvim" },
+		opts = {
+			disabled_keys = {
+				-- arrow keys used to move between windows
+				["<Up>"] = {},
+				["<Down>"] = {},
+				["<Left>"] = {},
+				["<Right>"] = {},
+			}
+		}
 	},
 
 	'sophacles/vim-processing', -- make art not war
