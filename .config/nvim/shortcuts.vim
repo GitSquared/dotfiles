@@ -8,8 +8,8 @@ nmap <Leader>Q :qa<CR>
 nmap <Leader>, :close<CR>
 " Editor utilities
 map <Leader>z :ZenMode<CR>
-map <Leader>f <Plug>(easymotion-bd-w)
-map <Leader>F :BufferPick<CR>
+map <Leader>f <cmd>lua require("flash").jump()<CR>
+map <Leader>F <cmd>lua require("flash").treesitter()<CR>
 map <Leader>b :Telescope buffers<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>

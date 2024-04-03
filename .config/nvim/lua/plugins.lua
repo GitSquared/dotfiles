@@ -660,7 +660,21 @@ return require('lazy').setup({
 		end
 	},
 
-	'easymotion/vim-easymotion', -- quickly jump around in current buffer
+	{
+		"folke/flash.nvim", -- quickly jump around in current buffer
+		event = "VeryLazy",
+		---@type Flash.Config
+		opts = {},
+		-- stylua: ignore
+		keys = {
+			-- Disabled, see shortcuts.vim for config
+			-- { "s",     mode = { "n", "x", "o" }, function() require("flash").jump() end,              desc = "Flash" },
+			-- { "S",     mode = { "n", "x", "o" }, function() require("flash").treesitter() end,        desc = "Flash Treesitter" },
+			{ "r",     mode = "o",               function() require("flash").remote() end,            desc = "Remote Flash" },
+			{ "R",     mode = { "o", "x" },      function() require("flash").treesitter_search() end, desc = "Treesitter Search" },
+			{ "<c-s>", mode = { "c" },           function() require("flash").toggle() end,            desc = "Toggle Flash Search" },
+		},
+	},
 
 	{
 		'Raimondi/delimitMate', -- automatic closing of surroundings in insert mode
@@ -678,8 +692,6 @@ return require('lazy').setup({
 			vim.cmd([[au BufReadPost * :DetectIndent]])
 		end
 	},
-
-	'alvan/vim-closetag', -- autoclose html/jsx tags
 
 	{
 		'ruifm/gitlinker.nvim', -- copy link to code on GitHub
