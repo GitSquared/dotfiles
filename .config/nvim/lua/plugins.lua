@@ -49,19 +49,6 @@ return require('lazy').setup({
 				highlight = {
 					enable = true,
 				},
-				indent = {
-					enable = false, -- see this issue: https://github.com/nvim-treesitter/nvim-treesitter/issues/1136
-				}
-			})
-		end
-	},
-
-	{
-		'yioneko/nvim-yati', -- cf. above issue, better treesitter-based indentation config while the native one gets patched up.
-		dependencies = { 'nvim-treesitter/nvim-treesitter' },
-		config = function()
-			require('nvim-treesitter.configs').setup({
-				yati = { enable = true },
 			})
 		end
 	},
@@ -461,10 +448,14 @@ return require('lazy').setup({
 		'mvllow/modes.nvim', -- change line background color to reflect current mode
 		config = function()
 			require('modes').setup({
+				colors = {
+					visual = '#be95ff',
+					insert = '#ff7eb6',
+				},
 				set_cursor = true,
 				set_cursorline = true,
 				set_number = false,
-				line_opacity = 0.3,
+				line_opacity = 0.5,
 			})
 		end
 	},
@@ -476,13 +467,14 @@ return require('lazy').setup({
 			require('todo-comments').setup({})
 		end
 	},
+
 	'jeffkreeftmeijer/vim-numbertoggle', -- automatically switch numbers to absolute instead of relative when buffers are inactive
 
 	{
 		'norcalli/nvim-colorizer.lua', -- highlight color strings with the color they represent
 		config = function()
 			require('colorizer').setup({ '*' }, {
-				RGB = false,
+				RGB = true,
 				RRGGBB = true,
 				names = true,
 				RRGGBBAA = true,
@@ -674,6 +666,15 @@ return require('lazy').setup({
 			{ "R",     mode = { "o", "x" },      function() require("flash").treesitter_search() end, desc = "Treesitter Search" },
 			{ "<c-s>", mode = { "c" },           function() require("flash").toggle() end,            desc = "Toggle Flash Search" },
 		},
+	},
+
+	{
+		 "sustech-data/wildfire.nvim", -- quickly expand selection based on treesitter nodes
+		 event = "VeryLazy",
+		 dependencies = { "nvim-treesitter/nvim-treesitter" },
+		 config = function()
+			  require("wildfire").setup()
+		 end,
 	},
 
 	{
