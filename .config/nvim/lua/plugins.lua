@@ -173,6 +173,12 @@ return require('lazy').setup({
 
 	{
 		'hrsh7th/nvim-cmp', -- autocompletion engine
+		dependencies = {
+			-- autocompletion engine completion sources:
+			'hrsh7th/cmp-nvim-lsp',       -- LSP clients
+			'hrsh7th/cmp-path',           -- paths on local file system
+			'hrsh7th/cmp-nvim-lsp-signature-help' -- show function signature help
+		},
 		config = function()
 			local cmp = require('cmp')
 			local luasnip = require('luasnip')
@@ -186,9 +192,8 @@ return require('lazy').setup({
 				},
 				sources = cmp.config.sources({
 					{ name = 'nvim_lsp' },
-					{ name = 'luasnip' }
-				}, {
-					{ name = 'buffer' }
+					{ name = 'luasnip' },
+					{ name = 'nvim_lsp_signature_help' }
 				}),
 				mapping = {
 					-- key mappings for autocompletion window
@@ -238,10 +243,6 @@ return require('lazy').setup({
 			})
 		end
 	},
-	-- autocompletion engine completion sources:
-	'hrsh7th/cmp-nvim-lsp', -- LSP clients
-	'hrsh7th/cmp-buffer', -- buffer words
-	'hrsh7th/cmp-path',   -- paths on local file system
 
 	{
 		'jose-elias-alvarez/null-ls.nvim',
@@ -662,19 +663,19 @@ return require('lazy').setup({
 			-- Disabled, see shortcuts.vim for config
 			-- { "s",     mode = { "n", "x", "o" }, function() require("flash").jump() end,              desc = "Flash" },
 			-- { "S",     mode = { "n", "x", "o" }, function() require("flash").treesitter() end,        desc = "Flash Treesitter" },
-			{ "r",     mode = "o",               function() require("flash").remote() end,            desc = "Remote Flash" },
-			{ "R",     mode = { "o", "x" },      function() require("flash").treesitter_search() end, desc = "Treesitter Search" },
-			{ "<c-s>", mode = { "c" },           function() require("flash").toggle() end,            desc = "Toggle Flash Search" },
+			{ "r",     mode = "o",          function() require("flash").remote() end,            desc = "Remote Flash" },
+			{ "R",     mode = { "o", "x" }, function() require("flash").treesitter_search() end, desc = "Treesitter Search" },
+			{ "<c-s>", mode = { "c" },      function() require("flash").toggle() end,            desc = "Toggle Flash Search" },
 		},
 	},
 
 	{
-		 "sustech-data/wildfire.nvim", -- quickly expand selection based on treesitter nodes
-		 event = "VeryLazy",
-		 dependencies = { "nvim-treesitter/nvim-treesitter" },
-		 config = function()
-			  require("wildfire").setup()
-		 end,
+		"sustech-data/wildfire.nvim", -- quickly expand selection based on treesitter nodes
+		event = "VeryLazy",
+		dependencies = { "nvim-treesitter/nvim-treesitter" },
+		config = function()
+			require("wildfire").setup()
+		end,
 	},
 
 	{
