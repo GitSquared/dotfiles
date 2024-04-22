@@ -560,27 +560,28 @@ return require('lazy').setup({
 	-- ************
 	-- Commands, utils & tools
 	-- ************
-	{ 'nvim-telescope/telescope-fzf-native.nvim', build = 'make' }, -- native fzf sorter for Telescope, faster
 
 	{
 		'nvim-telescope/telescope.nvim', -- fuzzy finder
-		dependencies = { 'nvim-lua/plenary.nvim' },
-		config = function()
-			require('telescope').setup()
-			require('telescope').load_extension('fzf')
-		end
-	},
-
-	{
-		"danielfalk/smart-open.nvim", -- better fuzzy file finder for telescope
-		config = function()
-			require("telescope").load_extension("smart_open")
-		end,
-		dependencies = {
-			"kkharji/sqlite.lua",
-			-- Only required if using match_algorithm fzf
-			{ "nvim-telescope/telescope-fzf-native.nvim", build = "make" },
+		dependencies = { 'nvim-lua/plenary.nvim',
+			{
+				'nvim-telescope/telescope-fzf-native.nvim', -- native fzf sorter for Telescope, faster
+				build = 'make'
+			},
+			'danielfalk/smart-open.nvim', -- better fuzzy file finder for telescope
+			'kkharji/sqlite.lua',   -- required by smart-open
 		},
+		config = function()
+			require('telescope').setup({
+				extensions = {
+					smart_open = {
+						match_algorithm = "fzy",
+					}
+				}
+			})
+			require('telescope').load_extension('fzf')
+			require("telescope").load_extension("smart_open")
+		end
 	},
 
 	{
