@@ -9,7 +9,7 @@ nmap <Leader>, :close<CR>
 " Editor utilities
 map <Leader>z :ZenMode<CR>
 map <Leader>f <cmd>lua require("flash").jump()<CR>
-map <Leader>F <cmd>lua require("flash").treesitter()<CR>
+map <Leader>F :BufferPick<CR>
 map <Leader>b :Telescope buffers<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
@@ -41,7 +41,7 @@ nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>/ :Telescope current_buffer_fuzzy_find<CR>
-nmap <Leader>p :Telescope find_files<CR>
+nmap <Leader>p :Telescope smart_open<CR>
 nmap <Leader>C :TSContextToggle<CR>
 nmap <Leader>m :Navbuddy<CR>
 nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>

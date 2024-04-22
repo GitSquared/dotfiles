@@ -175,8 +175,8 @@ return require('lazy').setup({
 		'hrsh7th/nvim-cmp', -- autocompletion engine
 		dependencies = {
 			-- autocompletion engine completion sources:
-			'hrsh7th/cmp-nvim-lsp',       -- LSP clients
-			'hrsh7th/cmp-path',           -- paths on local file system
+			'hrsh7th/cmp-nvim-lsp',         -- LSP clients
+			'hrsh7th/cmp-path',             -- paths on local file system
 			'hrsh7th/cmp-nvim-lsp-signature-help' -- show function signature help
 		},
 		config = function()
@@ -569,6 +569,18 @@ return require('lazy').setup({
 			require('telescope').setup()
 			require('telescope').load_extension('fzf')
 		end
+	},
+
+	{
+		"danielfalk/smart-open.nvim", -- better fuzzy file finder for telescope
+		config = function()
+			require("telescope").load_extension("smart_open")
+		end,
+		dependencies = {
+			"kkharji/sqlite.lua",
+			-- Only required if using match_algorithm fzf
+			{ "nvim-telescope/telescope-fzf-native.nvim", build = "make" },
+		},
 	},
 
 	{
