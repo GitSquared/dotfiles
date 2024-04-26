@@ -13,7 +13,6 @@ map <Leader>F :BufferPick<CR>
 map <Leader>b :Telescope buffers<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
-nmap <Leader><Enter> :SSave<CR>
 " Switch buffers
 nmap <Leader>v :BufferPrevious<CR>
 nmap <Leader>n :BufferNext<CR>

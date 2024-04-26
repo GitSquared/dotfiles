@@ -320,37 +320,56 @@ return require('lazy').setup({
 	},
 
 	{
-		'mhinz/vim-startify', -- start screen
+		"nvimdev/dashboard-nvim", -- start screen
+		dependencies = { { "nvim-tree/nvim-web-devicons" } },
+		event = "VimEnter",
 		config = function()
-			vim.g.startify_lists = {
-				{ header = { '   Sessions' },  type = 'sessions' },
-				{
+			require("dashboard").setup({
+				theme = 'hyper',
+				shortcut_type = 'number',
+				change_to_vcs_root = true,
+				config = {
 					header = {
-						'   MRU [' .. vim.fn.fnamemodify(vim.fn.getcwd(), ':~') .. ']',
+						'                                       ',
+						'        .n.                     |      ',
+						'       /___\\          _.---.  \\ _ /    ',
+						'       [|||]         (_._ ) )--;_) =-  ',
+						'       [___]           \'---\'.__,\' \\    ',
+						'       }-=-{                    |      ',
+						'       |-" |                           ',
+						'       |.-"|                p          ',
+						'~^=~^~-|_.-|~^-~^~ ~^~ -^~^~|\\ ~^-~^~- ',
+						'^   .=.| _.|__  ^       ~  /| \\        ',
+						' ~ /:. \\" _|_/\\    ~      /_|__\\  ^    ',
+						'.-/::.  |   |""|-._    ^   ~~~~        ',
+						'  `===-\'-----\'""`  \'-.             ~   ',
+						'                 __.-\'      ^          ',
+						'                                       ',
 					},
-					type = 'dir',
+					shortcut = {
+						{ desc = ' plugins', group = '@property', action = 'Lazy', key = 'p' },
+						{
+							desc = ' lsp servers',
+							group = 'Label',
+							action = 'Mason',
+							key = 'l',
+						},
+						{
+							desc = '⚙ config',
+							group = 'Number',
+							action = 'edit ~/.config/nvim/lua/plugins.lua',
+							key = 'e',
+						},
+					},
+					footer = {}
 				},
-				{ header = { '   Files' },     type = 'files' },
-				{ header = { '   Commands' },  type = 'commands' },
-				{ header = { '   Bookmarks' }, type = 'bookmarks' },
-			}
-			vim.g.startify_skiplist = {
-				'COMMIT_EDITMSG',
-				'^/tmp',
-				vim.fn.escape(
-					vim.fn.fnamemodify(vim.fn.resolve(vim.env.VIMRUNTIME), ':p'),
-					'\\'
-				) .. 'doc',
-				'plugged/.*/doc',
-				'pack/.*/doc',
-			}
-			vim.g.startify_relative_path = 1
-			vim.g.startify_session_delete_buffers = 1
-			vim.g.startify_session_persistence = 1
-			vim.g.startify_session_sort = 1
-			vim.g.startify_change_to_dir = 0
-			vim.g.startify_change_to_vcs_root = 1
-		end
+				hide = {
+					statusline = true,
+					tabline = true,
+					winbar = true,
+				},
+			})
+		end,
 	},
 
 	{
@@ -434,6 +453,7 @@ return require('lazy').setup({
 			},
 			exclude = {
 				filetypes = {
+					'dashboard',
 					'lspinfo',
 					'packer',
 					'checkhealth',
