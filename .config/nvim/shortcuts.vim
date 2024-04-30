@@ -51,7 +51,7 @@ nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
 nmap <Leader>t :TroubleToggle document_diagnostics<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
-nmap <Leader>r :lua vim.lsp.buf.rename()<CR>
+nmap <Leader>r :IncRename 
 nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <Leader>e :lua vim.lsp.buf.format()<CR>
 autocmd FileType js,javascript,ts,typescript,typescriptreact nnoremap <buffer> <Leader>e :EslintFixAll<CR>

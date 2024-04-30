@@ -81,6 +81,7 @@ return require('lazy').setup({
 					jsonls = {},
 					tsserver = {
 						autostart = true,
+						format = false,
 					},
 					tailwindcss = {},
 					prismals = {},
@@ -165,19 +166,17 @@ return require('lazy').setup({
 		end
 	},
 
-	'j-hui/fidget.nvim',  -- print status updates of LSP servers
-
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
-	'L3MON4D3/LuaSnip',   -- snippet plugin (leveraged by autocompletion engine)
-
 	{
-		'hrsh7th/nvim-cmp', -- autocompletion engine
+		'hrsh7th/nvim-cmp',                 -- autocompletion engine
 		dependencies = {
+			'L3MON4D3/LuaSnip',              -- to store snippets
 			-- autocompletion engine completion sources:
-			'hrsh7th/cmp-nvim-lsp',         -- LSP clients
-			'hrsh7th/cmp-path',             -- paths on local file system
-			'hrsh7th/cmp-nvim-lsp-signature-help' -- show function signature help
+			'hrsh7th/cmp-nvim-lsp',          -- LSP clients
+			'hrsh7th/cmp-nvim-lsp-signature-help', -- show function signature help
+			'hrsh7th/cmp-path',              -- paths on local file system
+			'hrsh7th/cmp-cmdline',           -- command line completion
 		},
 		config = function()
 			local cmp = require('cmp')
@@ -191,8 +190,8 @@ return require('lazy').setup({
 					end
 				},
 				sources = cmp.config.sources({
-					{ name = 'nvim_lsp' },
 					{ name = 'luasnip' },
+					{ name = 'nvim_lsp' },
 					{ name = 'nvim_lsp_signature_help' }
 				}),
 				mapping = {
@@ -241,6 +240,28 @@ return require('lazy').setup({
 					})
 				},
 			})
+
+			-- Use buffer source for `/` and `?` (if you enabled `native_menu`, this won't work anymore).
+			cmp.setup.cmdline({ '/', '?' }, {
+				mapping = cmp.mapping.preset.cmdline(),
+				sources = {
+					{ name = 'buffer' }
+				}
+			})
+
+			-- Use cmdline & path source for ':' (if you enabled `native_menu`, this won't work anymore).
+			cmp.setup.cmdline(':', {
+				mapping = cmp.mapping.preset.cmdline(),
+				sources = cmp.config.sources({
+					{ name = 'path' }
+				}, {
+					{ name = 'cmdline' }
+				}),
+				matching = { disallow_symbol_nonprefix_matching = false },
+				formatting = {
+					format = lspkind.cmp_format({ mode = 'symbol' })
+				},
+			})
 		end
 	},
 
@@ -256,48 +277,6 @@ return require('lazy').setup({
 				},
 			})
 		end
-	},
-
-	'stevearc/dressing.nvim', -- better vim ui input for e.g lsp rename
-
-	{
-		'gelguy/wilder.nvim', -- command menu autocompletion
-		dependencies = { 'romgrk/fzy-lua-native', 'nvim-tree/nvim-web-devicons' },
-		config = function()
-			local wilder = require('wilder')
-			wilder.setup({ modes = { ':', '/', '?' } })
-			-- Disable Python remote plugin
-			wilder.set_option('use_python_remote_plugin', 0)
-
-			wilder.set_option('pipeline', {
-				wilder.branch(
-					wilder.cmdline_pipeline({
-						fuzzy = 1,
-						fuzzy_filter = wilder.lua_fzy_filter(),
-					}),
-					wilder.vim_search_pipeline()
-				)
-			})
-
-			wilder.set_option('renderer', wilder.popupmenu_renderer(
-				wilder.popupmenu_palette_theme({
-					border = 'rounded',
-					max_height = '30%',
-					min_height = 0,
-					prompt_position = 'top',
-					reverse = 0,
-					highlighter = wilder.lua_fzy_highlighter(),
-					left = {
-						' ',
-						wilder.popupmenu_devicons()
-					},
-					right = {
-						' ',
-						wilder.popupmenu_scrollbar()
-					},
-				})
-			))
-		end,
 	},
 
 	{
@@ -358,7 +337,7 @@ return require('lazy').setup({
 							desc = '⚙ config',
 							group = 'Number',
 							action = 'edit ~/.config/nvim/lua/plugins.lua',
-							key = 'e',
+							key = 'c',
 						},
 					},
 					footer = {}
@@ -424,6 +403,50 @@ return require('lazy').setup({
 				},
 			})
 		end
+	},
+
+	{
+		'rcarriga/nvim-notify', -- pop-up notifications
+		config = function()
+			require('notify').setup({
+				top_down = false,
+				render = 'wrapped-compact',
+				stages = 'fade_in_slide_out',
+				timeout = 3000,
+			})
+		end
+	},
+
+	{
+		'folke/noice.nvim',
+		event = 'VeryLazy',
+		dependencies = {
+			'MunifTanjim/nui.nvim',
+			'rcarriga/nvim-notify',
+		},
+		opts = {
+			lsp = {
+				-- override markdown rendering so that **cmp** and other plugins use **Treesitter**
+				override = {
+					["vim.lsp.util.convert_input_to_markdown_lines"] = true,
+					["vim.lsp.util.stylize_markdown"] = true,
+					["cmp.entry.get_documentation"] = true, -- requires hrsh7th/nvim-cmp
+				},
+			},
+			presets = {
+				command_palette = true, -- position the cmdline and popupmenu together
+				long_message_to_split = true, -- long messages will be sent to a split
+				inc_rename = true,    -- enables an input dialog for inc-rename.nvim
+				lsp_doc_border = true, -- add a border to hover docs and signature help
+			},
+		},
+	},
+
+	{
+		'smjonas/inc-rename.nvim',
+		config = function()
+			require('inc_rename').setup()
+		end,
 	},
 
 	{
