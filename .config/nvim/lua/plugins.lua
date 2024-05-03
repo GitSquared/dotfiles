@@ -406,7 +406,16 @@ return require('lazy').setup({
 	},
 
 	{
-		'rcarriga/nvim-notify', -- pop-up notifications
+		'stevearc/dressing.nvim', -- better UI for vim.input, vim.select...
+		opts = {
+			select = {
+				backend = { 'fzf', 'telescope', 'builtin' } -- prefer fuzzy finder for select
+			}
+		},
+	},
+
+	{
+		'rcarriga/nvim-notify', -- pop-up notifications, replaces vim.notify
 		config = function()
 			require('notify').setup({
 				top_down = false,
@@ -418,7 +427,7 @@ return require('lazy').setup({
 	},
 
 	{
-		'folke/noice.nvim',
+		'folke/noice.nvim', -- better UI for cmdline and popupmenu, binds messages to nvim-notify
 		event = 'VeryLazy',
 		dependencies = {
 			'MunifTanjim/nui.nvim',
@@ -618,7 +627,7 @@ return require('lazy').setup({
 			require('telescope').setup({
 				extensions = {
 					smart_open = {
-						match_algorithm = "fzy",
+						match_algorithm = "fzf",
 					}
 				}
 			})
