@@ -3,7 +3,6 @@ if not status is-interactive
 end
 source (rbenv init -|psub)
 zoxide init fish | source
-thefuck --alias | source
 
 alias pinentry='pinentry-mac'
 alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "Lazy! sync" -c "TSUpdateSync" +qa'
@@ -11,8 +10,8 @@ alias weather='curl wttr.in'
 
 alias ranger='ranger-cd' # with fish integration via fisher plugin
 
-alias ls='exa -l --git --group-directories-first --time-style=iso --icons'
-alias tree='exa -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
+alias ls='eza -l --git --group-directories-first --time-style=iso --icons'
+alias tree='eza -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
 alias cat='bat'
 alias icat='kitty +kitten icat'
 alias lg='lazygit'
