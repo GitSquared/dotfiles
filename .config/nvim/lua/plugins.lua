@@ -273,7 +273,6 @@ return require('lazy').setup({
 				sources = {
 					require("null-ls").builtins.code_actions.gitsigns,
 					require("null-ls").builtins.diagnostics.fish,
-					require("null-ls").builtins.diagnostics.proselint,
 				},
 			})
 		end
