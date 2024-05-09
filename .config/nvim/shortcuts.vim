@@ -54,7 +54,6 @@ nmap <silent><Esc> :cclose<CR>
 nmap <Leader>r :IncRename 
 nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <Leader>e :lua vim.lsp.buf.format()<CR>
-autocmd FileType js,javascript,ts,typescript,typescriptreact nnoremap <buffer> <Leader>e :EslintFixAll<CR>
 nmap <silent> K :lua vim.lsp.buf.hover()<CR>
 nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
 nmap <silent> gd :Telescope lsp_definitions<CR>
