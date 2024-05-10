@@ -76,6 +76,7 @@ return require('lazy').setup({
 					cssls = {},
 					eslint = {
 						autostart = true,
+						format = true,
 					},
 					html = {},
 					jsonls = {},
