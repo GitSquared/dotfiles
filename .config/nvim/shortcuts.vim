@@ -54,7 +54,8 @@ nmap <silent><Esc> :cclose<CR>
 nmap <Leader>r :IncRename 
 nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <Leader>e :lua vim.lsp.buf.format()<CR>
-nmap <silent> K :lua vim.lsp.buf.hover()<CR>
+" nmap <silent> K :lua vim.lsp.buf.hover()<CR> " now a default shortcut in neovim 0.10!
+" Below is also <C-W>d in neovim 0.10
 nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
 nmap <silent> gd :Telescope lsp_definitions<CR>
 nmap <silent> gy :Telescope lsp_type_definitions<CR>

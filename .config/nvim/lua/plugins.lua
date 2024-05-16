@@ -293,7 +293,6 @@ return require('lazy').setup({
 		'nyoom-engineering/oxocarbon.nvim', -- theme/colorscheme
 		name = 'oxocarbon',
 		config = function()
-			vim.opt.termguicolors = true
 			vim.cmd([[colorscheme oxocarbon]])
 		end
 	},
@@ -706,17 +705,6 @@ return require('lazy').setup({
 	},
 
 	'tpope/vim-surround', -- commands for working with {surrounding} marks
-
-	{
-		'preservim/nerdcommenter', -- commands for toggling comments
-		config = function()
-			vim.g.NERDSpaceDelims = true
-			vim.g.NERDCommentEmptyLines = true
-			vim.g.NERDCompactSexyComs = false
-			vim.g.NERDDefaultAlign = 'left'
-			vim.g.NERDToggleCheckAllLines = true
-		end
-	},
 
 	{
 		"folke/flash.nvim", -- quickly jump around in current buffer
