@@ -22,7 +22,7 @@ fish_add_path ~/.cargo/bin
 set -x ANDROID_SDK_ROOT $HOME/Library/Android/sdk
 fish_add_path $ANDROID_SDK_ROOT/emulator
 fish_add_path $ANDROID_SDK_ROOT/platform-tools
-fish_add_path /Applications/Android\ Studio.app/Contents/jre/Contents/Home/bin
+fish_add_path /opt/homebrew/opt/openjdk/bin
 
 fish_vi_key_bindings
 
