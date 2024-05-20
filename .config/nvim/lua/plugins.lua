@@ -175,7 +175,6 @@ return require('lazy').setup({
 			'L3MON4D3/LuaSnip',              -- to store snippets
 			-- autocompletion engine completion sources:
 			'hrsh7th/cmp-nvim-lsp',          -- LSP clients
-			'hrsh7th/cmp-nvim-lsp-signature-help', -- show function signature help
 			'hrsh7th/cmp-path',              -- paths on local file system
 			'hrsh7th/cmp-cmdline',           -- command line completion
 		},
