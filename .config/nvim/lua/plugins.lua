@@ -76,13 +76,11 @@ return require('lazy').setup({
 					cssls = {},
 					eslint = {
 						autostart = true,
-						format = true,
 					},
 					html = {},
 					jsonls = {},
 					tsserver = {
 						autostart = true,
-						format = false,
 					},
 					tailwindcss = {},
 					prismals = {},
@@ -170,13 +168,13 @@ return require('lazy').setup({
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
 	{
-		'hrsh7th/nvim-cmp',                 -- autocompletion engine
+		'hrsh7th/nvim-cmp',  -- autocompletion engine
 		dependencies = {
-			'L3MON4D3/LuaSnip',              -- to store snippets
+			'L3MON4D3/LuaSnip', -- to store snippets
 			-- autocompletion engine completion sources:
-			'hrsh7th/cmp-nvim-lsp',          -- LSP clients
-			'hrsh7th/cmp-path',              -- paths on local file system
-			'hrsh7th/cmp-cmdline',           -- command line completion
+			'hrsh7th/cmp-nvim-lsp', -- LSP clients
+			'hrsh7th/cmp-path', -- paths on local file system
+			'hrsh7th/cmp-cmdline', -- command line completion
 		},
 		config = function()
 			local cmp = require('cmp')
