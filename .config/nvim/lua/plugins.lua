@@ -384,7 +384,21 @@ return require('lazy').setup({
 							end
 						end
 					} },
-					lualine_x = { 'diagnostics' },
+					lualine_x = { {
+						-- Show msg_showmode notifications like recording macros
+						-- cf https://github.com/folke/noice.nvim/wiki/A-Guide-to-Messages#showmode
+						function()
+							local msg = require("noice").api.statusline.mode.get()
+							if msg == nil
+								 -- Skip the INSERT mode message as it's redundant with section a
+								 or msg == "-- INSERT --" then
+								return ""
+							end
+							return msg
+						end,
+						cond = require("noice").api.statusline.mode.has,
+						color = { fg = "#ff9e64" },
+					}, 'diagnostics' },
 					lualine_y = { 'filetype' },
 					lualine_z = { 'location' },
 				},
