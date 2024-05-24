@@ -848,12 +848,20 @@ return require('lazy').setup({
 		"m4xshen/hardtime.nvim", -- educate my dumb ape brain
 		dependencies = { "MunifTanjim/nui.nvim", "nvim-lua/plenary.nvim" },
 		opts = {
+			disable_mouse = false,
 			disabled_keys = {
 				-- arrow keys used to move between windows
 				["<Up>"] = {},
 				["<Down>"] = {},
 				["<Left>"] = {},
 				["<Right>"] = {},
+			},
+			restricted_keys = {
+				-- let me move around while thinking, ffs
+				["h"] = {},
+				["j"] = {},
+				["k"] = {},
+				["l"] = {},
 			}
 		}
 	},
