@@ -16,11 +16,11 @@ yabai -m config mouse_drop_action            swap
 
 # general space settings
 yabai -m config layout                       bsp
-yabai -m config top_padding                  12
-yabai -m config bottom_padding               12
-yabai -m config left_padding                 12
-yabai -m config right_padding                12
-yabai -m config window_gap                   09
+yabai -m config top_padding                  32
+yabai -m config bottom_padding               32
+yabai -m config left_padding                 32
+yabai -m config right_padding                32
+yabai -m config window_gap                   24
 
 # By default, open new windows in a float at the center of the screen
 yabai -m rule --add app="." manage=off grid=8:6:1:1:4:6
