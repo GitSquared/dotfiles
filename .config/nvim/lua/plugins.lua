@@ -74,11 +74,10 @@ return require('lazy').setup({
 				servers = {
 					bashls = {},
 					cssls = {},
-					eslint = {
-						autostart = false, -- try none-ls instead
-						-- seems to start properly but server doesn't stay alive i think?
-						-- cmd = { 'eslint_d', '--format json', '--stdin' },
+					biome = {
+						autostart = true
 					},
+					-- eslint = { using eslint_d through none-ls instead
 					html = {},
 					jsonls = {},
 					tsserver = {
@@ -180,10 +179,40 @@ return require('lazy').setup({
 				sources = {
 					null_ls.builtins.code_actions.gitsigns,
 					null_ls.builtins.diagnostics.todo_comments,
-					require('none-ls.code_actions.eslint_d'),
-					require('none-ls.diagnostics.eslint_d'),
-					require('none-ls.formatting.eslint_d'),
 				}
+			})
+
+			-- Function to check if an ESLint configuration file exists
+			local function eslint_config_exists()
+				local configs = { ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.yaml", ".eslintrc.yml" }
+				local current_dir = vim.fn.expand("%:p:h") -- Get the directory of the current buffer
+
+				while current_dir do
+					for _, config in ipairs(configs) do
+						if vim.fn.glob(current_dir .. "/" .. config) ~= "" then
+							return true
+						end
+					end
+					-- Move to the parent directory
+					local parent_dir = current_dir:match("(.*/)[^/]+/?$")
+					if parent_dir == current_dir then
+						break
+					end
+					current_dir = parent_dir
+				end
+
+				return false
+			end
+
+			-- Bind null-ls eslint_d sources on buffers with an ESLint config nearby
+			vim.api.nvim_create_autocmd("BufEnter", {
+				callback = function()
+					if eslint_config_exists() then
+						null_ls.register(require('none-ls.code_actions.eslint_d'))
+						null_ls.register(require('none-ls.diagnostics.eslint_d'))
+						null_ls.register(require('none-ls.formatting.eslint_d'))
+					end
+				end,
 			})
 		end
 	},
