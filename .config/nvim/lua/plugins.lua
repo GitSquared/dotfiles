@@ -75,7 +75,9 @@ return require('lazy').setup({
 					bashls = {},
 					cssls = {},
 					eslint = {
-						autostart = true,
+						autostart = false, -- try none-ls instead
+						-- seems to start properly but server doesn't stay alive i think?
+						-- cmd = { 'eslint_d', '--format json', '--stdin' },
 					},
 					html = {},
 					jsonls = {},
@@ -161,6 +163,27 @@ return require('lazy').setup({
 					end
 				end,
 				capabilities = require('cmp_nvim_lsp').default_capabilities()
+			})
+		end
+	},
+
+	{
+		'nvimtools/none-ls.nvim', -- inject some non-LSP diags through builtin LSP
+		dependencies = {
+			'nvim-lua/plenary.nvim',
+			'nvimtools/none-ls-extras.nvim',
+		},
+		config = function()
+			local null_ls = require('null-ls')
+
+			null_ls.setup({
+				sources = {
+					null_ls.builtins.code_actions.gitsigns,
+					null_ls.builtins.diagnostics.todo_comments,
+					require('none-ls.code_actions.eslint_d'),
+					require('none-ls.diagnostics.eslint_d'),
+					require('none-ls.formatting.eslint_d'),
+				}
 			})
 		end
 	},
@@ -257,19 +280,6 @@ return require('lazy').setup({
 				matching = { disallow_symbol_nonprefix_matching = false },
 				formatting = {
 					format = lspkind.cmp_format({ mode = 'symbol' })
-				},
-			})
-		end
-	},
-
-	{
-		'jose-elias-alvarez/null-ls.nvim',
-		dependencies = { 'nvim-lua/plenary.nvim' },
-		config = function()
-			require("null-ls").setup({
-				sources = {
-					require("null-ls").builtins.code_actions.gitsigns,
-					require("null-ls").builtins.diagnostics.fish,
 				},
 			})
 		end
