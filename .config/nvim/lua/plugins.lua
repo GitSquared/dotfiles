@@ -211,6 +211,10 @@ return require('lazy').setup({
 						null_ls.register(require('none-ls.code_actions.eslint_d'))
 						null_ls.register(require('none-ls.diagnostics.eslint_d'))
 						null_ls.register(require('none-ls.formatting.eslint_d'))
+					else
+						null_ls.deregister(require('none-ls.code_actions.eslint_d'))
+						null_ls.deregister(require('none-ls.diagnostics.eslint_d'))
+						null_ls.deregister(require('none-ls.formatting.eslint_d'))
 					end
 				end,
 			})
