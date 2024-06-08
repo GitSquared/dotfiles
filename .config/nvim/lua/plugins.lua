@@ -193,7 +193,7 @@ return require('lazy').setup({
 
 			-- Function to check if an ESLint configuration file exists
 			local function eslint_config_exists()
-				local configs = { ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.yaml", ".eslintrc.yml" }
+				local configs = { ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml", ".eslintrc.yml" }
 				local current_dir = vim.fn.expand("%:p:h") -- Get the directory of the current buffer
 
 				while current_dir do
