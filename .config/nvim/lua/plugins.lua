@@ -61,14 +61,6 @@ return require('lazy').setup({
 			'williamboman/mason-lspconfig.nvim',
 		},
 		config = function()
-			local venv_path = os.getenv('VIRTUAL_ENV')
-			local py_path = nil
-			-- decide which python executable to use for mypy
-			if venv_path ~= nil then
-				py_path = venv_path .. "/bin/python3"
-			else
-				py_path = vim.g.python3_host_prog
-			end
 			require('lsp-setup').setup({
 				default_mappings = false, -- cf ../shortcuts.vim
 				servers = {
@@ -82,6 +74,10 @@ return require('lazy').setup({
 					jsonls = {},
 					tsserver = {
 						autostart = true,
+						on_attach = function(client)
+							-- Don't use tsserver for formatting, use eslint or biome instead
+							client.server_capabilities.documentFormattingProvider = false
+						end,
 					},
 					tailwindcss = {},
 					prismals = {},
@@ -102,7 +98,6 @@ return require('lazy').setup({
 										live_mode = true,
 										dmypy = true,
 										report_progress = true,
-										overrides = { "--python-executable", py_path, true },
 									},
 									isort = {
 										enabled = true,
@@ -160,8 +155,7 @@ return require('lazy').setup({
 							end
 						})
 					end
-				end,
-				capabilities = require('cmp_nvim_lsp').default_capabilities()
+				end
 			})
 		end
 	},
