@@ -1,10 +1,10 @@
 # Yabai
 
 # move focus
-cmd - left : yabai -m window --focus west
-cmd - down : yabai -m window --focus south
-cmd - up : yabai -m window --focus north
-cmd - right : yabai -m window --focus east
+ctrl - left : yabai -m window --focus west
+ctrl - down : yabai -m window --focus south
+ctrl - up : yabai -m window --focus north
+ctrl - right : yabai -m window --focus east
 
 # move windows
 cmd + ctrl - left : yabai -m window --warp west
@@ -14,28 +14,17 @@ cmd + ctrl - right : yabai -m window --warp east
 
 # create stacks
 cmd + ctrl - s : yabai -m window --stack recent
-cmd + ctrl + shift - left : yabai -m window --stack west
-cmd + ctrl + shift - down : yabai -m window --stack south
-cmd + ctrl + shift - up : yabai -m window --stack north
-cmd + ctrl + shift - right : yabai -m window --stack east
 
 # navigate stack
 cmd + shift - s : yabai -m window --focus stack.prev
 cmd + shift - x : yabai -m window --focus stack.next
 
-# for the following: fn key doesn't work on all keyboard, so i use rctrl when needed
-# e.g K3 Max
-
 # float
-fn - f : yabai -m window --toggle float
-rctrl - f : yabai -m window --toggle float
+ctrl - f : yabai -m window --toggle float
 
 # balance splits
-fn - space : yabai -m space --balance
-rctrl - space : yabai -m space --balance
+ctrl - space : yabai -m space --balance
 
 # App shortcuts
-fn - t : /bin/sh -c '/opt/homebrew/bin/kitty --single-instance -d ~ && kitty @ focus-window -m recent:1'
-rctrl - t : /bin/sh -c '/opt/homebrew/bin/kitty --single-instance -d ~ && kitty @ focus-window -m recent:1'
-fn - h : /usr/bin/open ~
-rctrl - h : /usr/bin/open ~
+ctrl - t : /bin/sh -c '/opt/homebrew/bin/kitty --single-instance -d ~ && kitty @ focus-window -m recent:1'
+ctrl - h : /usr/bin/open ~
