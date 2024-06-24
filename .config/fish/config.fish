@@ -18,6 +18,7 @@ alias lg='lazygit'
 
 fish_add_path /opt/homebrew/bin
 fish_add_path ~/.cargo/bin
+fish_add_path ~/.local/bin
 
 set -x ANDROID_SDK_ROOT $HOME/Library/Android/sdk
 fish_add_path $ANDROID_SDK_ROOT/emulator

@@ -192,7 +192,8 @@ return require('lazy').setup({
 
 			-- Function to check if an ESLint configuration file exists
 			local function eslint_config_exists()
-				local configs = { ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml", ".eslintrc.yml" }
+				local configs = { ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml",
+					".eslintrc.yml" }
 				local current_dir = vim.fn.expand("%:p:h") -- Get the directory of the current buffer
 
 				while current_dir do
@@ -326,6 +327,60 @@ return require('lazy').setup({
 		'github/copilot.vim', -- codex-based autocompletion neural network frontend
 		config = function()
 			vim.g.copilot_no_tab_map = true
+		end
+	},
+
+	{
+		'benlubas/molten-nvim', -- jupyter notebook support
+		build = ":UpdateRemotePlugins",
+		dependencies = {
+			{
+				'GCBallesteros/jupytext.nvim', -- to automatically convert .ipynb notebook files to markdown/python that nvim can work with
+				-- to install jupytext dependency: pipx install jupytext
+				config = function()
+					require('jupytext').setup({
+						-- force jupytext to convert notebooks to Quarto format, see below
+						custom_language_formatting = {
+							python = {
+								extension = 'qmd',
+								style = 'quarto',
+								force_ft = 'quarto'
+							}
+						}
+					})
+				end
+			},
+			{
+				'quarto-dev/quarto-nvim', -- to render Quarto files, and handle LSP in cells and utilities to run cells with Molten
+				dependencies = { 'jmbuhr/otter.nvim', 'nvim-treesitter/nvim-treesitter' },
+				config = function()
+					require('quarto').setup({
+						lspFeatures = {
+							languages = { "python", "rust" },
+							chunks = "all",
+							diagnostics = {
+								enabled = true,
+								triggers = { "BufWritePost" },
+							},
+							completion = {
+								enabled = true,
+							},
+						},
+						codeRunner = {
+							enabled = true,
+							default_method = "molten",
+						},
+					})
+				end
+			}
+		},
+		init = function()
+			-- Reuse the python venv from jupyterlab
+			vim.g.python3_host_prog = vim.fn.expand("~/Library/jupyterlab-desktop/jlab_server/bin/python3")
+			-- To setup the venv:
+			-- - open a bash shell in ~/Library/jupyterlab-desktop/jlab_server
+			-- - run `source ./bin/activate`
+			-- - install dependencies with pip: `pip install pynvim jupyter_client pyperclip plotly cairosvg kaleido pnglatex`
 		end
 	},
 
@@ -599,11 +654,7 @@ return require('lazy').setup({
 			'nvim-lua/plenary.nvim'
 		},
 		config = function()
-			require('gitsigns').setup({
-				yadm = {
-					enable = true
-				}
-			})
+			require('gitsigns').setup()
 		end
 	},
 
