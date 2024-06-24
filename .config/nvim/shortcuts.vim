@@ -68,4 +68,4 @@ nmap gb :Telescope git_bcommits<CR>
 nmap gk :Gitsigns prev_hunk<CR>
 nmap gj :Gitsigns next_hunk<CR>
 " Terminal mode shortcuts
-tmap <C-Space> <C-\><C-N><CR>
+tmap <A-Esc> <C-\><C-N><CR>
