@@ -13,7 +13,7 @@ cmd + ctrl - up : yabai -m window --warp north
 cmd + ctrl - right : yabai -m window --warp east
 
 # create stacks
-cmd + ctrl - s : yabai -m window --stack recent
+ctrl - s : yabai -m window --stack recent
 
 # navigate stack
 cmd + shift - s : yabai -m window --focus stack.prev
