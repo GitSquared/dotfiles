@@ -251,6 +251,7 @@ return require('lazy').setup({
 				sources = cmp.config.sources({
 					{ name = 'luasnip' },
 					{ name = 'nvim_lsp' },
+					{ name = 'otter' }
 				}),
 				mapping = {
 					-- key mappings for autocompletion window
@@ -381,7 +382,20 @@ return require('lazy').setup({
 			-- - open a bash shell in ~/Library/jupyterlab-desktop/jlab_server
 			-- - run `source ./bin/activate`
 			-- - install dependencies with pip: `pip install pynvim jupyter_client pyperclip plotly cairosvg kaleido pnglatex`
-		end
+			vim.api.nvim_create_autocmd("FileType", {
+				pattern = "quarto",
+				callback = function(args)
+					local bufnr = args.buf
+					vim.cmd [[ MoltenInit ]]
+					vim.cmd [[ QuartoActivate ]]
+
+					vim.api.nvim_buf_set_keymap(bufnr, 'n', '<C-CR>', ':QuartoSend<CR>',
+						{ noremap = true, silent = true })
+					vim.api.nvim_buf_set_keymap(bufnr, 'n', '<S-CR>', ':noautocmd MoltenEnterOutput<CR>',
+						{ noremap = true, silent = true })
+				end
+			})
+		end,
 	},
 
 	-- ************
