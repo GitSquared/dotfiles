@@ -74,7 +74,9 @@ return require('lazy').setup({
 							vim.api.nvim_command("autocmd BufWritePre <buffer> lua vim.lsp.buf.format()")
 						end
 					},
-					-- eslint = { using eslint_d through none-ls instead
+					eslint = {
+						autostart = true,
+					},
 					html = {},
 					jsonls = {},
 					tsserver = {
@@ -161,67 +163,6 @@ return require('lazy').setup({
 						})
 					end
 				end
-			})
-		end
-	},
-
-	{
-		'nvimtools/none-ls.nvim', -- inject some non-LSP diags through builtin LSP
-		dependencies = {
-			'nvim-lua/plenary.nvim',
-			'nvimtools/none-ls-extras.nvim',
-		},
-		config = function()
-			local null_ls = require('null-ls')
-
-			null_ls.setup({
-				sources = {
-					null_ls.builtins.code_actions.gitsigns,
-					null_ls.builtins.diagnostics.todo_comments,
-				}
-			})
-
-			null_ls.register({
-				name = 'eslint_d', -- name eslint group for easy toggling
-				sources = {
-					require('none-ls.code_actions.eslint_d'),
-					require('none-ls.diagnostics.eslint_d'),
-					require('none-ls.formatting.eslint_d'),
-				}
-			})
-
-			-- Function to check if an ESLint configuration file exists
-			local function eslint_config_exists()
-				local configs = { ".eslintrc", ".eslintrc.json", ".eslintrc.js", ".eslintrc.cjs", ".eslintrc.yaml",
-					".eslintrc.yml" }
-				local current_dir = vim.fn.expand("%:p:h") -- Get the directory of the current buffer
-
-				while current_dir do
-					for _, config in ipairs(configs) do
-						if vim.fn.glob(current_dir .. "/" .. config) ~= "" then
-							return true
-						end
-					end
-					-- Move to the parent directory
-					local parent_dir = current_dir:match("(.*/)[^/]+/?$")
-					if parent_dir == current_dir then
-						break
-					end
-					current_dir = parent_dir
-				end
-
-				return false
-			end
-
-			-- Bind null-ls eslint_d sources on buffers with an ESLint config nearby
-			vim.api.nvim_create_autocmd("BufEnter", {
-				callback = function()
-					if eslint_config_exists() then
-						null_ls.enable('eslint_d') -- name from above
-					else
-						null_ls.disable('eslint_d')
-					end
-				end,
 			})
 		end
 	},
