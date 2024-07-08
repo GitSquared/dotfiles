@@ -393,10 +393,10 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'nyoom-engineering/oxocarbon.nvim', -- theme/colorscheme
-		name = 'oxocarbon',
+		'savq/melange-nvim', -- theme/colorscheme
+		name = 'melange',
 		config = function()
-			vim.cmd([[colorscheme oxocarbon]])
+			vim.cmd([[colorscheme melange]])
 		end
 	},
 
@@ -473,7 +473,7 @@ return require('lazy').setup({
 		config = function()
 			require('lualine').setup({
 				options = {
-					theme = 'oxocarbon',
+					theme = 'melange',
 					icons_enabled = true,
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '╱', right = '╱' }
