@@ -66,21 +66,11 @@ return require('lazy').setup({
 				servers = {
 					bashls = {},
 					cssls = {},
-					biome = {
-						autostart = true,
-						on_attach = function()
-							-- biome is fast enough to use as autoformatter.
-							-- set an autocmd to call vim.lsp.buf.format() on writing current buffer
-							vim.api.nvim_command("autocmd BufWritePre <buffer> lua vim.lsp.buf.format()")
-						end
-					},
-					eslint = {
-						autostart = true,
-					},
+					biome = {},
+					eslint = {},
 					html = {},
 					jsonls = {},
 					tsserver = {
-						autostart = true,
 						on_attach = function(client)
 							-- Don't use tsserver for formatting, use eslint or biome instead
 							client.server_capabilities.documentFormattingProvider = false
@@ -133,6 +123,8 @@ return require('lazy').setup({
 						}
 					}
 				},
+				on_attach = function()
+				end,
 				flags = {
 					debounce_text_changes = 200,
 				},
@@ -167,6 +159,22 @@ return require('lazy').setup({
 							group = 'lsp_document_highlight',
 							buffer = bufnr,
 							callback = vim.lsp.buf.clear_references,
+						})
+					end
+
+					-- Format on save
+					if client.supports_method('textDocument/format') then
+						vim.api.nvim_create_augroup('lsp_format_on_save', {
+							clear = false
+						})
+						vim.api.nvim_clear_autocmds({
+							buffer = bufnr,
+							group = 'lsp_format_on_save',
+						})
+						vim.api.nvim_create_autocmd({ 'BufWritePre' }, {
+							group = 'lsp_format_on_save',
+							buffer = bufnr,
+							callback = vim.lsp.buf.format,
 						})
 					end
 				end
