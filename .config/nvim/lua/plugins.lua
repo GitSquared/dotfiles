@@ -136,30 +136,39 @@ return require('lazy').setup({
 				flags = {
 					debounce_text_changes = 200,
 				},
-				on_attach = function(client, bufnr)
+			})
+
+			vim.api.nvim_create_autocmd('LspAttach', {
+				callback = function(args)
+					local client = vim.lsp.get_client_by_id(args.data.client_id)
+					local bufnr = args.buf
+
 					-- Highlight the current variable and its usages in the buffer.
-					vim.cmd([[
+					if client.supports_method('textDocument/documentHighlight') then
+						vim.cmd [[
 							hi! link LspReferenceRead Visual
 							hi! link LspReferenceText Visual
 							hi! link LspReferenceWrite Visual
-						]])
+						]]
 
-					local gid = vim.api.nvim_create_augroup("lsp_document_highlight", { clear = true })
-					vim.api.nvim_create_autocmd("CursorHold", {
-						group = gid,
-						buffer = bufnr,
-						callback = function()
-							vim.lsp.buf.document_highlight()
-						end
-					})
-
-					vim.api.nvim_create_autocmd("CursorMoved", {
-						group = gid,
-						buffer = bufnr,
-						callback = function()
-							vim.lsp.buf.clear_references()
-						end
-					})
+						vim.api.nvim_create_augroup('lsp_document_highlight', {
+							clear = false
+						})
+						vim.api.nvim_clear_autocmds({
+							buffer = bufnr,
+							group = 'lsp_document_highlight',
+						})
+						vim.api.nvim_create_autocmd({ 'CursorHold', 'CursorHoldI' }, {
+							group = 'lsp_document_highlight',
+							buffer = bufnr,
+							callback = vim.lsp.buf.document_highlight,
+						})
+						vim.api.nvim_create_autocmd({ 'CursorMoved', 'CursorMovedI' }, {
+							group = 'lsp_document_highlight',
+							buffer = bufnr,
+							callback = vim.lsp.buf.clear_references,
+						})
+					end
 				end
 			})
 		end
