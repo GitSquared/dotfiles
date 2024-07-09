@@ -134,6 +134,9 @@ return require('lazy').setup({
 				callback = function(args)
 					local client = vim.lsp.get_client_by_id(args.data.client_id)
 					local bufnr = args.buf
+					if client == nil then
+						return
+					end
 
 					-- Highlight the current variable and its usages in the buffer.
 					if client.supports_method('textDocument/documentHighlight') then
@@ -164,18 +167,12 @@ return require('lazy').setup({
 
 					-- Format on save
 					if client.supports_method('textDocument/format') then
-						vim.api.nvim_create_augroup('lsp_format_on_save', {
-							clear = false
-						})
-						vim.api.nvim_clear_autocmds({
-							buffer = bufnr,
-							group = 'lsp_format_on_save',
-						})
-						vim.api.nvim_create_autocmd({ 'BufWritePre' }, {
-							group = 'lsp_format_on_save',
-							buffer = bufnr,
-							callback = vim.lsp.buf.format,
-						})
+						vim.cmd [[
+							augroup format_on_save
+								au!
+								autocmd BufWritePre <buffer> lua vim.lsp.buf.format()
+							augroup END
+						]]
 					end
 				end
 			})
