@@ -54,7 +54,7 @@ brew "libpq"
 brew "lua"
 brew "magic-wormhole"
 brew "ncdu"
-brew "neovim"
+brew "neovim", args: ["HEAD"]
 brew "nmap"
 brew "openjdk"
 brew "pastel"
