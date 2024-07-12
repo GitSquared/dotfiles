@@ -87,16 +87,19 @@ return require('lazy').setup({
 								plugins = {
 									pycodestyle = { enabled = false },
 									black = {
-										enabled = true,
+										enabled = false,
 										cache_config = true,
 									},
 									pylsp_mypy = {
-										enabled = true,
+										enabled = false,
 										live_mode = true,
 										dmypy = true,
 										report_progress = true,
 									},
 									isort = {
+										enabled = false,
+									},
+									ruff = {
 										enabled = true,
 									},
 									jedi_completion = { fuzzy = true },
