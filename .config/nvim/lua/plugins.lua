@@ -42,9 +42,9 @@ return require('lazy').setup({
 					"graphql",
 					"fish",
 					"dockerfile",
+					"terraform",
 					"bash",
-					"css",
-					"c"
+					"css"
 				},
 				highlight = {
 					enable = true,
@@ -80,6 +80,7 @@ return require('lazy').setup({
 					prismals = {},
 					vimls = {},
 					yamlls = {},
+					terraformls = {},
 					pylsp = {
 						autostart = true,
 						settings = {
