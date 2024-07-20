@@ -636,8 +636,8 @@ return require('lazy').setup({
 		config = function()
 			require('modes').setup({
 				colors = {
-					visual = '#be95ff',
-					insert = '#ff7eb6',
+					visual = '#EBC06D',
+					insert = '#D37765',
 				},
 				set_cursor = true,
 				set_cursorline = true,
