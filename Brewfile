@@ -99,6 +99,7 @@ cask "font-jetbrains-mono-nerd-font", args: { fontdir: "/Library/Fonts" }
 cask "freecad"
 cask "gimp"
 cask "google-cloud-sdk"
+cask "google-drive"
 cask "hammerspoon"
 cask "handbrake"
 cask "hey"
