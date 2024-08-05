@@ -70,7 +70,7 @@ return require('lazy').setup({
 					eslint = {},
 					html = {},
 					jsonls = {},
-					tsserver = {
+					vtsls = { -- faster drop-in replacement for tsserver
 						on_attach = function(client)
 							-- Don't use tsserver for formatting, use eslint or biome instead
 							client.server_capabilities.documentFormattingProvider = false
@@ -963,6 +963,12 @@ return require('lazy').setup({
 				}
 			)
 		end
+	},
+
+	{
+		'MeanderingProgrammer/render-markdown.nvim', -- better markdown rendering
+		opts = {},
+		dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' },
 	},
 
 	{
