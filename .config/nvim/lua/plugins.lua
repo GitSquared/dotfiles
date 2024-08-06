@@ -561,7 +561,8 @@ return require('lazy').setup({
 	},
 
 	{
-		'folke/noice.nvim', -- better UI for cmdline and popupmenu, binds messages to nvim-notify
+		'folke/noice.nvim',                              -- better UI for cmdline and popupmenu, binds messages to nvim-notify
+		commit = 'd9328ef903168b6f52385a751eb384ae7e906c6f', -- https://github.com/folke/noice.nvim/issues/921
 		event = 'VeryLazy',
 		dependencies = {
 			'MunifTanjim/nui.nvim',
