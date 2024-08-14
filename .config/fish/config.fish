@@ -1,6 +1,7 @@
 if not status is-interactive
 	exit
 end
+pyenv init - | source
 source (rbenv init -|psub)
 zoxide init fish | source
 
