@@ -685,7 +685,9 @@ return require('lazy').setup({
 	{
 		'karb94/neoscroll.nvim', -- smooth scrolling
 		config = function()
-			require('neoscroll').setup()
+			require('neoscroll').setup({
+				easing = 'quadratic'
+			})
 		end
 	},
 
