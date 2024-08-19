@@ -1,0 +1,5 @@
+[user]
+	email = gabriel@carbonfact.com
+	signingkey = A6A678D586AB28DD
+[maintenance]
+	repo = ~/git/carbonfact

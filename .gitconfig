@@ -2,8 +2,12 @@
 	name = Gabriel Saillard
 	email = gabriel@saillard.dev
 	signingkey = 3788B51C0983EE58
+[includeIf "gitdir:~/git/carbonfact/"]
+	path = ~/work.gitconfig
 [commit]
 	gpgsign = true
+[tag]
+	gpgSign = true
 [diff]
 	tool = kitty
 	guitool = kitty.gui
@@ -37,13 +41,9 @@
 	autoSetupRemote = true
 [init]
 	defaultBranch = main
-[tag]
-	gpgSign = true
 [core]
 	editor = nvim
 [gpg]
 	program = /opt/homebrew/bin/gpg
 [fetch]
 	prune = true
-[maintenance]
-	repo = /Users/gaby/git/carbonfact
