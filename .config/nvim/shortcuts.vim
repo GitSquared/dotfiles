@@ -42,7 +42,7 @@ nmap <S-Right> :vertical resize +3<CR>
 nmap <Leader>/ :Telescope current_buffer_fuzzy_find<CR>
 nmap <Leader>p :Telescope smart_open<CR>
 nmap <Leader>C :TSContextToggle<CR>
-nmap <Leader>m :Navbuddy<CR>
+nmap <Leader>l :Outline<CR>
 nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>

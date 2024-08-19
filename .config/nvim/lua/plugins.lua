@@ -821,21 +821,11 @@ return require('lazy').setup({
 	},
 
 	{
-		'SmiteshP/nvim-navbuddy', -- navigate LSP symbols in a ranger-like view
-		dependencies = {
-			'neovim/nvim-lspconfig',
-			'SmiteshP/nvim-navic',
-			'MunifTanjim/nui.nvim',
-			'numToStr/Comment.nvim',  -- Optional
-			'nvim-telescope/telescope.nvim' -- Optional
+		'hedyhli/outline.nvim',
+		lazy = true,
+		cmd = { 'Outline', 'OutlineOpen' },
+		opts = {
 		},
-		config = function()
-			require('nvim-navbuddy').setup({
-				lsp = {
-					auto_attach = true
-				}
-			})
-		end
 	},
 
 	'tpope/vim-surround', -- commands for working with {surrounding} marks
