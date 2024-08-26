@@ -59,19 +59,8 @@ return require('lazy').setup({
 			'neovim/nvim-lspconfig',
 			'williamboman/mason.nvim',
 			'williamboman/mason-lspconfig.nvim',
-			'lukas-reineke/lsp-format.nvim', -- lsp format wrapper that keeps folds and marks around, format on save
 		},
 		config = function()
-			require('lsp-format').setup({
-				typescript = {
-					exclude = {
-						-- don't use typecript compiler for formatting, rather use biome or eslint instead
-						'tsserver',
-						'vtsls'
-					}
-				}
-			})
-
 			require('lsp-setup').setup({
 				default_mappings = false, -- cf ../shortcuts.vim
 				servers = {
@@ -81,7 +70,12 @@ return require('lazy').setup({
 					eslint = {},
 					html = {},
 					jsonls = {},
-					vtsls = {}, -- faster drop-in replacement for tsserver
+					vtsls = { -- faster drop-in replacement for tsserver
+						on_attach = function(client)
+							-- Don't use tsserver for formatting, use eslint or biome instead
+							client.server_capabilities.documentFormattingProvider = false
+						end,
+					},
 					tailwindcss = {},
 					prismals = {},
 					vimls = {},
@@ -133,7 +127,8 @@ return require('lazy').setup({
 						}
 					}
 				},
-				on_attach = require("lsp-format").on_attach,
+				on_attach = function()
+				end,
 				flags = {
 					debounce_text_changes = 200,
 				},
@@ -172,6 +167,16 @@ return require('lazy').setup({
 							buffer = bufnr,
 							callback = vim.lsp.buf.clear_references,
 						})
+					end
+
+					-- Format on save
+					if client.supports_method('textDocument/format') then
+						vim.cmd [[
+							augroup format_on_save
+								au!
+								autocmd BufWritePre <buffer> lua vim.lsp.buf.format()
+							augroup END
+						]]
 					end
 				end
 			})
