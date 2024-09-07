@@ -1,7 +1,6 @@
 " Custom terminal functions
 let g:floaterm_shell_opened = 0
 let g:floaterm_ranger_opened = 0
-let g:floaterm_lazygit_opened = 0
 let g:floaterm_oneshot_opened = 0
 
 function! CustomTermToggle(cmd)
@@ -9,8 +8,6 @@ function! CustomTermToggle(cmd)
 		exe 'FloatermToggle '.a:cmd
 	elseif a:cmd == 'ranger' && g:floaterm_ranger_opened == 1
 		exe 'FloatermToggle ranger'
-	elseif a:cmd == 'lazygit' && g:floaterm_lazygit_opened == 1
-		exe 'FloatermToggle lazygit'
 	else
 		exe 'FloatermNew --autoclose=2 --height=0.8 --width=0.8 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
 	endif
@@ -33,8 +30,6 @@ function! CustomTermOpenHandler()
 		let g:floaterm_shell_opened = 1
 	elseif b:floaterm_title == 'ranger'
 		let g:floaterm_ranger_opened = 1
-	elseif b:floaterm_title == 'lazygit'
-		let g:floaterm_lazygit_opened = 1
 	elseif b:floaterm_title == 'oneshot'
 		let g:floaterm_oneshot_opened = 1
 	endif
@@ -48,8 +43,6 @@ function! CustomTermCloseHandler()
 		let g:floaterm_shell_opened = 0
 	elseif b:floaterm_title == 'ranger'
 		let g:floaterm_ranger_opened = 0
-	elseif b:floaterm_title == 'lazygit'
-		let g:floaterm_lazygit_opened = 0
 	elseif b:floaterm_title == 'oneshot'
 		let g:floaterm_oneshot_opened = 0
 	endif

@@ -594,6 +594,25 @@ return require('lazy').setup({
 	},
 
 	{
+		'kdheepak/lazygit.nvim', -- lazygit integration
+		cmd = {
+			'LazyGit',
+			'LazyGitConfig',
+			'LazyGitCurrentFile',
+			'LazyGitFilter',
+			'LazyGitFilterCurrentFile',
+		},
+		-- optional for floating window border decoration
+		dependencies = {
+			'nvim-lua/plenary.nvim',
+		},
+		config = function()
+			vim.g.lazygit_floating_window_winblend = 15 -- transparency of floating window. 0 to 100 range
+			vim.g.lazygit_floating_window_scaling_factor = 0.9 -- scaling factor for floating window
+		end
+	},
+
+	{
 		'nvim-tree/nvim-tree.lua', -- sidebar tree view file explorer, for when Ranger pop-up isn't enough
 		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()

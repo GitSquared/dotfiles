@@ -47,7 +47,7 @@ nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path =
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :call CustomTermToggle('ranger')<CR>
 nmap <leader>D :NvimTreeToggle<CR>
-nmap <Leader>g :call CustomTermToggle('lazygit')<CR>
+nmap <Leader>g :LazyGit<CR>
 nmap <Leader>t :lua require('trouble').toggle('diagnostics')<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
