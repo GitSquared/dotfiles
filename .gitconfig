@@ -1,3 +1,6 @@
+[core]
+	editor = nvim
+	pager = delta
 [user]
 	name = Gabriel Saillard
 	email = gabriel@saillard.dev
@@ -9,18 +12,11 @@
 [tag]
 	gpgSign = true
 [diff]
-	tool = kitty
-	guitool = kitty.gui
-[difftool]
-	prompt = false
-	trustExitCode = true
-[difftool "kitty"]
-	cmd = kitty +kitten diff $LOCAL $REMOTE
-[difftool "kitty.gui"]
-	cmd = kitty kitty +kitten diff $LOCAL $REMOTE
-[alias]
-	lol = log --graph --decorate --pretty=oneline --abbrev-commit
-	lola = log --graph --decorate --pretty=oneline --abbrev-commit --all
+    colorMoved = default
+[interactive]
+	diffFilter = delta --color-only
+[delta]
+	navigate = true # use n and N to move between diff sections
 [merge]
 	conflictstyle = zdiff3
 [color]
@@ -41,8 +37,6 @@
 	autoSetupRemote = true
 [init]
 	defaultBranch = main
-[core]
-	editor = nvim
 [gpg]
 	program = /opt/homebrew/bin/gpg
 [fetch]
