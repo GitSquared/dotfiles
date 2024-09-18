@@ -561,8 +561,7 @@ return require('lazy').setup({
 	},
 
 	{
-		'folke/noice.nvim',                              -- better UI for cmdline and popupmenu, binds messages to nvim-notify
-		commit = 'd9328ef903168b6f52385a751eb384ae7e906c6f', -- https://github.com/folke/noice.nvim/issues/921
+		'folke/noice.nvim', -- better UI for cmdline and popupmenu, binds messages to nvim-notify
 		event = 'VeryLazy',
 		dependencies = {
 			'MunifTanjim/nui.nvim',
@@ -607,7 +606,7 @@ return require('lazy').setup({
 			'nvim-lua/plenary.nvim',
 		},
 		config = function()
-			vim.g.lazygit_floating_window_winblend = 15 -- transparency of floating window. 0 to 100 range
+			vim.g.lazygit_floating_window_winblend = 15  -- transparency of floating window. 0 to 100 range
 			vim.g.lazygit_floating_window_scaling_factor = 0.9 -- scaling factor for floating window
 		end
 	},

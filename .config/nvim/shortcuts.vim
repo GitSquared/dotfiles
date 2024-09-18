@@ -67,7 +67,7 @@ imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 nmap gb :Telescope git_bcommits<CR>
 nmap gk :Gitsigns prev_hunk<CR>
 nmap gj :Gitsigns next_hunk<CR>
-nmap <Leader>gy :GitLink<CR>
-nmap <Leader>gb :GitLink blame<CR>
+map <Leader>gy :GitLink<CR>
+map <Leader>gb :GitLink blame<CR>
 " Terminal mode shortcuts
 tmap <A-Esc> <C-\><C-N><CR>
