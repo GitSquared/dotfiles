@@ -186,9 +186,8 @@ return require('lazy').setup({
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
 	{
-		'hrsh7th/nvim-cmp',  -- autocompletion engine
+		'hrsh7th/nvim-cmp', -- autocompletion engine
 		dependencies = {
-			'L3MON4D3/LuaSnip', -- to store snippets
 			-- autocompletion engine completion sources:
 			'hrsh7th/cmp-nvim-lsp', -- LSP clients
 			'hrsh7th/cmp-path', -- paths on local file system
@@ -196,17 +195,10 @@ return require('lazy').setup({
 		},
 		config = function()
 			local cmp = require('cmp')
-			local luasnip = require('luasnip')
 			local lspkind = require('lspkind')
 
 			cmp.setup({
-				snippet = {
-					expand = function(args)
-						luasnip.lsp_expand(args.body) -- bind to snippet plugin
-					end
-				},
 				sources = cmp.config.sources({
-					{ name = 'luasnip' },
 					{ name = 'nvim_lsp' },
 					{ name = 'otter' }
 				}),
@@ -218,7 +210,6 @@ return require('lazy').setup({
 						c = cmp.mapping.close(),
 					}),
 					['<CR>'] = cmp.mapping.confirm({ select = false }),
-					-- use tab and shift-tab to browse completion list displayed by luasnip
 					["<Tab>"] = cmp.mapping(function(fallback)
 						local has_words_before = function()
 							local line, col = unpack(vim.api.nvim_win_get_cursor(0))
@@ -227,8 +218,6 @@ return require('lazy').setup({
 						end
 						if cmp.visible() then
 							cmp.select_next_item()
-						elseif luasnip.expand_or_jumpable() then
-							luasnip.expand_or_jump()
 						elseif has_words_before() then
 							cmp.complete()
 						else
@@ -238,8 +227,6 @@ return require('lazy').setup({
 					["<S-Tab>"] = cmp.mapping(function(fallback)
 						if cmp.visible() then
 							cmp.select_prev_item()
-						elseif luasnip.jumpable(-1) then
-							luasnip.jump(-1)
 						else
 							fallback()
 						end
@@ -909,6 +896,13 @@ return require('lazy').setup({
 			-- Using ufo provider need remap `zR` and `zM`. If Neovim is 0.6.1, remap yourself
 			vim.keymap.set('n', 'zR', require('ufo').openAllFolds)
 			vim.keymap.set('n', 'zM', require('ufo').closeAllFolds)
+			vim.keymap.set('n', 'zK', function()
+				local winid = require('ufo').peekFoldedLinesUnderCursor()
+
+				if not winid then
+					vim.lsp.buf.hover()
+				end
+			end, { desc = 'Peek fold' })
 
 			-- display count of folded lines in virtual text
 			local handler = function(virtText, lnum, endLnum, width, truncate)
