@@ -34,3 +34,5 @@ set ignorecase
 set smartcase
 set gdefault
 set clipboard^=unnamed
+set foldcolumn=1
+set fillchars=eob:\ ,fold:\ ,foldopen:,foldsep:\ ,foldclose:
