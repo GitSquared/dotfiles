@@ -36,3 +36,6 @@ set gdefault
 set clipboard^=unnamed
 set foldcolumn=1
 set fillchars=eob:\ ,fold:\ ,foldopen:,foldsep:\ ,foldclose:
+set foldlevelstart=99
+set foldexpr=v:lua.vim.treesitter.foldexpr()
+set foldmethod=expr
