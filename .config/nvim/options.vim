@@ -39,3 +39,10 @@ set fillchars=eob:\ ,fold:\ ,foldopen:,foldsep:\ ,foldclose:
 set foldlevelstart=99
 set foldexpr=v:lua.vim.treesitter.foldexpr()
 set foldmethod=expr
+set foldtext=CustomFoldText()
+function! CustomFoldText()
+  let line = getline(v:foldstart)
+  let folded_lines_count = v:foldend - v:foldstart + 1
+	let fold_indicator = ' ↙ ' . folded_lines_count . ' lines'
+  return line . fold_indicator
+endfunction
