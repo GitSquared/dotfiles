@@ -125,7 +125,8 @@ return require('lazy').setup({
 								}
 							},
 						}
-					}
+					},
+					jinja_lsp = {}
 				},
 				on_attach = function()
 				end,
@@ -182,6 +183,8 @@ return require('lazy').setup({
 			})
 		end
 	},
+
+	'HiPhish/jinja.vim',  -- Jinja template syntax support
 
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
