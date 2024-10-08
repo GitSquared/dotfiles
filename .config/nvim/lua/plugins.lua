@@ -401,10 +401,11 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'savq/melange-nvim', -- theme/colorscheme
-		name = 'melange',
+		'ayu-theme/ayu-vim', -- theme/colorscheme
+		name = 'ayu',
 		config = function()
-			vim.cmd([[colorscheme melange]])
+			vim.g.ayucolor = 'dark'
+			vim.cmd([[colorscheme ayu]])
 		end
 	},
 
@@ -481,7 +482,7 @@ return require('lazy').setup({
 		config = function()
 			require('lualine').setup({
 				options = {
-					theme = 'melange',
+					theme = 'ayu',
 					icons_enabled = true,
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '╱', right = '╱' }
@@ -512,7 +513,7 @@ return require('lazy').setup({
 							return msg
 						end,
 						cond = require("noice").api.statusline.mode.has,
-						color = { fg = "#ff9e64" },
+						color = { fg = "#E6E1CF" },
 					}, 'diagnostics' },
 					lualine_y = { 'filetype' },
 					lualine_z = { 'location' },
@@ -645,8 +646,8 @@ return require('lazy').setup({
 		config = function()
 			require('modes').setup({
 				colors = {
-					visual = '#EBC06D',
-					insert = '#D37765',
+					visual = '#FFEE99',
+					insert = '#B8CC51',
 				},
 				set_cursor = true,
 				set_cursorline = true,
@@ -824,7 +825,7 @@ return require('lazy').setup({
 			'nvim-tree/nvim-web-devicons', -- optional dependency
 		},
 		opts = {
-			theme = 'catppuccin'
+			theme = 'ayu'
 		}
 	},
 
