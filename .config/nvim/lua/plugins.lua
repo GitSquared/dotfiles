@@ -658,6 +658,16 @@ return require('lazy').setup({
 	},
 
 	{
+		'levouh/tint.nvim', -- dim inactive windows
+		name = 'tint',
+		config = function()
+			require('tint').setup({
+				highlight_ignore_patterns = { "WinSeparator", "Status.*", "LineNr" }
+			})
+		end
+	},
+
+	{
 		'folke/todo-comments.nvim',
 		dependencies = { 'nvim-lua/plenary.nvim' },
 		config = function()
