@@ -170,14 +170,40 @@ return require('lazy').setup({
 						})
 					end
 
-					-- Format on save
 					if client.supports_method('textDocument/format') then
-						vim.cmd [[
-							augroup format_on_save
-								au!
-								autocmd BufWritePre <buffer> lua vim.lsp.buf.format()
-							augroup END
-						]]
+						local function format_with_folds()
+							-- Save the current folds
+							local foldmethod = vim.api.nvim_get_option_value('foldmethod', { scope = 'local' })
+							local foldinfo = {}
+							for i = 1, vim.fn.line('$') do
+								foldinfo[i] = vim.fn.foldclosed(i)
+							end
+
+							-- Format the buffer
+							vim.lsp.buf.format({ bufnr = bufnr })
+
+							-- Restore the folds
+							vim.api.nvim_set_option_value('foldmethod', foldmethod, { scope = 'local' })
+							for i = 1, vim.fn.line('$') do
+								if foldinfo[i] ~= -1 then
+									vim.cmd(i .. ' foldclose')
+								elseif vim.fn.foldclosed(i) ~= -1 then
+									vim.cmd(i .. ' foldopen')
+								end
+							end
+						end
+
+						-- Create an autocmd group for formatting on save
+						vim.api.nvim_create_augroup('format_on_save', { clear = false })
+						vim.api.nvim_clear_autocmds({
+							buffer = bufnr,
+							group = 'format_on_save',
+						})
+						vim.api.nvim_create_autocmd('BufWritePre', {
+							group = 'format_on_save',
+							buffer = bufnr,
+							callback = format_with_folds,
+						})
 					end
 				end
 			})
