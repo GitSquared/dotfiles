@@ -169,48 +169,42 @@ return require('lazy').setup({
 							callback = vim.lsp.buf.clear_references,
 						})
 					end
-
-					if client.supports_method('textDocument/format') then
-						local function format_with_folds()
-							-- Save the current folds
-							local foldmethod = vim.api.nvim_get_option_value('foldmethod', { scope = 'local' })
-							local foldinfo = {}
-							for i = 1, vim.fn.line('$') do
-								foldinfo[i] = vim.fn.foldclosed(i)
-							end
-
-							-- Format the buffer
-							vim.lsp.buf.format({ bufnr = bufnr })
-
-							-- Restore the folds
-							vim.api.nvim_set_option_value('foldmethod', foldmethod, { scope = 'local' })
-							for i = 1, vim.fn.line('$') do
-								if foldinfo[i] ~= -1 then
-									vim.cmd(i .. ' foldclose')
-								elseif vim.fn.foldclosed(i) ~= -1 then
-									vim.cmd(i .. ' foldopen')
-								end
-							end
-						end
-
-						-- Create an autocmd group for formatting on save
-						vim.api.nvim_create_augroup('format_on_save', { clear = false })
-						vim.api.nvim_clear_autocmds({
-							buffer = bufnr,
-							group = 'format_on_save',
-						})
-						vim.api.nvim_create_autocmd('BufWritePre', {
-							group = 'format_on_save',
-							buffer = bufnr,
-							callback = format_with_folds,
-						})
-					end
 				end
 			})
 		end
 	},
 
-	'HiPhish/jinja.vim',  -- Jinja template syntax support
+	'HiPhish/jinja.vim', -- Jinja template syntax support
+
+	{
+		"stevearc/conform.nvim", -- Foramt code while preserving marks and folds
+		event = { "BufWritePre" },
+		cmd = { "ConformInfo" },
+		-- This will provide type hinting with LuaLS
+		---@module "conform"
+		---@type conform.setupOpts
+		opts = {
+			default_format_opts = {
+				lsp_format = "prefer", -- use LSP formatting if available, fallback to formatters defined below
+			},
+			formatters_by_ft = {
+				lua = { "stylua" },
+				python = { "isort", "black" },
+				javascript = { "biome-check", "eslint", stop_after_first = true },
+				json = { "biome" },
+				sql = { 'sql_formatter' },
+				terraform = { 'terraform_fmt' },
+			},
+			format_on_save = { timeout_ms = 500 },
+			formatters = {
+				-- additional options here
+			},
+		},
+		init = function()
+			-- Allows using native neovim formatting utils like gq
+			vim.o.formatexpr = "v:lua.require'conform'.formatexpr()"
+		end,
+	},
 
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
