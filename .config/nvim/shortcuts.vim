@@ -62,10 +62,9 @@ nmap <silent> gi :Telescope lsp_implementations<CR>
 nmap <silent> gr :Telescope lsp_references<CR>
 imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 " Git integration
-nmap gb :Telescope git_bcommits<CR>
+nmap gb :Gitsigns blame<CR>
 nmap gk :Gitsigns prev_hunk<CR>
 nmap gj :Gitsigns next_hunk<CR>
 map <Leader>gy :GitLink<CR>
-map <Leader>gb :Gitsigns blame<CR>
 " Terminal mode shortcuts
 tmap <A-Esc> <C-\><C-N><CR>
