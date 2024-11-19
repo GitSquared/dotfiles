@@ -28,7 +28,7 @@ brew "gcc"
 brew "fish"
 brew "fisher"
 brew "fortune"
-brew "node", link: false
+brew "node"
 brew "fx"
 brew "fzf"
 brew "gdbm"
