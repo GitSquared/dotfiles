@@ -298,6 +298,12 @@ return require('lazy').setup({
 		end
 	},
 
+	{
+		'chentoast/marks.nvim', -- Better marks keybind and support
+		event = 'VeryLazy',
+		opts = {},
+	},
+
 	-- ************
 	-- UI
 	-- ************
