@@ -70,12 +70,7 @@ return require('lazy').setup({
 					eslint = {},
 					html = {},
 					jsonls = {},
-					vtsls = { -- faster drop-in replacement for tsserver
-						on_attach = function(client)
-							-- Don't use tsserver for formatting, use eslint or biome instead
-							client.server_capabilities.documentFormattingProvider = false
-						end,
-					},
+					vtsls = {}, -- faster drop-in replacement for tsserver
 					tailwindcss = {},
 					prismals = {},
 					vimls = {},
@@ -185,7 +180,7 @@ return require('lazy').setup({
 		---@type conform.setupOpts
 		opts = {
 			default_format_opts = {
-				lsp_format = "prefer", -- use LSP formatting if available, fallback to formatters defined below
+				lsp_format = "fallback",
 			},
 			formatters_by_ft = {
 				lua = { "stylua" },
