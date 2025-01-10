@@ -7,7 +7,6 @@ zoxide init fish | source
 
 alias pinentry='pinentry-mac'
 alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "Lazy! sync" -c "TSUpdateSync" +qa'
-alias weather='curl wttr.in'
 
 alias ranger='ranger-cd' # with fish integration via fisher plugin
 
@@ -34,9 +33,6 @@ set --global tide_right_prompt_items status cmd_duration context jobs virtual_en
 set -x EDITOR nvim
 set -x NODE_ENV development
 set -x HOMEBREW_NO_ENV_HINTS 1
-
-# This is respected by most NPM packages postinstall scripts
-set -x ADBLOCK 1
 
 function fish_greeting
 	fortune -s
