@@ -8,6 +8,10 @@ set nobackup
 set termguicolors
 set nowritebackup
 set mouse=a
+augroup enablemouse
+	autocmd!
+	autocmd BufEnter * setlocal mouse=a
+augroup END
 set cmdheight=2
 set shortmess+=c
 set signcolumn=yes
