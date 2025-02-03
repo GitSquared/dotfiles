@@ -1,0 +1,17 @@
+auto-update = check
+
+theme = ayu
+font-thicken = true
+
+keybind = global:ctrl+§=toggle_quick_terminal
+keybind = ctrl+cmd+f=unbind
+
+macos-titlebar-style = tabs
+macos-titlebar-proxy-icon = hidden
+window-padding-x = 10
+window-padding-y = 8
+
+macos-icon = custom-style
+macos-icon-frame = beige
+macos-icon-ghost-color = #36A3D9
+macos-icon-screen-color = #0F141A
