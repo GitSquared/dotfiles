@@ -4,7 +4,6 @@ end
 pyenv init - | source
 source (rbenv init -|psub)
 zoxide init fish | source
-nvm use system --silent
 
 alias pinentry='pinentry-mac'
 alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update;nvim --headless -c "Lazy! sync" -c "TSUpdateSync" +qa'
@@ -42,10 +41,10 @@ end
 # Automatically switch node version based on .nvmrc
 function nvm_use_on_dir --on-variable PWD
   if status is-interactive
-    if test -e ./.nvmrc
-      nvm use
+    if test -e ./.nvmrc || test -e ../.nvmrc || test -e ../../.nvmrc || test -e ../../../.nvmrc
+      nvm use --silent
     else
-      nvm -s use system
+      nvm use system --silent
     end
   end
 end
