@@ -56,10 +56,10 @@ nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <Leader>e :lua require('conform').format({ async = true })<CR>
 " Below is also <C-W>d in neovim 0.10
 nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
-nmap <silent> gd :Telescope lsp_definitions<CR>
-nmap <silent> gy :Telescope lsp_type_definitions<CR>
-nmap <silent> gi :Telescope lsp_implementations<CR>
-nmap <silent> gr :Telescope lsp_references<CR>
+nmap <silent> gd :Glance definitions<CR>
+nmap <silent> gy :Glance type_definitions<CR>
+nmap <silent> gi :Glance implementations<CR>
+nmap <silent> gr :Glance references<CR>
 imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 " Git integration
 nmap gb :Gitsigns blame<CR>

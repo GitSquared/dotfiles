@@ -730,6 +730,11 @@ return require('lazy').setup({
 	},
 
 	{
+		'dnlhc/glance.nvim', -- glance at LSP definitions and references without opening a full-blown window
+		cmd = 'Glance'
+	},
+
+	{
 		'utilyre/barbecue.nvim', -- show lsp symbols breadcrumbs in winbar
 		version = "*",
 		dependencies = {
