@@ -95,7 +95,6 @@ cask "android-studio"
 cask "blackhole-2ch"
 cask "chatgpt"
 cask "cutter"
-cask "discord"
 cask "docker"
 cask "font-jetbrains-mono"
 cask "font-jetbrains-mono-nerd-font", args: { fontdir: "/Library/Fonts" }
