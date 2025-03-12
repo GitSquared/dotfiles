@@ -7,6 +7,7 @@ set hidden
 set nobackup
 set termguicolors
 set nowritebackup
+set laststatus=3
 set mouse=a
 augroup enablemouse
 	autocmd!

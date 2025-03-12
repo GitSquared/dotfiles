@@ -41,3 +41,5 @@
 	program = /opt/homebrew/bin/gpg
 [fetch]
 	prune = true
+[maintenance]
+	repo = /Users/gaby/git/carbonfact/carbonfact
