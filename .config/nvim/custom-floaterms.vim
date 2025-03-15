@@ -1,13 +1,10 @@
 " Custom terminal functions
 let g:floaterm_shell_opened = 0
-let g:floaterm_ranger_opened = 0
 let g:floaterm_oneshot_opened = 0
 
 function! CustomTermToggle(cmd)
 	if a:cmd == g:floaterm_shell && g:floaterm_shell_opened == 1
 		exe 'FloatermToggle '.a:cmd
-	elseif a:cmd == 'ranger' && g:floaterm_ranger_opened == 1
-		exe 'FloatermToggle ranger'
 	else
 		exe 'FloatermNew --autoclose=2 --height=0.8 --width=0.8 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
 	endif
@@ -28,8 +25,6 @@ function! CustomTermOpenHandler()
 
 	if b:floaterm_title == g:floaterm_shell
 		let g:floaterm_shell_opened = 1
-	elseif b:floaterm_title == 'ranger'
-		let g:floaterm_ranger_opened = 1
 	elseif b:floaterm_title == 'oneshot'
 		let g:floaterm_oneshot_opened = 1
 	endif
@@ -41,8 +36,6 @@ function! CustomTermCloseHandler()
 
 	if b:floaterm_title == g:floaterm_shell
 		let g:floaterm_shell_opened = 0
-	elseif b:floaterm_title == 'ranger'
-		let g:floaterm_ranger_opened = 0
 	elseif b:floaterm_title == 'oneshot'
 		let g:floaterm_oneshot_opened = 0
 	endif

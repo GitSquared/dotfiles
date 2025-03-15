@@ -45,7 +45,7 @@ nmap <Leader>C :TSContextToggle<CR>
 nmap <Leader>l :Outline<CR>
 nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
-nmap <Leader>d :call CustomTermToggle('ranger')<CR>
+nmap <Leader>d :Yazi<CR>
 nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :LazyGit<CR>
 nmap <Leader>t :lua require('trouble').toggle('diagnostics')<CR>

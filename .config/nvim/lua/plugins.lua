@@ -445,6 +445,13 @@ return require('lazy').setup({
 	},
 
 	{
+		'mikavilpas/yazi.nvim', -- open yazi terminal file manager in a floating window
+		event = 'VeryLazy',
+		dependencies = { 'folke/snacks.nvim', lazy = true },
+		opts = {}
+	},
+
+	{
 		'nvim-lualine/lualine.nvim', -- fancy status line with mode indicator and cursor position
 		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
