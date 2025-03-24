@@ -6,6 +6,8 @@ font-thicken = true
 keybind = global:ctrl+§=toggle_quick_terminal
 keybind = ctrl+cmd+f=unbind
 keybind = ctrl+cmd+z=unbind
+keybind = ctrl+cmd+left=unbind
+keybind = ctrl+cmd+right=unbind
 
 macos-titlebar-style = tabs
 macos-titlebar-proxy-icon = hidden
