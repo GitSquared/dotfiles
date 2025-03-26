@@ -8,6 +8,8 @@ keybind = ctrl+cmd+f=unbind
 keybind = ctrl+cmd+z=unbind
 keybind = ctrl+cmd+left=unbind
 keybind = ctrl+cmd+right=unbind
+keybind = opt+left=unbind
+keybind = opt+right=unbind
 
 macos-titlebar-style = tabs
 macos-titlebar-proxy-icon = hidden
