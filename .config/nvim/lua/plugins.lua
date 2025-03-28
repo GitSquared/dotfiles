@@ -369,11 +369,13 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'ayu-theme/ayu-vim', -- theme/colorscheme
+		'Shatur/neovim-ayu', -- theme/colorscheme
 		name = 'ayu',
 		config = function()
-			vim.g.ayucolor = 'dark'
-			vim.cmd([[colorscheme ayu]])
+			require('ayu').setup({
+				terminal = true
+			})
+			vim.cmd('colorscheme ayu')
 		end
 	},
 
@@ -433,15 +435,14 @@ return require('lazy').setup({
 	{
 		'romgrk/barbar.nvim', -- buffers management (="tab bar")
 		dependencies = { 'nvim-tree/nvim-web-devicons' },
-		config = function()
-			require('bufferline').setup({
-				icons = {
-					inactive = { button = '' },
-					current = { button = '' },
-					visible = { button = '' },
-				}
-			})
-		end
+		opts = {
+			icons = {
+				inactive = { button = '' },
+				current = { button = '' },
+				visible = { button = '' },
+			},
+			highlight_visible = true,
+		},
 	},
 
 	{

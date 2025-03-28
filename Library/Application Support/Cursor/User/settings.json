@@ -38,6 +38,14 @@
 			"silent": true
 		},
 		{
+			"before": ["<leader>", "e"],
+			"commands": ["editor.action.formatDocument"]
+		},
+		{
+			"before": ["<leader>", "q"],
+			"commands": ["workbench.action.closeActiveEditor"]
+		},
+		{
 			"before": ["<leader>", "w"],
 			"commands": ["workbench.action.files.save"]
 		},
@@ -97,5 +105,6 @@
 			"before": ["<CR>"],
 			"commands": ["editor.action.smartSelect.expand"]
 		}
-	]
+    ],
+    "workbench.colorTheme": "Ayu Dark Bordered"
 }
