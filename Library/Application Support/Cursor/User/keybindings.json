@@ -1,0 +1,18 @@
+// Place your key bindings in this file to override the defaults
+[
+   {
+      "key": "cmd+s",
+      "command": "workbench.action.terminal.new",
+      "when": "!terminalFocus && !terminal.visible"
+   },
+   {
+      "key": "cmd+s",
+      "command": "workbench.action.terminal.focus",
+      "when": "terminal.visible && !terminalFocus"
+   },
+   {
+      "key": "cmd+s",
+      "command": "workbench.action.focusActiveEditorGroup",
+      "when": "terminalFocus"
+   }
+]

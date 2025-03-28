@@ -9,6 +9,11 @@ run  = 'shell "$SHELL" --block'
 desc = "Open shell here"
 
 [[manager.prepend_keymap]]
+on   = "l"
+run  = "plugin smart-enter"
+desc = "Enter the child directory, or open the file"
+
+[[manager.prepend_keymap]]
 on = [ "g", "r" ]
 run = 'shell -- ya emit cd "$(git rev-parse --show-toplevel)"'
 desc = "Go to git root"
