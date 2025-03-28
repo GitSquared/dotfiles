@@ -1,147 +1,101 @@
 {
-    "window.commandCenter": 1,
-    "cursor.cpp.enablePartialAccepts": true,
-    "editor.fontFamily": "JetBrains Mono, Menlo, Monaco, 'Courier New', monospace",
-    "editor.tabSize": 3,
-    "editor.wordWrap": "on",
-    "editor.minimap.autohide": true,
-    "editor.minimap.enabled": true,
-    "editor.renderWhitespace": "trailing",
-    "cursor.general.enableShadowWorkspace": true,
-    "editor.fontSize": 13,
-    "terminal.external.osxExec": "Ghostty.app",
-    "terminal.integrated.cursorBlinking": true,
-    "terminal.integrated.defaultProfile.osx": "fish",
-    "git.autofetch": true,
-    "editor.formatOnSave": true,
-    "terminal.integrated.fontFamily": "JetBrainsMono Nerd Font",
-    "terminal.integrated.fontLigatures": true,
-    "terminal.integrated.profiles.osx": {
-        "lazygit": {
-            "path": "lazygit",
-            "args": []
-        },
-        "yazi": {
-            "path": "fish",
-            "args": [
-                "-c",
-                "set -lx EDITOR cursor; yazi"
-            ]
-        }
-    },
-    "vim.smartRelativeLine": true,
-    "vim.useSystemClipboard": true,
-    // "vim.statusBarColorControl": true,
-    "vim.easymotion": true,
-    "vim.leader": "<space>",
-    "vim.normalModeKeyBindings": [
-        {
-            "before": [
-                ":"
-            ],
-            "commands": [
-                "workbench.action.showCommands",
-            ],
-            "silent": true
-        },
-        {
-            "before": [
-                "<leader>",
-                "w"
-            ],
-            "commands": [
-                "workbench.action.files.save",
-            ]
-        },
-        {
-            "before": [
-                "<leader>",
-                "g"
-            ],
-            "commands": [
-                {
-                    "command": "workbench.action.terminal.newWithProfile",
-                    "args": {
-                        "profileName": "lazygit",
-                    }
-                }
-            ]
-        },
-        {
-            "before": [
-                "<leader>",
-                "d"
-            ],
-            "commands": [
-                {
-                    "command": "workbench.action.terminal.newWithProfile",
-                    "args": {
-                        "profileName": "yazi",
-                    }
-                }
-            ]
-        },
-        {
-            "before": [
-                "<CR>"
-            ],
-            "commands": [
-                "editor.action.smartSelect.expand"
-            ]
-        },
-        {
-            "before": [
-                "<leader>",
-                "v"
-            ],
-            "commands": [
-                "workbench.action.previousEditor"
-            ]
-        },
-        {
-            "before": [
-                "<leader>",
-                "n"
-            ],
-            "commands": [
-                "workbench.action.nextEditor"
-            ]
-        },
-        {
-            "before": [
-                "<leader>",
-                "p"
-            ],
-            "commands": [
-                "workbench.action.quickOpen"
-            ]
-        },
-        {
-            "before": [
-                "<leader>",
-                "o"
-            ],
-            "commands": [
-                "workbench.action.findInFiles"
-            ]
-        },
-        {
-            "before": [
-                "K"
-            ],
-            "commands": [
-                "editor.action.showHover"
-            ]
-        }
-    ],
-    "vim.visualModeKeyBindings": [
-        {
-            "before": [
-                "<CR>"
-            ],
-            "commands": [
-                "editor.action.smartSelect.expand"
-            ]
-        }
-    ]
+	"window.commandCenter": 1,
+	"cursor.cpp.enablePartialAccepts": true,
+	"editor.fontFamily": "JetBrains Mono, Menlo, Monaco, 'Courier New', monospace",
+	"editor.tabSize": 3,
+	"editor.wordWrap": "on",
+	"editor.minimap.autohide": true,
+	"editor.minimap.enabled": true,
+	"editor.renderWhitespace": "trailing",
+	"cursor.general.enableShadowWorkspace": true,
+	"editor.fontSize": 13,
+	"terminal.external.osxExec": "Ghostty.app",
+	"terminal.integrated.cursorBlinking": true,
+	"terminal.integrated.defaultProfile.osx": "fish",
+	"git.autofetch": true,
+	"editor.formatOnSave": true,
+	"terminal.integrated.fontFamily": "JetBrainsMono Nerd Font",
+	"terminal.integrated.fontLigatures": true,
+	"terminal.integrated.profiles.osx": {
+		"lazygit": {
+			"path": "lazygit",
+			"args": []
+		},
+		"yazi": {
+			"path": "fish",
+			"args": ["-c", "set -lx EDITOR cursor; yazi"]
+		}
+	},
+	"vim.smartRelativeLine": true,
+	"vim.useSystemClipboard": true,
+	// "vim.statusBarColorControl": true,
+	"vim.easymotion": true,
+	"vim.leader": "<space>",
+	"vim.normalModeKeyBindings": [
+		{
+			"before": [":"],
+			"commands": ["workbench.action.showCommands"],
+			"silent": true
+		},
+		{
+			"before": ["<leader>", "w"],
+			"commands": ["workbench.action.files.save"]
+		},
+		{
+			"before": ["<leader>", "g"],
+			"commands": [
+				{
+					"command": "workbench.action.terminal.newWithProfile",
+					"args": {
+						"profileName": "lazygit"
+					}
+				}
+			]
+		},
+		{
+			"before": ["<leader>", "d"],
+			"commands": [
+				{
+					"command": "workbench.action.terminal.newWithProfile",
+					"args": {
+						"profileName": "yazi"
+					}
+				}
+			]
+		},
+		{
+			"before": ["<CR>"],
+			"commands": ["editor.action.smartSelect.expand"]
+		},
+		{
+			"before": ["<leader>", "v"],
+			"commands": ["workbench.action.previousEditor"]
+		},
+		{
+			"before": ["<leader>", "n"],
+			"commands": ["workbench.action.nextEditor"]
+		},
+		{
+			"before": ["<leader>", "p"],
+			"commands": ["workbench.action.quickOpen"]
+		},
+		{
+			"before": ["<leader>", "o"],
+			"commands": ["workbench.action.findInFiles"]
+		},
+		{
+			"before": ["K"],
+			"commands": ["editor.action.showHover"]
+		},
+		{
+			"before": ["<leader>", "r"],
+			"commands": ["editor.action.rename"]
+		}
+	],
+	"vim.visualModeKeyBindings": [
+		{
+			"before": ["<CR>"],
+			"commands": ["editor.action.smartSelect.expand"]
+		}
+	]
 }
