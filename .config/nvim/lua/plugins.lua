@@ -59,76 +59,82 @@ return require('lazy').setup({
 			'neovim/nvim-lspconfig',
 			'williamboman/mason.nvim',
 			'williamboman/mason-lspconfig.nvim',
+			'saghen/blink.cmp', -- load lsp setup when autocompletion engine is ready to integrate
 		},
-		config = function()
-			require('lsp-setup').setup({
-				default_mappings = false, -- cf ../shortcuts.vim
-				servers = {
-					bashls = {},
-					cssls = {},
-					biome = {},
-					eslint = {},
-					html = {},
-					jsonls = {},
-					vtsls = {}, -- faster drop-in replacement for tsserver
-					tailwindcss = {},
-					prismals = {},
-					vimls = {},
-					yamlls = {},
-					terraformls = {},
-					pylsp = {
-						autostart = true,
-						settings = {
-							pylsp = {
-								plugins = {
-									pycodestyle = { enabled = false },
-									black = {
-										enabled = false,
-										cache_config = true,
-									},
-									pylsp_mypy = {
-										enabled = false,
-										live_mode = true,
-										dmypy = true,
-										report_progress = true,
-									},
-									isort = {
-										enabled = false,
-									},
-									ruff = {
-										enabled = true,
-									},
-									jedi_completion = { fuzzy = true },
-									-- to install plugins:
-									-- :PylspInstall pylsp-mypy
-									-- :PylspInstall pyls-isort
-									-- :PylspInstall python-lsp-black
-								}
-							}
-						},
-					},
-					lua_ls = {
-						settings = {
-							Lua = {
-								diagnostics = {
-									-- recognize the `vim` global
-									globals = { 'vim' }
+		opts = {
+			default_mappings = false, -- cf ../shortcuts.vim
+			servers = {
+				bashls = {},
+				cssls = {},
+				biome = {},
+				eslint = {},
+				html = {},
+				jsonls = {},
+				vtsls = {}, -- faster drop-in replacement for tsserver
+				tailwindcss = {},
+				prismals = {},
+				vimls = {},
+				yamlls = {},
+				terraformls = {},
+				pylsp = {
+					autostart = true,
+					settings = {
+						pylsp = {
+							plugins = {
+								pycodestyle = { enabled = false },
+								black = {
+									enabled = false,
+									cache_config = true,
 								},
-								workspace = {
-									-- recognize vim api
-									library = vim.api.nvim_get_runtime_file("", true)
-								}
-							},
+								pylsp_mypy = {
+									enabled = false,
+									live_mode = true,
+									dmypy = true,
+									report_progress = true,
+								},
+								isort = {
+									enabled = false,
+								},
+								ruff = {
+									enabled = true,
+								},
+								jedi_completion = { fuzzy = true },
+								-- to install plugins:
+								-- :PylspInstall pylsp-mypy
+								-- :PylspInstall pyls-isort
+								-- :PylspInstall python-lsp-black
+							}
 						}
 					},
-					jinja_lsp = {}
 				},
-				on_attach = function()
-				end,
-				flags = {
-					debounce_text_changes = 200,
+				lua_ls = {
+					settings = {
+						Lua = {
+							diagnostics = {
+								-- recognize the `vim` global
+								globals = { 'vim' }
+							},
+							workspace = {
+								-- recognize vim api
+								library = vim.api.nvim_get_runtime_file("", true)
+							}
+						},
+					}
 				},
-			})
+				jinja_lsp = {}
+			},
+			on_attach = function()
+			end,
+		},
+		config = function(_, opts)
+			require('lsp-setup').setup(opts)
+
+			local lspconfig = require('lspconfig')
+			for server, config in pairs(opts.servers) do
+				-- bind capabilities to blink.cmp
+				config.capabilities = require('blink.cmp').get_lsp_capabilities(config.capabilities)
+				lspconfig[server].setup(config)
+			end
 
 			vim.api.nvim_create_autocmd('LspAttach', {
 				callback = function(args)
@@ -204,86 +210,108 @@ return require('lazy').setup({
 	'onsails/lspkind-nvim', -- icons in autocompletion window
 
 	{
-		'hrsh7th/nvim-cmp', -- autocompletion engine
+		'saghen/blink.cmp', -- autocompletion engine
+		version = '1.*',
 		dependencies = {
-			-- autocompletion engine completion sources:
-			'hrsh7th/cmp-nvim-lsp', -- LSP clients
-			'hrsh7th/cmp-path', -- paths on local file system
-			'hrsh7th/cmp-cmdline', -- command line completion
+			'giuxtaposition/blink-cmp-copilot', -- completions for Copilot
+			'Kaiser-Yang/blink-cmp-avante' -- completions for Avante
 		},
-		config = function()
-			local cmp = require('cmp')
-			local lspkind = require('lspkind')
-
-			cmp.setup({
-				sources = cmp.config.sources({
-					{ name = 'nvim_lsp' },
-					{ name = 'otter' }
-				}),
-				mapping = {
-					-- key mappings for autocompletion window
-					['<C-Space>'] = cmp.mapping(cmp.mapping.complete(), { 'i', 'c' }),
-					['<S-Esc>'] = cmp.mapping({
-						i = cmp.mapping.abort(),
-						c = cmp.mapping.close(),
-					}),
-					['<CR>'] = cmp.mapping.confirm({ select = false }),
-					["<Tab>"] = cmp.mapping(function(fallback)
-						local has_words_before = function()
-							local line, col = unpack(vim.api.nvim_win_get_cursor(0))
-							return col ~= 0 and
-								 vim.api.nvim_buf_get_lines(0, line - 1, line, true)[1]:sub(col, col):match("%s") == nil
-						end
-						if cmp.visible() then
-							cmp.select_next_item()
-						elseif has_words_before() then
-							cmp.complete()
-						else
-							fallback()
-						end
-					end, { "i", "s" }),
-					["<S-Tab>"] = cmp.mapping(function(fallback)
-						if cmp.visible() then
-							cmp.select_prev_item()
-						else
-							fallback()
-						end
-					end, { "i", "s" }),
-					-- mapping to scroll docs
-					['<C-j>'] = cmp.mapping(cmp.mapping.scroll_docs(4), { 'i', 'c' }),
-					['<C-k>'] = cmp.mapping(cmp.mapping.scroll_docs(-4), { 'i', 'c' })
+		---
+		---@module 'blink.cmp'
+		---@type blink.cmp.Config
+		opts = {
+			-- 'default' (recommended) for mappings similar to built-in completions (C-y to accept)
+			-- 'super-tab' for mappings similar to vscode (tab to accept)
+			-- 'enter' for enter to accept
+			-- 'none' for no mappings
+			--
+			-- All presets have the following mappings:
+			-- C-space: Open menu or open docs if already open
+			-- C-n/C-p or Up/Down: Select next/previous item
+			-- C-e: Hide menu
+			-- C-k: Toggle signature help (if signature.enabled = true)
+			--
+			-- See :h blink-cmp-config-keymap for defining your own keymap
+			keymap = { preset = 'super-tab' },
+			sources = {
+				default = { 'lsp', 'path', 'snippets', 'buffer', 'copilot', 'avante' },
+				providers = {
+					copilot = {
+						name = 'copilot',
+						module = 'blink-cmp-copilot',
+						score_offset = 100,
+						async = true,
+						transform_items = function(_, items)
+							local CompletionItemKind = require("blink.cmp.types").CompletionItemKind
+							local kind_idx = #CompletionItemKind + 1
+							CompletionItemKind[kind_idx] = "Copilot"
+							for _, item in ipairs(items) do
+								item.kind = kind_idx
+							end
+							return items
+						end,
+					},
+					avante = {
+						module = 'blink-cmp-avante',
+						name = 'Avante',
+						opts = {
+							command = {
+								get_kind_name = function(_)
+									return 'AvanteCmd'
+								end
+							},
+							mention = {
+								get_kind_name = function(_)
+									return 'AvanteMention'
+								end
+							}
+						}
+					}
 				},
-				formatting = {
-					format = lspkind.cmp_format({
-						mode = 'symbol_text',
-						maxwidth = 50,
-						ellipsis_char = '…',
-					})
-				},
-			})
+			},
+			signature = { enabled = true },
+			appearance = {
+				nerd_font_variant = 'mono',
+				-- Blink does not expose its default kind icons so you must copy them all (or set your custom ones) and add Copilot
+				kind_icons = {
+					Copilot = "",
 
-			-- Use buffer source for `/` and `?` (if you enabled `native_menu`, this won't work anymore).
-			cmp.setup.cmdline({ '/', '?' }, {
-				mapping = cmp.mapping.preset.cmdline(),
-				sources = {
-					{ name = 'buffer' }
-				}
-			})
+					AvanteCmd = '',
+					AvanteMention = '',
 
-			-- Use cmdline & path source for ':' (if you enabled `native_menu`, this won't work anymore).
-			cmp.setup.cmdline(':', {
-				mapping = cmp.mapping.preset.cmdline(),
-				sources = cmp.config.sources({
-					{ name = 'path' }
-				}, {
-					{ name = 'cmdline' }
-				}),
-				matching = { disallow_symbol_nonprefix_matching = false },
-				formatting = {
-					format = lspkind.cmp_format({ mode = 'symbol' })
+					Text = '󰉿',
+					Method = '󰊕',
+					Function = '󰊕',
+					Constructor = '󰒓',
+
+					Field = '󰜢',
+					Variable = '󰆦',
+					Property = '󰖷',
+
+					Class = '󱡠',
+					Interface = '󱡠',
+					Struct = '󱡠',
+					Module = '󰅩',
+
+					Unit = '󰪚',
+					Value = '󰦨',
+					Enum = '󰦨',
+					EnumMember = '󰦨',
+
+					Keyword = '󰻾',
+					Constant = '󰏿',
+
+					Snippet = '󱄽',
+					Color = '󰏘',
+					File = '󰈔',
+					Reference = '󰬲',
+					Folder = '󰉋',
+					Event = '󱐋',
+					Operator = '󰪚',
+					TypeParameter = '󰬛',
 				},
-			})
-		end
+			},
+		},
 	},
 
 	{
@@ -294,10 +322,15 @@ return require('lazy').setup({
 
 	-- AI
 	{
-		'github/copilot.vim', -- codex-based autocompletion neural network frontend
+		'zbirenbaum/copilot.lua', -- GitHub Copilot
+		cmd = 'Copilot',
+		event = 'InsertEnter',
 		config = function()
-			vim.g.copilot_no_tab_map = true
-		end
+			require("copilot").setup({
+				suggestion = { enabled = false }, -- use blink autocompletion integration instead
+				panel = { enabled = false },
+			})
+		end,
 	},
 
 	{
@@ -331,7 +364,6 @@ return require('lazy').setup({
 			"nvim-lua/plenary.nvim",
 			"MunifTanjim/nui.nvim",
 			--- The below dependencies are optional,
-			"hrsh7th/nvim-cmp",      -- autocompletion for avante commands and mentions
 			"ibhagwan/fzf-lua",      -- for file_selector provider fzf
 			"nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
 			"zbirenbaum/copilot.lua", -- for providers='copilot'
@@ -452,7 +484,7 @@ return require('lazy').setup({
 
 	{
 		'nvim-lualine/lualine.nvim', -- fancy status line with mode indicator and cursor position
-		dependencies = { 'nvim-tree/nvim-web-devicons' },
+		dependencies = { 'nvim-tree/nvim-web-devicons', 'AndreM222/copilot-lualine' },
 		config = function()
 			require('lualine').setup({
 				options = {
@@ -488,7 +520,7 @@ return require('lazy').setup({
 						end,
 						cond = require("noice").api.statusline.mode.has,
 						color = { fg = "#E6E1CF" },
-					}, 'diagnostics' },
+					}, 'copilot', 'diagnostics' },
 					lualine_y = { 'filetype' },
 					lualine_z = { 'location' },
 				},
@@ -538,7 +570,6 @@ return require('lazy').setup({
 				override = {
 					["vim.lsp.util.convert_input_to_markdown_lines"] = true,
 					["vim.lsp.util.stylize_markdown"] = true,
-					["cmp.entry.get_documentation"] = true, -- requires hrsh7th/nvim-cmp
 				},
 			},
 			presets = {
