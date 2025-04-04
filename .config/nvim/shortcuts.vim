@@ -67,5 +67,6 @@ nmap gb :Gitsigns blame<CR>
 nmap gk :Gitsigns prev_hunk<CR>
 nmap gj :Gitsigns next_hunk<CR>
 map <Leader>gy :GitLink<CR>
+nmap gpr :Octo pr list<CR>
 " Terminal mode shortcuts
 tmap <A-Esc> <C-\><C-N><CR>

@@ -292,7 +292,7 @@ return require('lazy').setup({
 		opts = {},
 	},
 
-	-- AI.
+	-- AI
 	{
 		'github/copilot.vim', -- codex-based autocompletion neural network frontend
 		config = function()
@@ -300,7 +300,6 @@ return require('lazy').setup({
 		end
 	},
 
-	-- even more AI!
 	{
 		"yetone/avante.nvim",
 		event = "VeryLazy",
@@ -332,11 +331,10 @@ return require('lazy').setup({
 			"nvim-lua/plenary.nvim",
 			"MunifTanjim/nui.nvim",
 			--- The below dependencies are optional,
-			"nvim-telescope/telescope.nvim", -- for file_selector provider telescope
-			"hrsh7th/nvim-cmp",        -- autocompletion for avante commands and mentions
-			"ibhagwan/fzf-lua",        -- for file_selector provider fzf
+			"hrsh7th/nvim-cmp",      -- autocompletion for avante commands and mentions
+			"ibhagwan/fzf-lua",      -- for file_selector provider fzf
 			"nvim-tree/nvim-web-devicons", -- or echasnovski/mini.icons
-			"zbirenbaum/copilot.lua",  -- for providers='copilot'
+			"zbirenbaum/copilot.lua", -- for providers='copilot'
 			{
 				-- support for image pasting
 				"HakonHarnes/img-clip.nvim",
@@ -876,6 +874,21 @@ return require('lazy').setup({
 		'linrongbin16/gitlinker.nvim', -- copy link to code on GitHub
 		cmd = 'GitLink',
 		opts = {}
+	},
+
+	{
+		'pwntester/octo.nvim',
+		requires = {
+			'nvim-lua/plenary.nvim',
+			'ibhagwan/fzf-lua',
+			'nvim-tree/nvim-web-devicons',
+		},
+		config = function()
+			require('octo').setup()
+			-- # and @ completion for github
+			vim.keymap.set("i", "@", "@<C-x><C-o>", { silent = true, buffer = true })
+			vim.keymap.set("i", "#", "#<C-x><C-o>", { silent = true, buffer = true })
+		end
 	},
 
 	{
