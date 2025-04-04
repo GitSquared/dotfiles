@@ -49,6 +49,7 @@ nmap <Leader>d :Yazi<CR>
 nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :LazyGit<CR>
 nmap <Leader>t :lua require('trouble').toggle('diagnostics')<CR>
+nmap <Leader>ai :AvanteFocus<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
 nmap <Leader>r :IncRename 

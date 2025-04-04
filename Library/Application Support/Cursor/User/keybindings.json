@@ -14,5 +14,9 @@
       "key": "cmd+s",
       "command": "workbench.action.focusActiveEditorGroup",
       "when": "terminalFocus"
+   },
+   {
+      "key": "cmd+i",
+      "command": "composerMode.agent"
    }
 ]

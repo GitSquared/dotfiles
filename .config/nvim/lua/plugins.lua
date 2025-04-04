@@ -311,15 +311,15 @@ return require('lazy').setup({
 			provider = "openai",
 			openai = {
 				endpoint = "https://api.openai.com/v1",
-				model = "gpt-4o-mini", -- your desired model (or use gpt-4o, etc.)
-				timeout = 30000, -- timeout in milliseconds
-				temperature = 0, -- adjust if needed
-				max_tokens = 4096,
-				-- reasoning_effort = "high" -- only supported for reasoning models (o1, etc.)
+				model = "o3-mini", -- your desired model (or use gpt-4o, etc.)
+				timeout = 30000,  -- timeout in milliseconds
+				temperature = 0,  -- adjust if needed
+				max_tokens = 16384,
+				reasoning_effort = "high" -- only supported for reasoning models (o1, etc.)
 			},
 			mappings = {
 				submit = {
-					insert = "<C-CR>",
+					insert = "<CR>",
 				}
 			}
 		},
