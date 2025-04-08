@@ -191,8 +191,11 @@ return require('lazy').setup({
 			formatters_by_ft = {
 				lua = { "stylua" },
 				python = { "isort", "black" },
-				javascript = { "biome-check", "eslint", stop_after_first = true },
-				json = { "biome" },
+				javascript = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
+				javascriptreact = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
+				typescript = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
+				typescriptreact = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
+				json = { "biome", "biome-check" },
 				sql = { 'sql_formatter' },
 				terraform = { 'terraform_fmt' },
 			},
