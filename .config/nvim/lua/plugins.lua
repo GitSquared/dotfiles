@@ -216,8 +216,7 @@ return require('lazy').setup({
 		'saghen/blink.cmp', -- autocompletion engine
 		version = '1.*',
 		dependencies = {
-			'xzbdmw/colorful-menu.nvim',  -- Treesitter syntax highlighting in completions
-			'giuxtaposition/blink-cmp-copilot', -- completions for Copilot
+			'xzbdmw/colorful-menu.nvim', -- Treesitter syntax highlighting in completions
 			'Kaiser-Yang/blink-cmp-avante' -- completions for Avante
 		},
 		---
@@ -274,23 +273,8 @@ return require('lazy').setup({
 				}
 			},
 			sources = {
-				default = { 'lsp', 'path', 'snippets', 'buffer', 'copilot', 'avante' },
+				default = { 'lsp', 'path', 'snippets', 'buffer', 'avante' },
 				providers = {
-					copilot = {
-						name = 'copilot',
-						module = 'blink-cmp-copilot',
-						score_offset = 100,
-						async = true,
-						transform_items = function(_, items)
-							local CompletionItemKind = require("blink.cmp.types").CompletionItemKind
-							local kind_idx = #CompletionItemKind + 1
-							CompletionItemKind[kind_idx] = "Copilot"
-							for _, item in ipairs(items) do
-								item.kind = kind_idx
-							end
-							return items
-						end,
-					},
 					avante = {
 						module = 'blink-cmp-avante',
 						name = 'Avante',
@@ -311,10 +295,8 @@ return require('lazy').setup({
 			},
 			appearance = {
 				nerd_font_variant = 'mono',
-				-- Blink does not expose its default kind icons so you must copy them all (or set your custom ones) and add Copilot
+				-- Blink does not expose its default kind icons so you must copy them all
 				kind_icons = {
-					Copilot = "",
-
 					AvanteCmd = '',
 					AvanteMention = '',
 
@@ -366,7 +348,13 @@ return require('lazy').setup({
 		event = 'InsertEnter',
 		config = function()
 			require("copilot").setup({
-				suggestion = { enabled = false }, -- use blink autocompletion integration instead
+				suggestion = {
+					enabled = true,
+					auto_trigger = true,
+					keymap = {
+						accept = "<A-Tab>",
+					}
+				},
 				panel = { enabled = false },
 			})
 		end,
