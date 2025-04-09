@@ -190,7 +190,7 @@ return require('lazy').setup({
 			},
 			formatters_by_ft = {
 				lua = { "stylua" },
-				python = { "isort", "black" },
+				python = { "ruff_fix", "ruff_format" },
 				javascript = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
 				javascriptreact = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
 				typescript = { "biome", "biome-check", "biome-organize-imports", "eslint_d" },
