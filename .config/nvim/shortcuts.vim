@@ -1,5 +1,17 @@
 let mapleader = ' '
 
+" QoL
+" Keep cursor focused in center of screen
+nmap n nzz
+nmap N Nzz
+nmap <C-d> <C-d>zz
+nmap <C-u> <C-u>zz
+" Move selection around
+vmap J :m '>+1<CR>gv=gv
+vmap K :m '<-2<CR>gv=gv
+" Paste over without overwriting register
+xmap p "_dP
+
 " New, write, quit/close
 nmap <Leader>B :enew<CR>
 nmap <Leader>w :w<CR>
