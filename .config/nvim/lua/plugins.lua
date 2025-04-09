@@ -216,6 +216,7 @@ return require('lazy').setup({
 		'saghen/blink.cmp', -- autocompletion engine
 		version = '1.*',
 		dependencies = {
+			'xzbdmw/colorful-menu.nvim',  -- Treesitter syntax highlighting in completions
 			'giuxtaposition/blink-cmp-copilot', -- completions for Copilot
 			'Kaiser-Yang/blink-cmp-avante' -- completions for Avante
 		},
@@ -235,7 +236,43 @@ return require('lazy').setup({
 			-- C-k: Toggle signature help (if signature.enabled = true)
 			--
 			-- See :h blink-cmp-config-keymap for defining your own keymap
-			keymap = { preset = 'super-tab' },
+			keymap = {
+				preset = 'enter',
+				['<Tab>'] = { 'select_next', 'fallback' },
+				['<S-Tab>'] = { 'select_prev', 'fallback' },
+			},
+			signature = { enabled = true },
+			completion = {
+				keyword = { range = 'full' },
+				ghost_text = {
+					enabled = true
+				},
+				list = {
+					selection = {
+						preselect = false,
+						auto_insert = false
+					}
+				},
+				documentation = {
+					auto_show = true,
+					auto_show_delay_ms = 500
+				},
+				menu = {
+					draw = {
+						columns = { { 'kind_icon' }, { 'label', gap = 1 } },
+						components = {
+							label = {
+								text = function(ctx)
+									return require('colorful-menu').blink_components_text(ctx)
+								end,
+								highlight = function(ctx)
+									return require('colorful-menu').blink_components_highlight(ctx)
+								end,
+							},
+						},
+					}
+				}
+			},
 			sources = {
 				default = { 'lsp', 'path', 'snippets', 'buffer', 'copilot', 'avante' },
 				providers = {
@@ -272,7 +309,6 @@ return require('lazy').setup({
 					}
 				},
 			},
-			signature = { enabled = true },
 			appearance = {
 				nerd_font_variant = 'mono',
 				-- Blink does not expose its default kind icons so you must copy them all (or set your custom ones) and add Copilot
