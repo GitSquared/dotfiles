@@ -1,4 +1,5 @@
 let mapleader = ' '
+let maplocalleader = ' '
 
 " QoL
 " Keep cursor focused in center of screen
@@ -76,9 +77,10 @@ nmap <silent> gr :Glance references<CR>
 imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 " Git integration
 nmap gb :Gitsigns blame<CR>
-nmap gk :Gitsigns prev_hunk<CR>
-nmap gj :Gitsigns next_hunk<CR>
+nmap gk :Gitsigns prev_hunk<CR>zz
+nmap gj :Gitsigns next_hunk<CR>zz
 map <Leader>gy :GitLink<CR>
 nmap gpr :Octo pr list<CR>
+nmap grr :Octo review<CR>
 " Terminal mode shortcuts
 tmap <A-Esc> <C-\><C-N><CR>
