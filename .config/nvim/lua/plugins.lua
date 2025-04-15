@@ -244,12 +244,12 @@ return require('lazy').setup({
 			completion = {
 				keyword = { range = 'full' },
 				ghost_text = {
-					enabled = true
+					enabled = false
 				},
 				list = {
 					selection = {
 						preselect = false,
-						auto_insert = false
+						auto_insert = true
 					}
 				},
 				documentation = {
