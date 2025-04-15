@@ -1,5 +1,5 @@
 let mapleader = ' '
-let maplocalleader = ' '
+let maplocalleader = ','
 
 " QoL
 " Keep cursor focused in center of screen

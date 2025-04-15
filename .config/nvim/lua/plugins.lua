@@ -942,7 +942,12 @@ return require('lazy').setup({
 			'nvim-tree/nvim-web-devicons',
 		},
 		config = function()
-			require('octo').setup()
+			require('octo').setup({
+				use_local_fs = true,
+				picker = 'fzf-lua',
+				default_merge_method = 'squash',
+				default_delete_branch = true,
+			})
 			-- # and @ completion for github
 			vim.keymap.set("i", "@", "@<C-x><C-o>", { silent = true, buffer = true })
 			vim.keymap.set("i", "#", "#<C-x><C-o>", { silent = true, buffer = true })
