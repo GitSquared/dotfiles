@@ -23,7 +23,7 @@ nmap <Leader>, :close<CR>
 map <Leader>z :ZenMode<CR>
 map <Leader>f <cmd>lua require("flash").jump()<CR>
 map <Leader>F :BufferPick<CR>
-map <Leader>b :Telescope buffers<CR>
+map <Leader>b :FzfLua buffers<CR>
 map <F9> :set hlsearch!<CR>
 map <F10> :set invrelativenumber<CR>
 " Switch buffers
@@ -52,11 +52,11 @@ nmap <S-Down> :resize -3<CR>
 nmap <S-Left> :vertical resize -3<CR>
 nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
-nmap <Leader>/ :Telescope current_buffer_fuzzy_find<CR>
-nmap <Leader>p :Telescope smart_open<CR>
+nmap <Leader>/ :FzfLua lgrep_curbuf<CR>
+nmap <Leader>p :FzfLua files<CR>
 nmap <Leader>C :TSContextToggle<CR>
 nmap <Leader>l :Outline<CR>
-nmap <silent><Leader>o :lua require'telescope.builtin'.live_grep{ shorten_path = true, word_match = "-w", only_sort_text = true }<CR>
+nmap <silent><Leader>o :FzfLua live_grep_native<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :Yazi<CR>
 nmap <leader>D :NvimTreeToggle<CR>

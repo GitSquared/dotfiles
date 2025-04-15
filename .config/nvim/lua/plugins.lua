@@ -567,7 +567,7 @@ return require('lazy').setup({
 		'stevearc/dressing.nvim', -- better UI for vim.input, vim.select...
 		opts = {
 			select = {
-				backend = { 'fzf', 'telescope', 'builtin' } -- prefer fuzzy finder for select
+				backend = { 'fzf_lua', 'builtin' } -- prefer fuzzy finder for select
 			}
 		},
 	},
@@ -798,26 +798,11 @@ return require('lazy').setup({
 	-- ************
 
 	{
-		'nvim-telescope/telescope.nvim', -- fuzzy finder
+		'ibhagwan/fzf-lua', -- fuzzy finder
 		dependencies = { 'nvim-lua/plenary.nvim',
-			{
-				'nvim-telescope/telescope-fzf-native.nvim', -- native fzf sorter for Telescope, faster
-				build = 'make'
-			},
-			'danielfalk/smart-open.nvim', -- better fuzzy file finder for telescope
-			'kkharji/sqlite.lua',   -- required by smart-open
+			'nvim-tree/nvim-web-devicons',
 		},
-		config = function()
-			require('telescope').setup({
-				extensions = {
-					smart_open = {
-						match_algorithm = "fzf",
-					}
-				}
-			})
-			require('telescope').load_extension('fzf')
-			require("telescope").load_extension("smart_open")
-		end
+		opts = {}
 	},
 
 	{
