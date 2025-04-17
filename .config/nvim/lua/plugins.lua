@@ -363,7 +363,7 @@ return require('lazy').setup({
 	{
 		"yetone/avante.nvim",
 		event = "VeryLazy",
-		version = '*', -- Set this to "*" to always pull the latest release version, or set it to false to update to the latest code changes.
+		version = false, -- Set this to "*" to always pull the latest release version, or set it to false to update to the latest code changes.
 		opts = {
 			-- add any opts here
 			-- for example
