@@ -21,7 +21,6 @@ nmap <Leader>Q :qa<CR>
 nmap <Leader>, :close<CR>
 " Editor utilities
 map <Leader>z :ZenMode<CR>
-map <Leader>f <cmd>lua require("flash").jump()<CR>
 map <Leader>F :BufferPick<CR>
 map <Leader>b :FzfLua buffers<CR>
 map <F9> :set hlsearch!<CR>
@@ -80,7 +79,9 @@ nmap gb :Gitsigns blame<CR>
 nmap gk :Gitsigns prev_hunk<CR>zz
 nmap gj :Gitsigns next_hunk<CR>zz
 map <Leader>gy :GitLink<CR>
-nmap gpr :Octo pr list<CR>
+nmap gis :Octo issue list<CR>
+nmap gpr :Octo pr search review-requested:@me is:open<CR>
+nmap gcc :Octo pr checkout<CR>
 nmap grr :Octo review<CR>
 " Terminal mode shortcuts
 tmap <A-Esc> <C-\><C-N><CR>
