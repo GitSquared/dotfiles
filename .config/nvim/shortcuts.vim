@@ -81,7 +81,5 @@ nmap gj :Gitsigns next_hunk<CR>zz
 map <Leader>gy :GitLink<CR>
 nmap gis :Octo issue list<CR>
 nmap gpr :Octo pr search review-requested:@me is:open<CR>
-nmap gcc :Octo pr checkout<CR>
-nmap grr :Octo review<CR>
 " Terminal mode shortcuts
 tmap <A-Esc> <C-\><C-N><CR>

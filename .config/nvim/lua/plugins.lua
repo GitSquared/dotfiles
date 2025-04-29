@@ -372,8 +372,6 @@ return require('lazy').setup({
 				endpoint = "https://api.openai.com/v1",
 				model = "o3-mini", -- your desired model (or use gpt-4o, etc.)
 				timeout = 30000,  -- timeout in milliseconds
-				temperature = 0,  -- adjust if needed
-				max_tokens = 16384,
 				reasoning_effort = "high" -- only supported for reasoning models (o1, etc.)
 			},
 			mappings = {
@@ -493,12 +491,50 @@ return require('lazy').setup({
 		'romgrk/barbar.nvim', -- buffers management (="tab bar")
 		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		opts = {
+			clickable = false,
 			icons = {
-				inactive = { button = '' },
+				-- Configure the base icons on the bufferline.
+				-- Valid options to display the buffer index and -number are `true`, 'superscript' and 'subscript'
+				buffer_index = false,
+				buffer_number = false,
+				button = '',
+				-- Enables / disables diagnostic symbols
+				diagnostics = {
+					[vim.diagnostic.severity.ERROR] = { enabled = true, icon = '' },
+					[vim.diagnostic.severity.WARN] = { enabled = true, icon = '' },
+					[vim.diagnostic.severity.HINT] = { enabled = true, icon = '' },
+					[vim.diagnostic.severity.INFO] = { enabled = true, icon = '' },
+				},
+				filetype = {
+					-- Sets the icon's highlight group.
+					-- If false, will use nvim-web-devicons colors
+					custom_colors = false,
+
+					-- Requires `nvim-web-devicons` if `true`
+					enabled = true,
+				},
+				separator = { left = '▎', right = '' },
+
+				-- If true, add an additional separator at the end of the buffer list
+				separator_at_end = true,
+
+				-- Configure the icons on the bufferline when modified or pinned.
+				-- Supports all the base icon options.
+				modified = { button = '●' },
+				pinned = { button = '', filename = true },
+
+				-- Use a preconfigured buffer appearance— can be 'default', 'powerline', or 'slanted'
+				preset = 'default',
+
+				-- Configure the icons on the bufferline based on the visibility of a buffer.
+				-- Supports all the base icon options, plus `modified` and `pinned`.
+				alternate = { filetype = { enabled = false }, button = '' },
 				current = { button = '' },
-				visible = { button = '' },
+				inactive = { button = '' },
+				visible = { modified = { buffer_number = false }, button = '' },
 			},
 			highlight_visible = true,
+			semantic_letters = true,
 		},
 	},
 
@@ -875,18 +911,12 @@ return require('lazy').setup({
 		"folke/flash.nvim", -- quickly jump around in current buffer
 		event = "VeryLazy",
 		---@type Flash.Config
-		opts = {
-			modes = {
-				search = {
-					enabled = true
-				}
-			}
-		},
+		opts = {},
 		-- stylua: ignore
 		keys = {
 			-- Disabled, see shortcuts.vim for config
 			{ "s",     mode = { "n", "x", "o" }, function() require("flash").jump() end,              desc = "Flash" },
-			{ "S",     mode = { "n", "x", "o" }, function() require("flash").treesitter() end,        desc = "Flash Treesitter" },
+			{ "S",     mode = { "n", "o" },      function() require("flash").treesitter() end,        desc = "Flash Treesitter" },
 			{ "r",     mode = "o",               function() require("flash").remote() end,            desc = "Remote Flash" },
 			{ "R",     mode = { "o", "x" },      function() require("flash").treesitter_search() end, desc = "Treesitter Search" },
 			{ "<c-s>", mode = { "c" },           function() require("flash").toggle() end,            desc = "Toggle Flash Search" },
