@@ -53,7 +53,7 @@ nmap <S-Right> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>/ :FzfLua lgrep_curbuf<CR>
 nmap <Leader>p :FzfLua files<CR>
-nmap <Leader>C :TSContextToggle<CR>
+nmap <Leader>C :TSContext toggle<CR>
 nmap <Leader>l :Outline<CR>
 nmap <silent><Leader>o :FzfLua live_grep_native<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
