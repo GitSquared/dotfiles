@@ -51,3 +51,11 @@ function! CustomFoldText()
 	let fold_indicator = ' ↙ ' . folded_lines_count . ' lines'
   return line . fold_indicator
 endfunction
+
+augroup CustomHighlights
+	autocmd!
+	autocmd ColorScheme * highlight WinSeparator guifg=#30384c guibg=NONE
+	autocmd ColorScheme * highlight VertSplit guifg=#30384c guibg=NONE
+	autocmd ColorScheme * highlight LineNrAbove guifg=#30384c
+	autocmd ColorScheme * highlight LineNrBelow guifg=#30384c
+augroup END
