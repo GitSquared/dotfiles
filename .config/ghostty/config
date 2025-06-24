@@ -26,3 +26,4 @@ macos-icon = custom-style
 macos-icon-frame = beige
 macos-icon-ghost-color = #36A3D9
 macos-icon-screen-color = #0F141A
+keybind = shift+enter=text:\n
