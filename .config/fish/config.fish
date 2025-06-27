@@ -4,7 +4,7 @@ end
 
 # Initialization
 function fish_greeting
-	fortune -s
+  fortune -s
 end
 pyenv init - | source
 source (rbenv init -|psub)

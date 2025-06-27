@@ -7,7 +7,7 @@ font-size = 12
 font-thicken = true
 
 mouse-hide-while-typing = true
-macos-option-as-alt = true
+macos-option-as-alt = false
 
 keybind = global:ctrl+§=toggle_quick_terminal
 keybind = ctrl+cmd+f=unbind

@@ -44,6 +44,7 @@ set fillchars=eob:\ ,fold:\ ,foldopen:,foldsep:\ ,foldclose:
 set foldlevelstart=99
 set foldexpr=v:lua.vim.treesitter.foldexpr()
 set foldmethod=expr
+
 set foldtext=CustomFoldText()
 function! CustomFoldText()
   let line = getline(v:foldstart)
@@ -58,4 +59,18 @@ augroup CustomHighlights
 	autocmd ColorScheme * highlight VertSplit guifg=#30384c guibg=NONE
 	autocmd ColorScheme * highlight LineNrAbove guifg=#30384c
 	autocmd ColorScheme * highlight LineNrBelow guifg=#30384c
+augroup END
+
+function! s:SetupDiffMappings()
+	if &diff
+		setlocal wrap
+		nnoremap <buffer> y :ClaudeCodeDiffAccept<CR>
+		nnoremap <buffer> n :ClaudeCodeDiffDeny<CR>
+	endif
+endfunction
+
+augroup DiffWrap
+	autocmd!
+	autocmd OptionSet diff call s:SetupDiffMappings()
+	autocmd FilterReadPost * call s:SetupDiffMappings()
 augroup END
