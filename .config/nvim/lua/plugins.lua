@@ -728,7 +728,14 @@ return require('lazy').setup({
 		end
 	},
 
-	'folke/twilight.nvim', -- hide unfocused blocks while in zen mode
+	{
+		'folke/twilight.nvim', -- hide unfocused blocks while in zen mode
+		opts = {
+			dimming = {
+				alpha = 0.35
+			}
+		}
+	},
 
 	{
 		'folke/zen-mode.nvim', -- zen mode for deep focus on complex algos
@@ -746,7 +753,11 @@ return require('lazy').setup({
 					-- uncomment any of the options below, or add other vim.wo options you want to apply
 					options = {
 						signcolumn = "no", -- disable signcolumn
-						-- number = false, -- disable number column
+						number = false, -- disable number column
+						relativenumber = false, -- disable relative numbers
+						cursorline = false, -- disable cursorline
+						cursorcolumn = false, -- disable cursor column
+						foldcolumn = "0", -- disable fold column
 					},
 				},
 				plugins = {
@@ -758,22 +769,16 @@ return require('lazy').setup({
 					},
 					twilight = { enabled = true }, -- enable to start Twilight when zen mode opens
 					gitsigns = { enabled = true }, -- disables git signs
-					-- this will change the font size on kitty when in zen mode
-					-- to make this work, you need to set the following kitty options:
-					-- - allow_remote_control socket-only
-					-- - listen_on unix:/tmp/kitty
-					kitty = {
-						enabled = true,
-						font = "+2", -- font size increment
-					},
 				},
 				-- callback where you can add custom code when the Zen window opens
 				on_open = function()
+					vim.cmd('Noice disable')
 					vim.cmd('Copilot disable') -- prevent focus loss by looking at AI autocompletions :)
 				end,
 				-- callback where you can add custom code when the Zen window closes
 				on_close = function()
 					vim.cmd('Copilot enable')
+					vim.cmd('Noice enable')
 				end,
 			})
 		end
