@@ -55,10 +55,8 @@ endfunction
 
 augroup CustomHighlights
 	autocmd!
-	autocmd ColorScheme * highlight WinSeparator guifg=#30384c guibg=NONE
-	autocmd ColorScheme * highlight VertSplit guifg=#30384c guibg=NONE
-	autocmd ColorScheme * highlight LineNrAbove guifg=#30384c
-	autocmd ColorScheme * highlight LineNrBelow guifg=#30384c
+	" NotifyBackground with ayu theme colors
+	autocmd ColorScheme * highlight NotifyBackground guibg=#0F131A ctermbg=NONE
 augroup END
 
 function! s:SetupDiffMappings()

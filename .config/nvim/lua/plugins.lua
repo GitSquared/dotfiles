@@ -349,13 +349,44 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'Shatur/neovim-ayu', -- theme/colorscheme
-		name = 'ayu',
+		'rose-pine/neovim', -- theme/colorscheme
+		name = 'rose-pine',
 		config = function()
-			require('ayu').setup({
-				terminal = true
+			require('rose-pine').setup({
+				variant = "moon",
+				dark_variant = "moon",
+				enable = {
+					terminal = true,
+				},
+				styles = {
+					bold = true,
+					italic = true,
+					transparency = true,
+				},
+				palette = {
+					moon = {
+						_nc = "#1e1e1e",
+						base = "#242424",
+						surface = "#2d2d2d",
+						overlay = "#3c3c3c",
+						muted = "#707070",
+						subtle = "#909090",
+						text = "#e0def4",
+						love = "#e74c3c",
+						gold = "#f6c177",
+						rose = "#e17055",
+						pine = "#3e8fb0",
+						foam = "#9ccfd8",
+						iris = "#a29bfe",
+						leaf = "#95b1ac",
+						highlight_low = "#2a283e",
+						highlight_med = "#44415a",
+						highlight_high = "#56526e",
+						none = "NONE",
+					}
+				}
 			})
-			vim.cmd('colorscheme ayu')
+			vim.cmd('colorscheme rose-pine')
 		end
 	},
 
@@ -476,13 +507,13 @@ return require('lazy').setup({
 		config = function()
 			require('lualine').setup({
 				options = {
-					theme = 'ayu',
+					theme = 'rose-pine',
 					icons_enabled = true,
-					section_separators = { left = '', right = '' },
-					component_separators = { left = '╱', right = '╱' }
+					section_separators = { left = '', right = '' },
+					component_separators = { left = '', right = '' }
 				},
 				sections = {
-					lualine_a = { 'mode' },
+					lualine_a = { { 'mode', separator = { left = '' }, right_padding = 2 } },
 					lualine_b = { 'filename', 'diff' },
 					lualine_c = { {
 						'branch',
@@ -510,7 +541,7 @@ return require('lazy').setup({
 						color = { fg = "#E6E1CF" },
 					}, 'copilot', 'diagnostics' },
 					lualine_y = { 'filetype' },
-					lualine_z = { 'location' },
+					lualine_z = { { 'location', separator = { right = '' }, left_padding = 2 } },
 				},
 				inactive_sections = {
 					lualine_a = { 'filename' },
@@ -590,7 +621,7 @@ return require('lazy').setup({
 			'nvim-lua/plenary.nvim',
 		},
 		config = function()
-			vim.g.lazygit_floating_window_winblend = 15  -- transparency of floating window. 0 to 100 range
+			vim.g.lazygit_floating_window_winblend = 0   -- transparency of floating window. 0 to 100 range
 			vim.g.lazygit_floating_window_scaling_factor = 0.9 -- scaling factor for floating window
 		end
 	},
@@ -600,15 +631,6 @@ return require('lazy').setup({
 		dependencies = { 'nvim-tree/nvim-web-devicons' },
 		config = function()
 			require('nvim-tree').setup()
-		end
-	},
-
-	{
-		'nvim-treesitter/nvim-treesitter-context', -- show nest/indent context at top of file, leveraging treesitter
-		config = function()
-			require('treesitter-context').setup({
-				enable = false, -- disable by default, toggle with shortcut
-			})
 		end
 	},
 
@@ -644,8 +666,9 @@ return require('lazy').setup({
 				},
 				set_cursor = true,
 				set_cursorline = true,
-				set_number = false,
-				line_opacity = 0.5,
+				set_number = true,
+				set_signcolumn = true,
+				line_opacity = 0.1,
 			})
 		end
 	},
@@ -655,6 +678,8 @@ return require('lazy').setup({
 		name = 'tint',
 		config = function()
 			require('tint').setup({
+				tint = -60,
+				saturation = 0.3,
 				highlight_ignore_patterns = { "WinSeparator", "Status.*", "LineNr" }
 			})
 		end
@@ -818,7 +843,7 @@ return require('lazy').setup({
 			'nvim-tree/nvim-web-devicons', -- optional dependency
 		},
 		opts = {
-			theme = 'ayu'
+			theme = 'rose-pine'
 		}
 	},
 
