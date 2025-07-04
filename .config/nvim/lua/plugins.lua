@@ -363,6 +363,36 @@ return require('lazy').setup({
 					italic = true,
 					transparency = true,
 				},
+				groups = {
+					border = "muted",
+					link = "iris",
+					panel = "surface",
+
+					error = "love",
+					hint = "iris",
+					info = "rose",
+					note = "pine",
+					todo = "rose",
+					warn = "gold",
+
+					git_add = "rose",
+					git_change = "foam",
+					git_delete = "love",
+					git_dirty = "foam",
+					git_ignore = "muted",
+					git_merge = "iris",
+					git_rename = "pine",
+					git_stage = "iris",
+					git_text = "foam",
+					git_untracked = "subtle",
+
+					h1 = "iris",
+					h2 = "rose",
+					h3 = "foam",
+					h4 = "gold",
+					h5 = "pine",
+					h6 = "rose",
+				},
 				palette = {
 					moon = {
 						_nc = "#1e1e1e",
@@ -374,9 +404,9 @@ return require('lazy').setup({
 						text = "#e0def4",
 						love = "#e74c3c",
 						gold = "#f6c177",
-						rose = "#e17055",
+						rose = "#9ccfd8",
 						pine = "#3e8fb0",
-						foam = "#9ccfd8",
+						foam = "#e17055",
 						iris = "#a29bfe",
 						leaf = "#95b1ac",
 						highlight_low = "#2a283e",
@@ -387,6 +417,11 @@ return require('lazy').setup({
 				}
 			})
 			vim.cmd('colorscheme rose-pine')
+
+			vim.api.nvim_set_hl(0, 'WinBar', { bg = 'NONE' })
+			vim.api.nvim_set_hl(0, 'WinBarNC', { bg = 'NONE' })
+			vim.api.nvim_set_hl(0, 'CursorLine', { bg = '#416167' })
+			vim.api.nvim_set_hl(0, 'CursorLine', { bg = '#416167' })
 		end
 	},
 
@@ -661,28 +696,32 @@ return require('lazy').setup({
 		config = function()
 			require('modes').setup({
 				colors = {
-					visual = '#FFEE99',
-					insert = '#B8CC51',
+					bg = 'NONE',
+					copy = '#f6c177',
+					delete = '#e74c3c',
+					change = '#e17055',
+					format = '#f6c177',
+					insert = '#e17055',
+					replace = '#e17055',
+					select = '#a29bfe',
+					visual = '#a29bfe',
 				},
 				set_cursor = true,
 				set_cursorline = true,
 				set_number = true,
 				set_signcolumn = true,
-				line_opacity = 0.1,
+				line_opacity = 0.6,
 			})
 		end
 	},
 
 	{
-		'levouh/tint.nvim', -- dim inactive windows
-		name = 'tint',
-		config = function()
-			require('tint').setup({
-				tint = -60,
-				saturation = 0.3,
-				highlight_ignore_patterns = { "WinSeparator", "Status.*", "LineNr" }
-			})
-		end
+		'miversen33/sunglasses.nvim', -- dim inactive windows
+		enabled = false,          -- causes issues with modes.nvim :(
+		opts = {
+			filter_type = 'SHADE',
+			filter_percent = .3
+		}
 	},
 
 	{
@@ -848,7 +887,12 @@ return require('lazy').setup({
 			'nvim-tree/nvim-web-devicons', -- optional dependency
 		},
 		opts = {
-			theme = 'rose-pine'
+			theme = {
+				normal = { bg = 'NONE' },
+				dirname = { bg = 'NONE' },
+				basename = { bg = 'NONE' },
+				context = { bg = 'NONE' },
+			}
 		}
 	},
 
@@ -856,8 +900,7 @@ return require('lazy').setup({
 		'hedyhli/outline.nvim',
 		lazy = true,
 		cmd = { 'Outline', 'OutlineOpen' },
-		opts = {
-		},
+		opts = {},
 	},
 
 	'tpope/vim-surround', -- commands for working with {surrounding} marks

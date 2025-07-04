@@ -7,9 +7,6 @@ nmap n nzz
 nmap N Nzz
 nmap <C-d> <C-d>zz
 nmap <C-u> <C-u>zz
-" Move selection around
-vmap J :m '>+1<CR>gv=gv
-vmap K :m '<-2<CR>gv=gv
 " Paste over without overwriting register
 xmap p "_dP
 
@@ -35,21 +32,21 @@ nmap <Leader>; :split<CR>
 nmap <Leader>: :vsplit<CR>
 " Navigate windows
 nmap <Leader><Leader> <C-W><C-W>
-nmap <Up> <C-W>k
-nmap <Down> <C-W>j
-nmap <Left> <C-W>h
-nmap <Right> <C-W>l
+nmap <C-k> <C-W>k
+nmap <C-j> <C-W>j
+nmap <C-h> <C-W>h
+nmap <C-l> <C-W>l
 " Move windows
-nmap <A-Up> <C-W>K
-nmap <A-Down> <C-W>J
-nmap <A-Left> <C-W>H
-nmap <A-Right> <C-W>L
+nmap <C-S-k> <C-W>K
+nmap <C-S-j> <C-W>J
+nmap <C-S-h> <C-W>H
+nmap <C-S-l> <C-W>L
 " Resize windows
 nmap <Leader>= <C-W>=
-nmap <S-Up> :resize +3<CR>
-nmap <S-Down> :resize -3<CR>
-nmap <S-Left> :vertical resize -3<CR>
-nmap <S-Right> :vertical resize +3<CR>
+nmap <silent><S-k> :resize +3<CR>
+nmap <silent><S-j> :resize -3<CR>
+nmap <silent><S-h> :vertical resize -3<CR>
+nmap <silent><S-l> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>/ :FzfLua lgrep_curbuf<CR>
 nmap <Leader>p :FzfLua files<CR>
