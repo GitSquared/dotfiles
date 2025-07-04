@@ -61,9 +61,9 @@ exec-on-workspace-change = [
     if.window-title-regex-substring = 'Sunsama Focus Bar'
     run = 'layout floating'
 # https://ghostty.org/docs/help/macos-tiling-wms?utm_source=chatgpt.com#aerospace
-[[on-window-detected]]
-    if.app-id='com.mitchellh.ghostty'
-    run= 'layout tiling'
+# [[on-window-detected]]
+#     if.app-id='com.mitchellh.ghostty'
+#     run= ['layout floating']
 
 # Possible values: (qwerty|dvorak|colemak)
 # See https://nikitabobko.github.io/AeroSpace/guide#key-mapping
@@ -121,8 +121,22 @@ exec-on-workspace-change = [
 
 
     # App shortcut
-    # Start new Ghostty term
-    alt-g = 'exec-and-forget open -n /Applications/Ghostty.app'
+    # Start new Ghostty term window
+    alt-enter = '''exec-and-forget bash -c '
+current_workspace=$(aerospace list-workspaces --focused)
+osascript -e "
+tell application \"Ghostty\"
+    if it is running then
+        activate
+        tell application \"System Events\" to click menu item \"New Window\" of menu \"File\" of menu bar 1 of process \"Ghostty\"
+    else
+        activate
+    end if
+end tell"
+#sleep 0.05
+aerospace move-node-to-workspace --focus-follows-window "$current_workspace"
+'
+'''
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#layout
     alt-slash = 'layout tiles horizontal vertical'
