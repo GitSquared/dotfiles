@@ -876,7 +876,16 @@ return require('lazy').setup({
 
 	{
 		'dnlhc/glance.nvim', -- glance at LSP definitions and references without opening a full-blown window
-		cmd = 'Glance'
+		cmd = 'Glance',
+		config = function()
+			require('glance').setup({
+				border = {
+					enable = true,
+					top_char = '─',
+					bottom_char = '─',
+				},
+			})
+		end
 	},
 
 	{
