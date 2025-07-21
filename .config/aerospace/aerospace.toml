@@ -133,7 +133,7 @@ tell application \"Ghostty\"
         activate
     end if
 end tell"
-#sleep 0.05
+sleep 0.05
 aerospace move-node-to-workspace --focus-follows-window "$current_workspace"
 '
 '''
