@@ -50,7 +50,6 @@ nmap <silent><S-l> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>/ :FzfLua lgrep_curbuf<CR>
 nmap <Leader>p :FzfLua files<CR>
-nmap <Leader>C :TSContext toggle<CR>
 nmap <Leader>l :Outline<CR>
 nmap <silent><Leader>o :FzfLua live_grep_native<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
@@ -59,7 +58,7 @@ nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :LazyGit<CR>
 nmap <Leader>t :lua require('trouble').toggle('diagnostics')<CR>
 nmap <Leader>ai :ClaudeCode<CR>
-vmap <Leader>ai :ClaudeCodeSend<CR>
+vmap <Leader>ai :ClaudeCodeSend<CR>:ClaudeCodeFocus<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
 nmap <Leader>r :IncRename 
