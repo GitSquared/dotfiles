@@ -21,8 +21,10 @@ fish_add_path /opt/homebrew/opt/openjdk/bin
 
 # Default ENV
 set -x EDITOR nvim
-set -x NODE_ENV development
 set -x HOMEBREW_NO_ENV_HINTS 1
+
+# Load kanagawa color scheme
+source ~/.config/fish/themes/kanagawa.fish
 
 # Prompt config
 fish_vi_key_bindings
