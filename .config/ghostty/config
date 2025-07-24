@@ -1,31 +1,32 @@
 auto-update = check
 
-# Custom Rose Pine theme (modified)
-background = #242424
-foreground = #e0def4
+# Kanagawa Wave theme
+background = #1F1F28
+foreground = #DCD7BA
 
-palette = 0=#1e1e1e
-palette = 1=#e74c3c
-palette = 2=#95b1ac
-palette = 3=#f6c177
-palette = 4=#3e8fb0
-palette = 5=#a29bfe
-palette = 6=#9ccfd8
-palette = 7=#e0def4
-palette = 8=#707070
-palette = 9=#e74c3c
-palette = 10=#95b1ac
-palette = 11=#f6c177
-palette = 12=#3e8fb0
-palette = 13=#a29bfe
-palette = 14=#9ccfd8
-palette = 15=#e0def4
+palette = 0=#16161D
+palette = 1=#C34043
+palette = 2=#76946A
+palette = 3=#C0A36E
+palette = 4=#7E9CD8
+palette = 5=#957FB8
+palette = 6=#6A9589
+palette = 7=#C8C093
+palette = 8=#727169
+palette = 9=#E82424
+palette = 10=#98BB6C
+palette = 11=#E6C384
+palette = 12=#7FB4CA
+palette = 13=#938AA9
+palette = 14=#7AA2F7
+palette = 15=#DCD7BA
 
-cursor-color = #e0def4
-selection-background = #3c3c3c
-selection-foreground = #e0def4
+cursor-color = #C8C093
+selection-background = #2D4F67
+selection-foreground = #C8C093
 background-blur-radius = 20
-background-opacity = 0.65
+#background-opacity = 0.65
+background-opacity = 1
 
 window-inherit-font-size = false
 font-size = 12

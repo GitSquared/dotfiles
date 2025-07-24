@@ -136,6 +136,21 @@ return require('lazy').setup({
 				lspconfig[server].setup(config)
 			end
 
+			-- Configure diagnostics with virtual_lines beneath code
+			vim.diagnostic.config({
+				virtual_text = false, -- Disable default virtual text
+				virtual_lines = true, -- Show diagnostics beneath lines
+				underline = true,
+				update_in_insert = false,
+				severity_sort = true,
+				float = {
+					focusable = false,
+					style = "minimal",
+					border = "rounded",
+					source = "always",
+				},
+			})
+
 			vim.api.nvim_create_autocmd('LspAttach', {
 				callback = function(args)
 					local client = vim.lsp.get_client_by_id(args.data.client_id)
@@ -371,79 +386,62 @@ return require('lazy').setup({
 	-- UI
 	-- ************
 	{
-		'rose-pine/neovim', -- theme/colorscheme
-		name = 'rose-pine',
+		'rebelot/kanagawa.nvim', -- theme/colorscheme
 		config = function()
-			require('rose-pine').setup({
-				variant = "moon",
-				dark_variant = "moon",
-				enable = {
-					terminal = true,
-				},
-				styles = {
-					bold = true,
-					italic = true,
-					transparency = true,
-				},
-				groups = {
-					border = "muted",
-					link = "iris",
-					panel = "surface",
-
-					error = "love",
-					hint = "iris",
-					info = "rose",
-					note = "pine",
-					todo = "rose",
-					warn = "gold",
-
-					git_add = "rose",
-					git_change = "foam",
-					git_delete = "love",
-					git_dirty = "foam",
-					git_ignore = "muted",
-					git_merge = "iris",
-					git_rename = "pine",
-					git_stage = "iris",
-					git_text = "foam",
-					git_untracked = "subtle",
-
-					h1 = "iris",
-					h2 = "rose",
-					h3 = "foam",
-					h4 = "gold",
-					h5 = "pine",
-					h6 = "rose",
-				},
-				palette = {
-					moon = {
-						_nc = "#1e1e1e",
-						base = "#242424",
-						surface = "#2d2d2d",
-						overlay = "#3c3c3c",
-						muted = "#707070",
-						subtle = "#909090",
-						text = "#e0def4",
-						love = "#e74c3c",
-						gold = "#f6c177",
-						rose = "#9ccfd8",
-						pine = "#3e8fb0",
-						foam = "#e17055",
-						iris = "#a29bfe",
-						leaf = "#95b1ac",
-						highlight_low = "#2a283e",
-						highlight_med = "#44415a",
-						highlight_high = "#56526e",
-						none = "NONE",
+			require('kanagawa').setup({
+				compile = false,
+				undercurl = true,
+				commentStyle = { italic = true },
+				functionStyle = {},
+				keywordStyle = { italic = true },
+				statementStyle = { bold = true },
+				typeStyle = {},
+				transparent = false,
+				dimInactive = true,
+				terminalColors = true,
+				colors = {
+					palette = {},
+					theme = {
+						wave = {},
+						lotus = {},
+						dragon = {},
+						all = {
+							ui = {
+								bg_gutter = "none"
+							}
+						}
 					}
-				}
+				},
+				overrides = function(colors)
+					local theme = colors.theme
+					local makeDiagnosticColor = function(color)
+						local c = require("kanagawa.lib.color")
+						return { fg = color, bg = c(color):blend(theme.ui.bg, 0.95):to_hex() }
+					end
+
+					return {
+						DiagnosticVirtualTextHint  = makeDiagnosticColor(theme.diag.hint),
+						DiagnosticVirtualTextInfo  = makeDiagnosticColor(theme.diag.info),
+						DiagnosticVirtualTextWarn  = makeDiagnosticColor(theme.diag.warning),
+						DiagnosticVirtualTextError = makeDiagnosticColor(theme.diag.error),
+
+						Pmenu                      = { fg = theme.ui.shade0, bg = theme.ui.bg_p1 }, -- add `blend = vim.o.pumblend` to enable transparency
+						PmenuSel                   = { fg = "NONE", bg = theme.ui.bg_p2 },
+						PmenuSbar                  = { bg = theme.ui.bg_m1 },
+						PmenuThumb                 = { bg = theme.ui.bg_p2 },
+					}
+				end,
+				theme = "wave",
+				background = {
+					dark = "wave",
+					light = "lotus"
+				},
 			})
-			vim.cmd('colorscheme rose-pine')
+			vim.cmd('colorscheme kanagawa')
 
 			vim.api.nvim_set_hl(0, 'WinBar', { bg = 'NONE' })
 			vim.api.nvim_set_hl(0, 'WinBarNC', { bg = 'NONE' })
-			vim.api.nvim_set_hl(0, 'CursorLine', { bg = '#416167' })
-			vim.api.nvim_set_hl(0, 'CursorLine', { bg = '#416167' })
+			vim.api.nvim_set_hl(0, 'CursorLine', { bg = '#2A2A37' })
 		end
 	},
 
@@ -564,7 +562,7 @@ return require('lazy').setup({
 		config = function()
 			require('lualine').setup({
 				options = {
-					theme = 'rose-pine',
+					theme = 'kanagawa',
 					icons_enabled = true,
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '', right = '' }
@@ -719,14 +717,14 @@ return require('lazy').setup({
 			require('modes').setup({
 				colors = {
 					bg = 'NONE',
-					copy = '#f6c177',
-					delete = '#e74c3c',
-					change = '#e17055',
-					format = '#f6c177',
-					insert = '#e17055',
-					replace = '#e17055',
-					select = '#a29bfe',
-					visual = '#a29bfe',
+					copy = '#E6C384',
+					delete = '#E46876',
+					change = '#FFA066',
+					format = '#E6C384',
+					insert = '#FFA066',
+					replace = '#FFA066',
+					select = '#957FB8',
+					visual = '#957FB8',
 				},
 				set_cursor = true,
 				set_cursorline = true,

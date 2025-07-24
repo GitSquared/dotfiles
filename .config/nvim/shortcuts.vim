@@ -51,7 +51,8 @@ nmap <silent><S-l> :vertical resize +3<CR>
 nmap <Leader>/ :FzfLua lgrep_curbuf<CR>
 nmap <Leader>p :FzfLua files<CR>
 nmap <Leader>l :Outline<CR>
-nmap <silent><Leader>o :FzfLua live_grep_native<CR>
+nmap <Leader>o :FzfLua live_grep_native<CR>
+nmap <Leader>ro :FzfLua resume<CR>
 nmap <Leader>s :call CustomTermToggle(g:floaterm_shell)<CR>
 nmap <Leader>d :Yazi<CR>
 nmap <leader>D :NvimTreeToggle<CR>
