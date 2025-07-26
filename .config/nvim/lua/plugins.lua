@@ -721,8 +721,8 @@ return require('lazy').setup({
 					delete = '#E46876',
 					change = '#FFA066',
 					format = '#E6C384',
-					insert = '#FFA066',
-					replace = '#FFA066',
+					insert = '#98BB6C',
+					replace = '#98BB6C',
 					select = '#957FB8',
 					visual = '#957FB8',
 				},
@@ -730,7 +730,7 @@ return require('lazy').setup({
 				set_cursorline = true,
 				set_number = true,
 				set_signcolumn = true,
-				line_opacity = 0.6,
+				line_opacity = 0.4,
 			})
 		end
 	},
