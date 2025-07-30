@@ -138,8 +138,8 @@ return require('lazy').setup({
 
 			-- Configure diagnostics with virtual_lines beneath code
 			vim.diagnostic.config({
-				virtual_text = false, -- Disable default virtual text
-				virtual_lines = true, -- Show diagnostics beneath lines
+				virtual_text = true, -- Disable default virtual text
+				virtual_lines = false, -- Show diagnostics beneath lines
 				underline = true,
 				update_in_insert = false,
 				severity_sort = true,
@@ -442,6 +442,7 @@ return require('lazy').setup({
 			vim.api.nvim_set_hl(0, 'WinBar', { bg = 'NONE' })
 			vim.api.nvim_set_hl(0, 'WinBarNC', { bg = 'NONE' })
 			vim.api.nvim_set_hl(0, 'CursorLine', { bg = '#2A2A37' })
+			vim.api.nvim_set_hl(0, "ZenBg", { bg = '#1f1f28' })
 		end
 	},
 
@@ -456,20 +457,30 @@ return require('lazy').setup({
 				change_to_vcs_root = true,
 				config = {
 					header = {
+						'                            ..-        ',
+						'          +###.           .-.          ',
+						'         .###+.         -+#++.         ',
+						'         .###-.         -###++         ',
+						'         +--.             ##-.++ - .   ',
+						'       +##++++-            #+###+---   ',
+						'       ######+-.          #+####+-.    ',
+						'      +#######-+           #####+----  ',
+						'      #########++         +####+#-+-   ',
+						'      ###########++     ####+##+#+     ',
+						'      ##########. +##+###.+#######+    ',
+						'      #####+++##           #####+##    ',
+						'      ######++#+-          ########    ',
+						'        #####++++            ###-+     ',
+						'        ######+              ##+-+     ',
+						'        #####++              ###-      ',
+						'        ###++++              +##+      ',
+						'       .#####++               ###+     ',
+						'       ######++               -###+    ',
+						'       ###.###+               -###++.  ',
+						'       ### +##+               -####+-  ',
+						'      #### ####               ######+  ',
+						'++++++#########+++++++++++++.+.-##-++  ',
 						'                                       ',
-						'        .n.                     |      ',
-						'       /___\\          _.---.  \\ _ /    ',
-						'       [|||]         (_._ ) )--;_) =-  ',
-						'       [___]           \'---\'.__,\' \\    ',
-						'       }-=-{                    |      ',
-						'       |-" |                           ',
-						'       |.-"|                p          ',
-						'~^=~^~-|_.-|~^-~^~ ~^~ -^~^~|\\ ~^-~^~- ',
-						'^   .=.| _.|__  ^       ~  /| \\        ',
-						' ~ /:. \\" _|_/\\    ~      /_|__\\  ^    ',
-						'.-/::.  |   |""|-._    ^   ~~~~        ',
-						'  `===-\'-----\'""`  \'-.             ~   ',
-						'                 __.-\'      ^          ',
 						'                                       ',
 					},
 					shortcut = {
@@ -801,7 +812,7 @@ return require('lazy').setup({
 		config = function()
 			require('zen-mode').setup({
 				window = {
-					backdrop = 0.95, -- shade the backdrop of the Zen window. Set to 1 to keep the same as Normal
+					backdrop = 1, -- shade the backdrop of the Zen window. Set to 1 to keep the same as Normal
 					-- height and width can be:
 					-- * an absolute number of cells when > 1
 					-- * a percentage of the width / height of the editor when <= 1
@@ -831,13 +842,11 @@ return require('lazy').setup({
 				},
 				-- callback where you can add custom code when the Zen window opens
 				on_open = function()
-					vim.cmd('Noice disable')
 					vim.cmd('Copilot disable') -- prevent focus loss by looking at AI autocompletions :)
 				end,
 				-- callback where you can add custom code when the Zen window closes
 				on_close = function()
 					vim.cmd('Copilot enable')
-					vim.cmd('Noice enable')
 				end,
 			})
 		end
