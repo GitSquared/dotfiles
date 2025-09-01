@@ -78,6 +78,16 @@ return require('lazy').setup({
 				terraformls = {},
 				pylsp = {
 					autostart = true,
+					on_new_config = function(config, root_dir)
+						-- Check if we're in a Poetry project
+						if vim.fn.executable("poetry") == 1 and vim.fn.filereadable(root_dir .. "/pyproject.toml") == 1 then
+							local venv_path = vim.fn.system("cd " .. root_dir .. " && poetry env info --path"):gsub("\n", "")
+							config.cmd_env = {
+								VIRTUAL_ENV = venv_path,
+								PATH = venv_path .. "/bin:" .. vim.env.PATH,
+							}
+						end
+					end,
 					settings = {
 						pylsp = {
 							plugins = {
