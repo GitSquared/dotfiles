@@ -86,6 +86,16 @@ return require('lazy').setup({
 								VIRTUAL_ENV = venv_path,
 								PATH = venv_path .. "/bin:" .. vim.env.PATH,
 							}
+							-- Check if we're in a uv project
+						elseif vim.fn.executable("uv") == 1 and (vim.fn.filereadable(root_dir .. "/pyproject.toml") == 1 or vim.fn.filereadable(root_dir .. "/.python-version") == 1) then
+							-- Check if .venv already exists in the project directory
+							local venv_path = root_dir .. "/.venv"
+							if vim.fn.isdirectory(venv_path) == 1 then
+								config.cmd_env = {
+									VIRTUAL_ENV = venv_path,
+									PATH = venv_path .. "/bin:" .. vim.env.PATH,
+								}
+							end
 						end
 					end,
 					settings = {
