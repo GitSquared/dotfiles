@@ -58,17 +58,3 @@ augroup CustomHighlights
 	" NotifyBackground with ayu theme colors
 	autocmd ColorScheme * highlight NotifyBackground guibg=#0F131A ctermbg=NONE
 augroup END
-
-function! s:SetupDiffMappings()
-	if &diff
-		setlocal wrap
-		nnoremap <buffer> y :ClaudeCodeDiffAccept<CR>
-		nnoremap <buffer> n :ClaudeCodeDiffDeny<CR>
-	endif
-endfunction
-
-augroup DiffWrap
-	autocmd!
-	autocmd OptionSet diff call s:SetupDiffMappings()
-	autocmd FilterReadPost * call s:SetupDiffMappings()
-augroup END

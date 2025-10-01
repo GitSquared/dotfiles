@@ -76,6 +76,7 @@ return require('lazy').setup({
 				vimls = {},
 				yamlls = {},
 				terraformls = {},
+				copilot = {},
 				pylsp = {
 					autostart = true,
 					on_new_config = function(config, root_dir)
@@ -293,7 +294,13 @@ return require('lazy').setup({
 			-- See :h blink-cmp-config-keymap for defining your own keymap
 			keymap = {
 				preset = 'enter',
-				['<Tab>'] = { 'select_next', 'fallback' },
+				['<Tab>'] = {
+					function()
+						return require('sidekick').nes_jump_or_apply()
+					end,
+					'select_next',
+					'fallback'
+				},
 				['<S-Tab>'] = { 'select_prev', 'fallback' },
 			},
 			signature = { enabled = true },
@@ -378,9 +385,8 @@ return require('lazy').setup({
 
 	-- AI
 	{
-		'coder/claudecode.nvim', -- Claude Code integration
-		event = 'VeryLazy',
-		opts = {},
+		'folke/sidekick.nvim', -- AI CLIs integration
+		opts = {}
 	},
 
 	{
@@ -764,15 +770,6 @@ return require('lazy').setup({
 				line_opacity = 0.4,
 			})
 		end
-	},
-
-	{
-		'miversen33/sunglasses.nvim', -- dim inactive windows
-		enabled = false,          -- causes issues with modes.nvim :(
-		opts = {
-			filter_type = 'SHADE',
-			filter_percent = .3
-		}
 	},
 
 	{
