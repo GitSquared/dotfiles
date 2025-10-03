@@ -1,0 +1,10 @@
+{
+	"$schema": "https://opencode.ai/config.json",
+	"model": "claude-sonnet-4-5-20250929",
+	"theme": "kanagawa",
+	"permission": {
+		"webfetch": "allow",
+		"bash": "allow",
+		"edit": "allow"
+	}
+}
