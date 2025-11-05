@@ -150,13 +150,6 @@ return require('lazy').setup({
 		config = function(_, opts)
 			require('lsp-setup').setup(opts)
 
-			local lspconfig = require('lspconfig')
-			for server, config in pairs(opts.servers) do
-				-- bind capabilities to blink.cmp
-				config.capabilities = require('blink.cmp').get_lsp_capabilities(config.capabilities)
-				lspconfig[server].setup(config)
-			end
-
 			-- Configure diagnostics with virtual_lines beneath code
 			vim.diagnostic.config({
 				virtual_text = true, -- Disable default virtual text
