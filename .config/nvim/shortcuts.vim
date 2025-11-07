@@ -58,8 +58,8 @@ nmap <Leader>d :Yazi<CR>
 nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :LazyGit<CR>
 nmap <Leader>t :lua require('trouble').toggle('diagnostics')<CR>
-nmap <Leader>ai :lua require('sidekick.cli').toggle({name = 'claude', focus = true})<CR>
-vmap <Leader>ai :ClaudeCodeSend<CR>:ClaudeCodeFocus<CR>
+nmap <Leader>ai :lua require('sidekick.cli').toggle({name = 'opencode', focus = true})<CR>
+vmap <Leader>ai :lua require('sidekick.cli').send({msg = "{this}"})<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
 nmap <Leader>r :IncRename 
