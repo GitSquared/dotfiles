@@ -4,7 +4,7 @@
 [user]
 	name = Gabriel Saillard
 	email = gabriel@saillard.dev
-	signingkey = 3788B51C0983EE58
+	signingkey = F4532D51F9294BC5
 [includeIf "gitdir:~/git/carbonfact/"]
 	path = ~/work.gitconfig
 [commit]
