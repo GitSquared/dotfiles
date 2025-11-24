@@ -249,6 +249,7 @@ return require('lazy').setup({
 				sql = { 'sqruff' },
 				["sql.jinja"] = { 'sqruff' },
 				terraform = { 'terraform_fmt' },
+				rust = { "rustfmt" },
 			},
 			format_on_save = { timeout_ms = 500 },
 			formatters = {
