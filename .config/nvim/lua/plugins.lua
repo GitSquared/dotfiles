@@ -76,54 +76,18 @@ return require('lazy').setup({
 				vimls = {},
 				yamlls = {},
 				terraformls = {},
+				rust_analyzer = {},
 				copilot = {},
 				pylsp = {
-					autostart = true,
-					on_new_config = function(config, root_dir)
-						-- Check if we're in a Poetry project
-						if vim.fn.executable("poetry") == 1 and vim.fn.filereadable(root_dir .. "/pyproject.toml") == 1 then
-							local venv_path = vim.fn.system("cd " .. root_dir .. " && poetry env info --path"):gsub("\n", "")
-							config.cmd_env = {
-								VIRTUAL_ENV = venv_path,
-								PATH = venv_path .. "/bin:" .. vim.env.PATH,
-							}
-							-- Check if we're in a uv project
-						elseif vim.fn.executable("uv") == 1 and (vim.fn.filereadable(root_dir .. "/pyproject.toml") == 1 or vim.fn.filereadable(root_dir .. "/.python-version") == 1) then
-							-- Check if .venv already exists in the project directory
-							local venv_path = root_dir .. "/.venv"
-							if vim.fn.isdirectory(venv_path) == 1 then
-								config.cmd_env = {
-									VIRTUAL_ENV = venv_path,
-									PATH = venv_path .. "/bin:" .. vim.env.PATH,
-								}
-							end
-						end
-					end,
 					settings = {
 						pylsp = {
 							plugins = {
 								pycodestyle = { enabled = false },
-								black = {
-									enabled = false,
-									cache_config = true,
-								},
-								pylsp_mypy = {
-									enabled = false,
-									live_mode = true,
-									dmypy = true,
-									report_progress = true,
-								},
-								isort = {
-									enabled = false,
-								},
-								ruff = {
-									enabled = true,
-								},
+								black = { enabled = false },
+								pylsp_mypy = { enabled = false },
+								isort = { enabled = false },
+								ruff = { enabled = true },
 								jedi_completion = { fuzzy = true },
-								-- to install plugins:
-								-- :PylspInstall pylsp-mypy
-								-- :PylspInstall pyls-isort
-								-- :PylspInstall python-lsp-black
 							}
 						}
 					},
@@ -150,10 +114,75 @@ return require('lazy').setup({
 		config = function(_, opts)
 			require('lsp-setup').setup(opts)
 
-			-- Configure diagnostics with virtual_lines beneath code
+			vim.api.nvim_create_autocmd("LspAttach", {
+				callback = function(args)
+					local client = vim.lsp.get_client_by_id(args.data.client_id)
+					if not client or client.name ~= "pylsp" then
+						return
+					end
+
+					local root_dir = client.config.root_dir
+					if not root_dir then
+						return
+					end
+
+					local venv_path = root_dir .. "/.venv"
+					if vim.fn.isdirectory(venv_path) ~= 1 then
+						return
+					end
+
+					local venv_pylsp = venv_path .. "/bin/pylsp"
+
+					-- Auto-install pylsp if .venv exists but pylsp is not installed
+					if vim.fn.executable(venv_pylsp) ~= 1 then
+						vim.notify("Installing python-lsp-server in .venv...", vim.log.levels.INFO)
+						local install_cmd = vim.fn.executable("uv") == 1
+							and string.format("cd %s && uv pip install 'python-lsp-server[all]'", vim.fn.shellescape(root_dir))
+							or string.format("%s/bin/pip install 'python-lsp-server[all]'", vim.fn.shellescape(venv_path))
+
+						vim.fn.jobstart(install_cmd, {
+							on_exit = function(_, exit_code)
+								if exit_code == 0 then
+									vim.notify("python-lsp-server installed! Restarting LSP...", vim.log.levels.INFO)
+									vim.schedule(function()
+										vim.lsp.stop_client(client.id, true)
+										vim.schedule(function()
+											vim.lsp.start({
+												name = "pylsp",
+												cmd = { venv_pylsp },
+												root_dir = root_dir,
+												settings = opts.servers.pylsp.settings,
+											})
+										end)
+									end)
+								else
+									vim.notify("Failed to install python-lsp-server", vim.log.levels.ERROR)
+								end
+							end
+						})
+						return
+					end
+
+					-- Switch to project-local pylsp if not already using it
+					local cmd_path = client.config.cmd[1]
+					if cmd_path ~= venv_pylsp then
+						vim.lsp.stop_client(client.id, true)
+						vim.schedule(function()
+							vim.lsp.start({
+								name = "pylsp",
+								cmd = { venv_pylsp },
+								root_dir = root_dir,
+								settings = opts.servers.pylsp.settings,
+							})
+						end)
+					end
+				end,
+			})
+
+			-- Configure diagnostics
 			vim.diagnostic.config({
-				virtual_text = true, -- Disable default virtual text
-				virtual_lines = false, -- Show diagnostics beneath lines
+				virtual_text = true,
+				virtual_lines = false,
 				underline = true,
 				update_in_insert = false,
 				severity_sort = true,
