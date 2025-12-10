@@ -70,7 +70,7 @@ return require('lazy').setup({
 				eslint = {},
 				html = {},
 				jsonls = {},
-				vtsls = {}, -- faster drop-in replacement for tsserver
+				ts_ls = {},
 				tailwindcss = {},
 				prismals = {},
 				vimls = {},
