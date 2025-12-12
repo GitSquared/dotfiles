@@ -1,4 +1,5 @@
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+
 if not vim.loop.fs_stat(lazypath) then
 	vim.fn.system({
 		"git",
@@ -137,8 +138,8 @@ return require('lazy').setup({
 					if vim.fn.executable(venv_pylsp) ~= 1 then
 						vim.notify("Installing python-lsp-server in .venv...", vim.log.levels.INFO)
 						local install_cmd = vim.fn.executable("uv") == 1
-							and string.format("cd %s && uv pip install 'python-lsp-server[all]'", vim.fn.shellescape(root_dir))
-							or string.format("%s/bin/pip install 'python-lsp-server[all]'", vim.fn.shellescape(venv_path))
+							 and string.format("cd %s && uv pip install 'python-lsp-server[all]'", vim.fn.shellescape(root_dir))
+							 or string.format("%s/bin/pip install 'python-lsp-server[all]'", vim.fn.shellescape(venv_path))
 
 						vim.fn.jobstart(install_cmd, {
 							on_exit = function(_, exit_code)

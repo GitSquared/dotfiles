@@ -73,7 +73,6 @@ nmap <silent> gd :Glance definitions<CR>
 nmap <silent> gy :Glance type_definitions<CR>
 nmap <silent> gi :Glance implementations<CR>
 nmap <silent> gr :Glance references<CR>
-imap <silent><script><expr> <A-Tab> copilot#Accept("\<CR>")
 " Git integration
 nmap gb :Gitsigns blame<CR>
 nmap gk :Gitsigns prev_hunk<CR>zz
