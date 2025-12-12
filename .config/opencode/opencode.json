@@ -1,4 +1,12 @@
 {
 	"$schema": "https://opencode.ai/config.json",
-	"theme": "kanagawa"
+	"theme": "kanagawa",
+	"agent": {
+		"plan": {
+			"disable": true
+		},
+		"build": {
+			"disable": true
+		}
+	}
 }
