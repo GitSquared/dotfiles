@@ -1,6 +1,6 @@
 ---
 mode: subagent
-model: github-copilot/gpt-5.1
+model: openai/gpt-5.2
 temperature: 1.0
 tools:
   bash: false

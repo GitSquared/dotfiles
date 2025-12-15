@@ -1,6 +1,6 @@
 ---
 mode: all
-model: github-copilot/claude-opus-4.5
+model: anthropic/claude-opus-4.5
 temperature: 0.3
 tools:
   bash: false
