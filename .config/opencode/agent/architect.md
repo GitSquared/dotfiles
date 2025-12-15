@@ -1,6 +1,6 @@
 ---
 mode: primary
-model: anthropic/claude-opus-4.5
+model: anthropic/claude-opus-4-5
 temperature: 0.4
 permissions:
   edit: ask
