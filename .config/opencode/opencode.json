@@ -8,5 +8,27 @@
 		"build": {
 			"disable": true
 		}
+	},
+	"mcp": {
+		"github": {
+			"enabled": false,
+			"type": "remote",
+			"url": "https://api.githubcopilot.com/mcp/"
+		},
+		"sentry": {
+			"type": "remote",
+			"url": "https://mcp.sentry.dev/mcp",
+			"oauth": {}
+		},
+		"asana": {
+			"type": "remote",
+			"url": "https://mcp.asana.com/sse",
+			"oauth": {}
+		},
+		"notion": {
+			"type": "remote",
+			"url": "https://mcp.notion.com/mcp",
+			"oauth": {}
+		}
 	}
 }
