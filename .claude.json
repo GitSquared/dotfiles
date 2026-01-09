@@ -1,0 +1,293 @@
+{
+  "numStartups": 135,
+  "installMethod": "global",
+  "autoUpdates": true,
+  "editorMode": "vim",
+  "customApiKeyResponses": {
+    "approved": [
+      "PCPs1dy3L2Q-nrJ22AAA"
+    ],
+    "rejected": []
+  },
+  "tipsHistory": {
+    "default-permission-mode-config": 132,
+    "git-worktrees": 132,
+    "shift-enter": 132,
+    "theme-command": 132,
+    "stickers-command": 132,
+    "enter-to-steer-in-relatime": 132,
+    "todo-list": 132,
+    "ide-upsell-external-terminal": 132,
+    "install-slack-app": 132,
+    "permissions": 132,
+    "drag-and-drop-images": 132,
+    "paste-images-mac": 132,
+    "double-esc-code-restore": 132,
+    "continue": 132,
+    "rename-conversation": 132,
+    "custom-commands": 132,
+    "shift-tab": 132,
+    "image-paste": 132,
+    "ultrathink-keyword": 132,
+    "custom-agents": 132,
+    "desktop-app": 132,
+    "web-app": 132,
+    "mobile-app": 132,
+    "guest-passes": 135
+  },
+  "memoryUsageCount": 2,
+  "promptQueueUseCount": 21,
+  "showExpandedTodos": true,
+  "autoConnectIde": true,
+  "cachedStatsigGates": {
+    "tengu_prompt_suggestion": true,
+    "tengu_streaming_tool_execution2": false
+  },
+  "cachedGrowthBookFeatures": {
+    "tengu_1p_event_batch_config": {
+      "scheduledDelayMillis": 5000,
+      "maxExportBatchSize": 200,
+      "maxQueueSize": 8192
+    },
+    "tengu_mcp_tool_search": false,
+    "tengu_disable_bypass_permissions_mode": false,
+    "strawberry_granite_flag": "N/A",
+    "persimmon_marble_flag": "N/A",
+    "tengu_pid_based_version_locking": true,
+    "tengu_event_sampling_config": {},
+    "tengu_tool_pear": false,
+    "tengu_c4w_usage_limit_notifications_enabled": true,
+    "tengu_thinkback": false,
+    "tengu_tool_search_unsupported_models": null,
+    "tengu_ant_attribution_header_new": true,
+    "tengu_sumi": false,
+    "tengu_react_vulnerability_warning": false,
+    "tengu-top-of-feed-tip": {
+      "tip": "",
+      "color": ""
+    },
+    "tengu_accept_with_feedback": false,
+    "tengu_permission_explainer": false,
+    "tengu_prompt_suggestion": true
+  },
+  "companyAnnouncements": [
+    "There are more things in heaven and earth than any place else.",
+    "When confronted by a difficult problem, reduce it to: 'How would the Lone Ranger handle this?'",
+    "Real programs don't eat cache.",
+    "Every improvement in communication makes the bore more terrible. — Frank Moore Colby",
+    "Boob's Law: You always find something in the last place you look.",
+    "Nothing motivates a man more than to see his boss put in an honest day's work.",
+    "While money can't buy happiness, it certainly lets you choose your own form of misery.",
+    "Oh dear, I think you'll find reality's on the blink again. — Marvin",
+    "Democracy is good. I say this because other systems are worse. — Nehru",
+    "Confucius say too much. — Recent Chinese Proverb",
+    "Never look up when dragons fly overhead.",
+    "When speculation has done its worst, two plus two still equals four. — S. Johnson",
+    "There is much Obi-Wan did not tell you. — Darth Vader",
+    "You are only young once, but you can stay immature indefinitely.",
+    "If there are epigrams, there must be meta-epigrams."
+  ],
+  "hasSeenStashHint": true,
+  "firstStartTime": "2025-06-24T16:59:21.283Z",
+  "userID": "6fa8f2483915731ad44abaa48375b395d4013fe2f125ad7f34529d555085c017",
+  "projects": {
+    "/Users/gaby/git/carbonfact/carbonfact-worktrees/kaamelott": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": false,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "lastCost": 2.28633425,
+      "lastAPIDuration": 383101,
+      "lastAPIDurationWithoutRetries": 383042,
+      "lastToolDuration": 51993,
+      "lastDuration": 11264723,
+      "lastLinesAdded": 33,
+      "lastLinesRemoved": 5,
+      "lastTotalInputTokens": 98242,
+      "lastTotalOutputTokens": 16105,
+      "lastTotalCacheCreationInputTokens": 165783,
+      "lastTotalCacheReadInputTokens": 1649037,
+      "lastTotalWebSearchRequests": 0,
+      "lastModelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 93942,
+          "outputTokens": 1873,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 10987,
+          "webSearchRequests": 0,
+          "costUSD": 0.11704075
+        },
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 4300,
+          "outputTokens": 14232,
+          "cacheReadInputTokens": 1649037,
+          "cacheCreationInputTokens": 154796,
+          "webSearchRequests": 0,
+          "costUSD": 2.1692934999999998
+        }
+      },
+      "lastSessionId": "3e534eec-9ddc-484b-9da3-151847967e63"
+    },
+    "/Users/gaby/.config": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "lastCost": 1.2703448,
+      "lastAPIDuration": 142588,
+      "lastAPIDurationWithoutRetries": 142569,
+      "lastToolDuration": 840,
+      "lastDuration": 337788,
+      "lastLinesAdded": 268,
+      "lastLinesRemoved": 24,
+      "lastTotalInputTokens": 6716,
+      "lastTotalOutputTokens": 7481,
+      "lastTotalCacheCreationInputTokens": 90708,
+      "lastTotalCacheReadInputTokens": 1010272,
+      "lastTotalWebSearchRequests": 0,
+      "lastModelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "inputTokens": 2826,
+          "outputTokens": 335,
+          "cacheReadInputTokens": 10793,
+          "cacheCreationInputTokens": 0,
+          "webSearchRequests": 0,
+          "costUSD": 0.0055803
+        },
+        "claude-opus-4-5-20251101": {
+          "inputTokens": 3890,
+          "outputTokens": 7146,
+          "cacheReadInputTokens": 999479,
+          "cacheCreationInputTokens": 90708,
+          "webSearchRequests": 0,
+          "costUSD": 1.2647644999999996
+        }
+      },
+      "lastSessionId": "b60fc302-93b1-4e89-94ef-0837b8e51b73",
+      "disabledMcpServers": []
+    }
+  },
+  "isQualifiedForDataSharing": false,
+  "shiftEnterKeyBindingInstalled": true,
+  "hasCompletedOnboarding": true,
+  "lastOnboardingVersion": "1.0.33",
+  "recommendedSubscription": "pro",
+  "changelogLastFetched": 1767969792999,
+  "subscriptionNoticeCount": 1,
+  "hasAvailableSubscription": false,
+  "hasIdeOnboardingBeenShown": {
+    "ghostty": true
+  },
+  "lastReleaseNotesSeen": "2.1.2",
+  "hasAcknowledgedCostThreshold": true,
+  "subscriptionUpsellShownCount": 5,
+  "githubActionSetupCount": 1,
+  "hasIdeAutoConnectDialogBeenShown": true,
+  "hasOpusPlanDefault": false,
+  "claudeCodeFirstTokenDate": "2025-06-24T16:59:55.352803Z",
+  "fallbackAvailableWarningThreshold": 0.5,
+  "sonnet45MigrationComplete": true,
+  "feedbackSurveyState": {
+    "lastShownTime": 1767986346328
+  },
+  "githubRepoPaths": {
+    "carbonfact/carbonfact": [
+      "/Users/gaby/git/carbonfact/carbonfact-worktrees/kaamelott/kaya",
+      "/Users/gaby/git/carbonfact/carbonfact-worktrees/kaamelott",
+      "/Users/gaby/git/carbonfact/carbonfact-worktrees/zanzibar",
+      "/Users/gaby/git/carbonfact/carbonfact"
+    ]
+  },
+  "opus45MigrationComplete": true,
+  "hasShownOpus45Notice": {
+    "d91e5e9a-add4-4b37-a8cc-1c9c48260d54": true
+  },
+  "oauthAccount": {
+    "accountUuid": "790457fd-a5db-475d-a0a5-627b2b6d7b51",
+    "emailAddress": "gaby@carbonfact.com",
+    "organizationUuid": "d91e5e9a-add4-4b37-a8cc-1c9c48260d54",
+    "hasExtraUsageEnabled": false,
+    "displayName": "Gaby",
+    "organizationRole": "admin",
+    "workspaceRole": null,
+    "organizationName": "gaby@carbonfact.com's Organization"
+  },
+  "anonymousId": "claudecode.v1.76489c5e-4f01-49a7-bee6-18c30fcf10aa",
+  "passesEligibilityCache": {
+    "d91e5e9a-add4-4b37-a8cc-1c9c48260d54": {
+      "eligible": true,
+      "referral_code_details": {
+        "code": "1iVlCxHCXA",
+        "campaign": "claude_code_guest_pass",
+        "referral_link": "https://claude.ai/referral/1iVlCxHCXA"
+      },
+      "timestamp": 1767988036090
+    }
+  },
+  "officialMarketplaceAutoInstallAttempted": true,
+  "officialMarketplaceAutoInstalled": true,
+  "thinkingMigrationComplete": true,
+  "groveConfigCache": {
+    "790457fd-a5db-475d-a0a5-627b2b6d7b51": {
+      "grove_enabled": true,
+      "timestamp": 1767969793133
+    }
+  },
+  "lastPlanModeUse": 1767988070200,
+  "mcpServers": {
+    "sentry": {
+      "type": "http",
+      "url": "https://mcp.sentry.dev/mcp"
+    },
+    "asana": {
+      "type": "http",
+      "url": "https://mcp.asana.com/mcp"
+    },
+    "notion": {
+      "type": "http",
+      "url": "https://mcp.notion.com/mcp"
+    },
+    "postgres": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://carbonfact_niklas_user:carbonfact_niklas_pwd@127.0.0.1:5432/carbonfact_niklas"
+      ],
+      "env": {}
+    }
+  },
+  "s1mAccessCache": {
+    "d91e5e9a-add4-4b37-a8cc-1c9c48260d54": {
+      "hasAccess": false,
+      "hasAccessNotAsDefault": false,
+      "timestamp": 1767987572103
+    }
+  },
+  "hasCompletedClaudeInChromeOnboarding": true,
+  "claudeInChromeDefaultEnabled": true,
+  "skillUsage": {
+    "statusline": {
+      "usageCount": 1,
+      "lastUsedAt": 1767990192581
+    }
+  }
+}
