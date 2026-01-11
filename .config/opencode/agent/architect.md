@@ -1,5 +1,6 @@
 ---
 mode: primary
+color: '#7FB4CA'
 model: anthropic/claude-opus-4-5
 temperature: 0.4
 permissions:
