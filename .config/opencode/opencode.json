@@ -30,6 +30,12 @@
 			"type": "remote",
 			"url": "https://mcp.notion.com/mcp",
 			"oauth": {}
+		},
+		"figma": {
+			"enabled": false,
+			"type": "remote",
+			"url": "https://mcp.figma.com/mcp",
+			"oauth": {}
 		}
 	}
 }

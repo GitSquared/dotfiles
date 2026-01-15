@@ -1,5 +1,5 @@
 {
-  "numStartups": 143,
+  "numStartups": 144,
   "installMethod": "global",
   "autoUpdates": true,
   "editorMode": "vim",
@@ -107,45 +107,37 @@
       "projectOnboardingSeenCount": 0,
       "hasClaudeMdExternalIncludesApproved": false,
       "hasClaudeMdExternalIncludesWarningShown": false,
-      "lastCost": 12.493824500000004,
-      "lastAPIDuration": 1255823,
-      "lastAPIDurationWithoutRetries": 1255647,
-      "lastToolDuration": 1039597,
-      "lastDuration": 2539310,
-      "lastLinesAdded": 131,
-      "lastLinesRemoved": 86,
-      "lastTotalInputTokens": 87822,
-      "lastTotalOutputTokens": 56662,
-      "lastTotalCacheCreationInputTokens": 701420,
-      "lastTotalCacheReadInputTokens": 14325575,
+      "lastCost": 4.59069425,
+      "lastAPIDuration": 3718541,
+      "lastAPIDurationWithoutRetries": 3718499,
+      "lastToolDuration": 199228,
+      "lastDuration": 4018257,
+      "lastLinesAdded": 0,
+      "lastLinesRemoved": 0,
+      "lastTotalInputTokens": 129884,
+      "lastTotalOutputTokens": 15633,
+      "lastTotalCacheCreationInputTokens": 163737,
+      "lastTotalCacheReadInputTokens": 6248926,
       "lastTotalWebSearchRequests": 0,
       "lastModelUsage": {
         "claude-haiku-4-5-20251001": {
-          "inputTokens": 81538,
-          "outputTokens": 2924,
-          "cacheReadInputTokens": 9712,
-          "cacheCreationInputTokens": 1778,
+          "inputTokens": 129485,
+          "outputTokens": 1036,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 11742,
           "webSearchRequests": 0,
-          "costUSD": 0.09935169999999996
+          "costUSD": 0.14934249999999993
         },
         "claude-opus-4-5-20251101": {
-          "inputTokens": 5613,
-          "outputTokens": 46625,
-          "cacheReadInputTokens": 13311542,
-          "cacheCreationInputTokens": 604540,
+          "inputTokens": 399,
+          "outputTokens": 14597,
+          "cacheReadInputTokens": 6248926,
+          "cacheCreationInputTokens": 151995,
           "webSearchRequests": 0,
-          "costUSD": 11.627836000000002
-        },
-        "claude-sonnet-4-5-20250929": {
-          "inputTokens": 671,
-          "outputTokens": 7113,
-          "cacheReadInputTokens": 1004321,
-          "cacheCreationInputTokens": 95102,
-          "webSearchRequests": 0,
-          "costUSD": 0.7666367999999999
+          "costUSD": 4.441351749999999
         }
       },
-      "lastSessionId": "f8ec8772-948f-4f7e-8cfd-04b1b4647ff5",
+      "lastSessionId": "5dadeb29-9c5f-4e32-9080-87579eda751f",
       "reactVulnerabilityCache": {
         "detected": false,
         "package": null,
@@ -424,9 +416,9 @@
   },
   "s1mAccessCache": {
     "d91e5e9a-add4-4b37-a8cc-1c9c48260d54": {
-      "hasAccess": false,
+      "hasAccess": true,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1768132539021
+      "timestamp": 1768241392957
     }
   },
   "hasCompletedClaudeInChromeOnboarding": true,
