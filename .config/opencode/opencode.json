@@ -13,29 +13,24 @@
 		"github": {
 			"enabled": false,
 			"type": "remote",
-			"url": "https://api.githubcopilot.com/mcp/",
-			"oauth": {}
+			"url": "https://api.githubcopilot.com/mcp/"
 		},
 		"sentry": {
 			"type": "remote",
-			"url": "https://mcp.sentry.dev/mcp",
-			"oauth": {}
+			"url": "https://mcp.sentry.dev/mcp"
 		},
 		"asana": {
 			"type": "remote",
-			"url": "https://mcp.asana.com/sse",
-			"oauth": {}
+			"url": "https://mcp.asana.com/sse"
 		},
 		"notion": {
 			"type": "remote",
-			"url": "https://mcp.notion.com/mcp",
-			"oauth": {}
+			"url": "https://mcp.notion.com/mcp"
 		},
 		"figma": {
 			"enabled": false,
 			"type": "remote",
-			"url": "https://mcp.figma.com/mcp",
-			"oauth": {}
+			"url": "https://mcp.figma.com/mcp"
 		}
 	}
 }
