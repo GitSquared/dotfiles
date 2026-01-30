@@ -1,5 +1,5 @@
 {
-  "numStartups": 144,
+  "numStartups": 145,
   "installMethod": "global",
   "autoUpdates": true,
   "editorMode": "vim",
@@ -33,7 +33,8 @@
     "desktop-app": 132,
     "web-app": 132,
     "mobile-app": 132,
-    "guest-passes": 143
+    "guest-passes": 143,
+    "plan-mode-for-complex-tasks": 145
   },
   "memoryUsageCount": 2,
   "promptQueueUseCount": 26,
@@ -50,7 +51,7 @@
       "maxExportBatchSize": 200,
       "maxQueueSize": 8192
     },
-    "tengu_mcp_tool_search": false,
+    "tengu_mcp_tool_search": true,
     "tengu_disable_bypass_permissions_mode": false,
     "strawberry_granite_flag": "N/A",
     "persimmon_marble_flag": "N/A",
@@ -59,9 +60,11 @@
     "tengu_tool_pear": false,
     "tengu_c4w_usage_limit_notifications_enabled": true,
     "tengu_thinkback": false,
-    "tengu_tool_search_unsupported_models": null,
+    "tengu_tool_search_unsupported_models": [
+      "haiku"
+    ],
     "tengu_ant_attribution_header_new": true,
-    "tengu_sumi": false,
+    "tengu_sumi": true,
     "tengu_react_vulnerability_warning": false,
     "tengu-top-of-feed-tip": {
       "tip": "",
@@ -74,7 +77,17 @@
     "tengu_log_segment_events": false,
     "tengu_log_datadog_events": true,
     "tengu_streaming_tool_execution2": false,
-    "tengu_post_compact_survey": false
+    "tengu_post_compact_survey": false,
+    "tengu_brass_pebble": false,
+    "tengu_marble_anvil": false,
+    "tengu_scarf_coffee": false,
+    "tengu_claudeai_mcp_connectors": true,
+    "tengu_keybinding_customization_release": false,
+    "tengu_kv7_prompt_sort": false,
+    "tengu_coral_fern": false,
+    "enhanced_telemetry_beta": false,
+    "tengu_cache_plum_violet": false,
+    "tengu_attribution_header": true
   },
   "companyAnnouncements": [
     "There are more things in heaven and earth than any place else.",
@@ -283,43 +296,43 @@
       },
       "exampleFiles": [
         "metrics-cube.service.ts",
-        "MainNavigationPanel.tsx",
         "TableView.tsx",
-        "scope-override.service.ts",
-        "Explorer.tsx"
+        "Explorer.tsx",
+        "metrics-cube/index.ts",
+        "metrics-v2.service.ts"
       ],
-      "exampleFilesGeneratedAt": 1767991169366,
-      "lastCost": 0.1302755,
-      "lastAPIDuration": 22424,
-      "lastAPIDurationWithoutRetries": 22413,
-      "lastToolDuration": 0,
-      "lastDuration": 24390,
+      "exampleFilesGeneratedAt": 1769587412457,
+      "lastCost": 0.5798112999999998,
+      "lastAPIDuration": 110814,
+      "lastAPIDurationWithoutRetries": 110793,
+      "lastToolDuration": 101720,
+      "lastDuration": 1878220,
       "lastLinesAdded": 0,
       "lastLinesRemoved": 0,
-      "lastTotalInputTokens": 7679,
-      "lastTotalOutputTokens": 503,
-      "lastTotalCacheCreationInputTokens": 28162,
-      "lastTotalCacheReadInputTokens": 0,
+      "lastTotalInputTokens": 5772,
+      "lastTotalOutputTokens": 6752,
+      "lastTotalCacheCreationInputTokens": 118978,
+      "lastTotalCacheReadInputTokens": 527298,
       "lastTotalWebSearchRequests": 0,
       "lastModelUsage": {
         "claude-haiku-4-5-20251001": {
-          "inputTokens": 7673,
-          "outputTokens": 377,
-          "cacheReadInputTokens": 0,
-          "cacheCreationInputTokens": 11695,
+          "inputTokens": 5738,
+          "outputTokens": 5336,
+          "cacheReadInputTokens": 464858,
+          "cacheCreationInputTokens": 61899,
           "webSearchRequests": 0,
-          "costUSD": 0.02417675
+          "costUSD": 0.15627755000000002
         },
         "claude-opus-4-5-20251101": {
-          "inputTokens": 6,
-          "outputTokens": 126,
-          "cacheReadInputTokens": 0,
-          "cacheCreationInputTokens": 16467,
+          "inputTokens": 34,
+          "outputTokens": 1416,
+          "cacheReadInputTokens": 62440,
+          "cacheCreationInputTokens": 57079,
           "webSearchRequests": 0,
-          "costUSD": 0.10609875
+          "costUSD": 0.42353375000000004
         }
       },
-      "lastSessionId": "a6d33e89-5205-49b3-8e82-53dd34ab40d7",
+      "lastSessionId": "b85245b3-399d-4c28-9001-c0fce68d8ae0",
       "hasCompletedProjectOnboarding": true
     }
   },
@@ -328,13 +341,13 @@
   "hasCompletedOnboarding": true,
   "lastOnboardingVersion": "1.0.33",
   "recommendedSubscription": "pro",
-  "changelogLastFetched": 1768132540734,
+  "changelogLastFetched": 1769587411763,
   "subscriptionNoticeCount": 1,
   "hasAvailableSubscription": false,
   "hasIdeOnboardingBeenShown": {
     "ghostty": true
   },
-  "lastReleaseNotesSeen": "2.1.4",
+  "lastReleaseNotesSeen": "2.1.5",
   "hasAcknowledgedCostThreshold": true,
   "subscriptionUpsellShownCount": 5,
   "githubActionSetupCount": 1,
@@ -377,7 +390,8 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/1iVlCxHCXA"
       },
-      "timestamp": 1768132539076
+      "referrer_reward": null,
+      "timestamp": 1769587410777
     }
   },
   "officialMarketplaceAutoInstallAttempted": true,
@@ -386,7 +400,7 @@
   "groveConfigCache": {
     "790457fd-a5db-475d-a0a5-627b2b6d7b51": {
       "grove_enabled": true,
-      "timestamp": 1768132537489
+      "timestamp": 1769587410027
     }
   },
   "lastPlanModeUse": 1767988070200,
@@ -418,7 +432,7 @@
     "d91e5e9a-add4-4b37-a8cc-1c9c48260d54": {
       "hasAccess": true,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1768241392957
+      "timestamp": 1769587410698
     }
   },
   "hasCompletedClaudeInChromeOnboarding": true,
@@ -433,5 +447,6 @@
       "lastUsedAt": 1767992242818
     }
   },
-  "passesUpsellSeenCount": 4
+  "passesUpsellSeenCount": 4,
+  "opusProMigrationComplete": true
 }
