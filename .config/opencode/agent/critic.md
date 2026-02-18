@@ -1,6 +1,6 @@
 ---
 mode: subagent
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-sonnet-4-6
 temperature: 0.2
 tools:
   task: false

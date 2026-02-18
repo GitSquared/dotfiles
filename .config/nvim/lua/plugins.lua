@@ -71,7 +71,7 @@ return require('lazy').setup({
 				eslint = {},
 				html = {},
 				jsonls = {},
-				ts_ls = {},
+				vtsls = {},
 				tailwindcss = {},
 				prismals = {},
 				vimls = {},
