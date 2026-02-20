@@ -25,10 +25,6 @@
 			"type": "remote",
 			"url": "https://mcp.sentry.dev/mcp"
 		},
-		"asana": {
-			"type": "remote",
-			"url": "https://mcp.asana.com/sse"
-		},
 		"notion": {
 			"type": "remote",
 			"url": "https://mcp.notion.com/mcp"
