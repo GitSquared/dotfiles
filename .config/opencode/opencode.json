@@ -1,11 +1,5 @@
 {
-	"$schema": "https://opencode.ai/config.json",
-	"theme": "kanagawa",
-	"tui": {
-		"scroll_acceleration": {
-			"enabled": true
-		}
-	},
+  "$schema": "https://opencode.ai/config.json",
 	"plugin": ["opencode-anthropic-auth@latest"],
 	"agent": {
 		"plan": {
