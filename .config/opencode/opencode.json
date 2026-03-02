@@ -1,5 +1,5 @@
 {
-  "$schema": "https://opencode.ai/config.json",
+	"$schema": "https://opencode.ai/config.json",
 	"plugin": ["opencode-anthropic-auth@latest"],
 	"agent": {
 		"plan": {
@@ -27,6 +27,13 @@
 			"enabled": false,
 			"type": "remote",
 			"url": "https://mcp.figma.com/mcp"
+		},
+		"sunsama": {
+			"type": "remote",
+			"url": "https://api.sunsama.com/mcp",
+			"headers": {
+				"Authorization": "Bearer {file:~/ai-context/sunsama-token.txt}"
+			}
 		}
 	}
 }
