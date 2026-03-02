@@ -8,7 +8,7 @@
       "skillPath": "skills/find-skills/SKILL.md",
       "skillFolderHash": "c2f31172b6f256272305a5e6e7228b258446899f",
       "installedAt": "2026-02-16T09:41:41.940Z",
-      "updatedAt": "2026-02-16T09:41:41.940Z"
+      "updatedAt": "2026-03-02T17:13:35.163Z"
     }
   },
   "dismissed": {
@@ -16,7 +16,9 @@
   },
   "lastSelectedAgents": [
     "amp",
+    "cline",
     "codex",
+    "cursor",
     "gemini-cli",
     "github-copilot",
     "kimi-cli",

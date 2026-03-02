@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "acceptEdits",
     "allow": [
       "Bash(git status*)",
       "Bash(git diff*)",
@@ -32,6 +31,12 @@
       "Read(.env*)",
       "Read(**/.env*)",
       "Read(**/credentials*)"
-    ]
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "syntaxHighlightingDisabled": false,
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/statusline-command.sh"
   }
 }
