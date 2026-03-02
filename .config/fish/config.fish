@@ -22,6 +22,7 @@ fish_add_path /opt/homebrew/opt/openjdk/bin
 # Default ENV
 set -x EDITOR nvim
 set -x HOMEBREW_NO_ENV_HINTS 1
+set -x SUNSAMA_TOKEN (cat ~/ai-context/sunsama-token.txt | string trim)
 
 # Load kanagawa color scheme
 source ~/.config/fish/themes/kanagawa.fish
