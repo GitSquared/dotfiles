@@ -87,3 +87,4 @@ Each option should be specific enough that the user can pick one and you can imm
 - If the topic is vague, make reasonable assumptions and state them explicitly.
 - Don't start fixing or implementing anything — this is reconnaissance only.
 - If you find the topic is trivial (< 5 min fix), say so and propose the fix directly.
+- **IMPORTANT: Do NOT clean up or remove the worktree after finishing.** The whole point is to leave the user in the worktree, ready to start working. The worktree must persist after this skill completes.
