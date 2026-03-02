@@ -1,39 +1,18 @@
-# oc - opencode wrapper that tints the input box per worktree
+# oc - opencode wrapper that shows the worktree name in the terminal title
 #
-# Hashes the current directory basename to deterministically pick a hue,
-# then tints the kanagawa theme's backgroundElement and borderActive
-# before launching opencode. Same directory = same tint.
+# Disables opencode's own title-setting, sets the terminal title to the
+# worktree/directory name, then launches opencode. The title persists
+# for the entire session.
 
 function oc
     set wt (basename (pwd))
 
-    # deterministic hue from directory name (0-360)
-    set hash (echo -n $wt | md5 -q | string sub -l 4)
-    set hue (math "0x$hash % 360")
+    # set terminal title to worktree name (OSC 2)
+    printf "\e]2;[%s] opencode\a" $wt
 
-    # generate tinted colors:
-    #   bg_element: very subtle tint on dark background (low sat, low lightness)
-    #   border_active: visible but not loud accent border
-    set colors (python3 -c "
-import colorsys
-h = $hue / 360
-# subtle background tint - keep it dark, just enough color to notice
-r,g,b = colorsys.hls_to_rgb(h, 0.22, 0.20)
-print(f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}')
-# border accent - more visible
-r,g,b = colorsys.hls_to_rgb(h, 0.55, 0.45)
-print(f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}')
-")
+    # launch opencode with its title-setting disabled so it won't override ours
+    OPENCODE_DISABLE_TERMINAL_TITLE=1 opencode $argv
 
-    set bg_hex $colors[1]
-    set border_hex $colors[2]
-
-    # patch the worktree theme
-    set theme_file ~/.config/opencode/themes/_wt.json
-    if test -f $theme_file
-        sed -i '' "s/\"wtBgElement\": \"#[0-9a-fA-F]\\{6\\}\"/\"wtBgElement\": \"$bg_hex\"/" $theme_file
-        sed -i '' "s/\"wtBorderActive\": \"#[0-9a-fA-F]\\{6\\}\"/\"wtBorderActive\": \"$border_hex\"/" $theme_file
-    end
-
-    opencode $argv
+    # restore default title behavior after exit
+    printf "\e]2;%s\a" $wt
 end

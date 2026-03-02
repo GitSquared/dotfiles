@@ -39,6 +39,7 @@ alias icat='kitty +kitten icat'
 alias lg='lazygit'
 alias pinentry='pinentry-mac'
 alias ranger='echo "use yazi instead!"' # retrain my muscle memory
+alias opencode='oc'
 
 # Automatically switch node version based on .nvmrc
 function nvm_use_on_dir --on-variable PWD
