@@ -9,7 +9,6 @@ end
 pyenv init - | source
 source (rbenv init -|psub)
 zoxide init fish | source
-entire completion fish | source
 
 # $PATH setup
 fish_add_path /opt/homebrew/bin
