@@ -25,3 +25,5 @@ Do NOT push commits to the remote. They will be human-reviewed locally first.
 Wrap up your work by providing an executive summary of the PR, its changes, and the review you performed; as well as a detailed per-comment list of what you addressed, how and why.
 
 Upon explicit human approval of your changes, you can push to the remote branch. If you are fixing issues spotted in review, reply within the thread of each review comment with a short explanation and a link to the commit you made to address the issue.
+
+Do NOT answer comment threads by AI reviewers like Cubic as you risk influencing their code review rules. Only answer comments by human reviewers.
