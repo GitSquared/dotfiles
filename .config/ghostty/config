@@ -25,15 +25,20 @@ cursor-color = #C8C093
 selection-background = #2D4F67
 selection-foreground = #C8C093
 background-blur-radius = 20
-#background-opacity = 0.65
-background-opacity = 1
+background-opacity = 0.7
+#background-opacity = 1
 
 window-inherit-font-size = false
+font-family = "JetBrains Mono"
 font-size = 12
 font-thicken = true
 
 mouse-hide-while-typing = true
 macos-option-as-alt = false
+
+notify-on-command-finish = unfocused
+notify-on-command-finish-action = bell
+notify-on-command-finish-after = 10s
 
 keybind = global:ctrl+§=toggle_quick_terminal
 keybind = ctrl+cmd+f=unbind
