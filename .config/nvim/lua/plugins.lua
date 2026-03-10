@@ -471,7 +471,7 @@ return require('lazy').setup({
 				keywordStyle = { italic = true },
 				statementStyle = { bold = true },
 				typeStyle = {},
-				transparent = false,
+				transparent = true,
 				dimInactive = true,
 				terminalColors = true,
 				colors = {
