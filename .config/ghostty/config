@@ -32,6 +32,7 @@ window-inherit-font-size = false
 font-family = "JetBrains Mono"
 font-size = 12
 font-thicken = true
+font-thicken-strength = 255
 
 mouse-hide-while-typing = true
 macos-option-as-alt = false
