@@ -11,14 +11,20 @@
 	},
 	"lsp": {
 		"typescript": {
-			"command": ["/Users/gaby/.local/share/nvim/mason/bin/tsgo", "--lsp", "--stdio"]
+			"command": [
+				"/Users/gaby/.local/share/nvim/mason/bin/tsgo",
+				"--lsp",
+				"--stdio"
+			]
 		}
 	},
 	"mcp": {
-		"github": {
-			"enabled": false,
+		"context7": {
 			"type": "remote",
-			"url": "https://api.githubcopilot.com/mcp/"
+			"url": "https://mcp.context7.com/mcp",
+			"headers": {
+				"CONTEXT7_API_KEY": "{file:~/ai-context/context7-key.txt}"
+			}
 		},
 		"sentry": {
 			"type": "remote",
@@ -27,11 +33,6 @@
 		"notion": {
 			"type": "remote",
 			"url": "https://mcp.notion.com/mcp"
-		},
-		"figma": {
-			"enabled": false,
-			"type": "remote",
-			"url": "https://mcp.figma.com/mcp"
 		},
 		"sunsama": {
 			"type": "remote",
