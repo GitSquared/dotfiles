@@ -43,20 +43,9 @@ default-root-container-orientation = 'auto'
 # Also see: https://nikitabobko.github.io/AeroSpace/goodies#disable-hide-app
 automatically-unhide-macos-hidden-apps = false
 
-# Fake sticky behavior while aerospace does not support it natively yet
-exec-on-workspace-change = [
-    '/bin/bash', '-c',
-    '~/.config/aerospace/fake-sticky.sh'
-]
-
 # Force float some apps
 [[on-window-detected]]
     if.app-id = 'com.apple.finder'
-    run = 'layout floating'
-[[ on-window-detected ]]
-    # Force sunsama, see also the exec-on-workspace-change script to fake a "sticky" behavior
-    if.app-id = 'com.sunsama.native-app'
-    if.window-title-regex-substring = 'Sunsama Focus Bar'
     run = 'layout floating'
 # https://ghostty.org/docs/help/macos-tiling-wms?utm_source=chatgpt.com#aerospace
 # [[on-window-detected]]
