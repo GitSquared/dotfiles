@@ -13,5 +13,6 @@
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
   },
-  "syntaxHighlightingDisabled": false
+  "syntaxHighlightingDisabled": false,
+  "voiceEnabled": false
 }

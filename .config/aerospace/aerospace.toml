@@ -130,6 +130,21 @@ aerospace move-node-to-workspace --focus-follows-window "$current_workspace"
     alt-comma = 'layout accordion horizontal vertical'
     alt-shift-space = 'balance-sizes'
     alt-f = ['layout floating tiling', 'mode main'] # Toggle between floating and tiling layout for current window
+    alt-shift-f = ['layout floating', '''exec-and-forget bash -c '
+sleep 0.01
+osascript -l JavaScript -e "
+var finder = Application(\"Finder\");
+var bounds = finder.desktop.window.bounds();
+var sw = bounds.width; var sh = bounds.height;
+var w = Math.round(sw * 0.75); var h = Math.round(sh * 0.75);
+var x = Math.round((sw - w) / 2); var y = Math.round((sh - h) / 2);
+var se = Application(\"System Events\");
+var front = se.processes.whose({frontmost: true})[0];
+var win = front.windows[0];
+win.position = [x, y];
+win.size = [w, h];
+"'
+''']
 
     # See: https://nikitabobko.github.io/AeroSpace/commands#focus
     alt-h = 'focus left'
