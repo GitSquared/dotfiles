@@ -146,6 +146,16 @@ win.size = [w, h];
 "'
 ''']
 
+    # Resize current tiled window to 70% of workspace (for a 70/30 split)
+    alt-shift-s = '''exec-and-forget bash -c '
+screen_width=$(osascript -l JavaScript -e "Application(\"Finder\").desktop.window.bounds().width")
+# Subtract gaps: outer-left(40) + outer-right(40) + inner(20) = 100
+usable=$((screen_width - 100))
+target=$((usable * 70 / 100))
+aerospace resize smart "$target"
+'
+'''
+
     # See: https://nikitabobko.github.io/AeroSpace/commands#focus
     alt-h = 'focus left'
     alt-j = 'focus down'
