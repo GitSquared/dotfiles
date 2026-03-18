@@ -133,14 +133,23 @@ aerospace move-node-to-workspace --focus-follows-window "$current_workspace"
     alt-shift-f = ['layout floating', '''exec-and-forget bash -c '
 sleep 0.01
 osascript -l JavaScript -e "
-var finder = Application(\"Finder\");
-var bounds = finder.desktop.window.bounds();
-var sw = bounds.width; var sh = bounds.height;
-var w = Math.round(sw * 0.75); var h = Math.round(sh * 0.75);
-var x = Math.round((sw - w) / 2); var y = Math.round((sh - h) / 2);
+ObjC.import(\"AppKit\");
 var se = Application(\"System Events\");
 var front = se.processes.whose({frontmost: true})[0];
 var win = front.windows[0];
+var pos = win.position();
+var screens = $.NSScreen.screens;
+var sx = 0, sy = 0, sw = 0, sh = 0;
+for (var i = 0; i < screens.count; i++) {
+    var f = screens.objectAtIndex(i).frame;
+    if (pos[0] >= f.origin.x && pos[0] < f.origin.x + f.size.width &&
+        pos[1] >= f.origin.y && pos[1] < f.origin.y + f.size.height) {
+        sx = f.origin.x; sy = f.origin.y; sw = f.size.width; sh = f.size.height;
+        break;
+    }
+}
+var w = Math.round(sw * 0.75); var h = Math.round(sh * 0.75);
+var x = Math.round(sx + (sw - w) / 2); var y = Math.round(sy + (sh - h) / 2);
 win.position = [x, y];
 win.size = [w, h];
 "'
@@ -148,7 +157,21 @@ win.size = [w, h];
 
     # Resize current tiled window to 70% of workspace (for a 70/30 split)
     alt-shift-s = '''exec-and-forget bash -c '
-screen_width=$(osascript -l JavaScript -e "Application(\"Finder\").desktop.window.bounds().width")
+screen_width=$(osascript -l JavaScript -e "
+ObjC.import(\"AppKit\");
+var se = Application(\"System Events\");
+var pos = se.processes.whose({frontmost: true})[0].windows[0].position();
+var screens = $.NSScreen.screens;
+var w = 0;
+for (var i = 0; i < screens.count; i++) {
+    var f = screens.objectAtIndex(i).frame;
+    if (pos[0] >= f.origin.x && pos[0] < f.origin.x + f.size.width &&
+        pos[1] >= f.origin.y && pos[1] < f.origin.y + f.size.height) {
+        w = f.size.width; break;
+    }
+}
+w;
+")
 # Subtract gaps: outer-left(40) + outer-right(40) + inner(20) = 100
 usable=$((screen_width - 100))
 target=$((usable * 70 / 100))
