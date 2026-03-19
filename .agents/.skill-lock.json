@@ -6,9 +6,9 @@
       "sourceType": "github",
       "sourceUrl": "https://github.com/vercel-labs/skills.git",
       "skillPath": "skills/find-skills/SKILL.md",
-      "skillFolderHash": "c2f31172b6f256272305a5e6e7228b258446899f",
+      "skillFolderHash": "3013fdeb8a11b10b1eb795ec3ae8bfca38f7c26d",
       "installedAt": "2026-02-16T09:41:41.940Z",
-      "updatedAt": "2026-03-02T17:13:35.163Z"
+      "updatedAt": "2026-03-19T22:45:15.863Z"
     },
     "chrome-cdp": {
       "source": "pasky/chrome-cdp-skill",
@@ -32,6 +32,7 @@
     "github-copilot",
     "kimi-cli",
     "opencode",
-    "warp"
+    "warp",
+    "claude-code"
   ]
 }
