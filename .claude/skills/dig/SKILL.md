@@ -10,6 +10,8 @@ allowed-tools: Agent, Bash, Read, Grep, Glob, AskUserQuestion
 
 Spin up an isolated investigation of a bug report, error, or issue link. Return findings fast with options to go deeper or start a fix.
 
+**CRITICAL**: All codebase investigation MUST happen inside a worktree agent. The main conversation should only gather external context (Slack, Sentry, GitHub) and present results. Never search, read, or modify code in the main working tree.
+
 ## Input
 
 `$ARGUMENTS` contains the bug report, error message, link (Sentry, GitHub issue, Slack thread), or description to investigate.
@@ -17,9 +19,9 @@ Spin up an isolated investigation of a bug report, error, or issue link. Return 
 If `$ARGUMENTS` is empty, use `AskUserQuestion` to ask:
 > What should I investigate? Paste a bug report, error message, Sentry link, or describe the issue.
 
-## Step 1: Gather context from the input
+## Step 1: Gather external context
 
-Based on the input type, extract context before investigating code:
+Based on the input type, extract context using MCP tools or CLI before touching the codebase:
 
 - **Sentry link**: Use Sentry MCP tools to fetch issue details, stacktrace, tags, and recent events.
 - **GitHub issue URL**: Use `gh issue view <number> --json title,body,comments` to get the full issue.
@@ -33,8 +35,9 @@ Identify from the gathered context:
 
 ## Step 2: Investigate in an isolated worktree
 
-Launch an Agent with `isolation: "worktree"` to investigate the codebase without polluting the current working tree. The agent should:
+Launch an **Explore** agent with `isolation: "worktree"` to investigate the codebase. Keep the agent prompt **concise** (under 2000 chars) to avoid prompt-too-long errors. Summarize the gathered context into a short bug description rather than pasting raw thread contents.
 
+The agent should:
 1. Fetch and rebase on the latest `origin/main` before starting
 2. Search for the error signature, affected files, and related code paths
 3. Trace the logic to understand root cause
@@ -44,37 +47,35 @@ Launch an Agent with `isolation: "worktree"` to investigate the codebase without
 Use this prompt template for the agent:
 
 ```
-Investigate this bug in the codebase. Do NOT make any changes, only read and search.
+Investigate this bug. Read-only, no changes.
 
-## Bug Context
-{gathered_context}
+## Bug
+{2-3 sentence summary of the issue}
 
-## Investigation Checklist
-1. Run: git fetch origin main && git rebase origin/main
-2. Search for the error message or key terms in the codebase
-3. Read the affected files and trace the code path that leads to the bug
-4. Run: git log --oneline -20 -- <affected_files> to check recent changes
-5. Check for existing tests covering this code path
-6. Identify the root cause or most likely candidates
+## Key terms to search
+{error messages, function names, file paths mentioned}
 
-## Output Format
-Return your findings as:
+## Checklist
+1. git fetch origin main && git rebase origin/main
+2. Search for the key terms in the codebase
+3. Read affected files and trace the code path
+4. git log --oneline -20 -- <affected_files> for recent changes
+5. Check for existing test coverage
 
+## Return format
 ### Root Cause
-What is causing the bug (or top 2-3 candidates if uncertain).
-
+What causes the bug (or top 2-3 candidates).
 ### Affected Code
-List the key files and line ranges involved.
-
+Key files and line ranges.
 ### Recent Changes
-Any recent commits that may have introduced or be related to the issue.
-
+Relevant commits that may have introduced or relate to the issue.
 ### Test Coverage
-Whether the affected code path has tests, and what gaps exist.
-
+Whether the affected code path has tests, and gaps.
 ### Evidence
-Key code snippets or log entries that support your analysis.
+Key code snippets supporting your analysis.
 ```
+
+**If the agent fails** (prompt too long, timeout, etc.): retry with an even shorter prompt. Do NOT fall back to investigating in the main working tree.
 
 ## Step 3: Present findings
 
@@ -109,7 +110,7 @@ Use `AskUserQuestion` to ask:
 > **What would you like to do next?**
 
 Options:
-- **"dig deeper"**: Launch another investigation agent focusing on a specific area, trace more code paths, or check related systems
-- **"assess impact"**: Evaluate priority using Sentry (event frequency, affected users), PostHog (feature usage), and BigQuery (affected accounts/products) to estimate impact and recommend a priority (P0-P4)
-- **"start fix"**: Create a working branch in the worktree and begin implementing a fix
-- **"done"**: End the investigation, keep the findings for reference
+- **"dig deeper"**: Launch another worktree agent focusing on a specific area, trace more code paths, or check related systems. Must use `isolation: "worktree"`.
+- **"assess impact"**: Evaluate priority using Sentry (event frequency, affected users), PostHog (feature usage), and BigQuery (affected accounts/products) to estimate impact and recommend a priority (P0-P4). This can run in the main conversation since it only queries external services.
+- **"start fix"**: Launch a general-purpose agent with `isolation: "worktree"` to create a working branch and implement the fix. The agent should rebase on origin/main, create a branch, implement, lint, typecheck, and test. Review the agent's worktree diff before merging it back.
+- **"done"**: End the investigation, keep the findings for reference.
