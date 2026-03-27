@@ -56,3 +56,4 @@ window-padding-y = 8
 
 keybind = shift+enter=text:\n
 keybind = cmd+enter=text:\n
+keybind = alt+tab=text:\x1b\t

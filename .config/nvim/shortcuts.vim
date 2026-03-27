@@ -58,7 +58,7 @@ nmap <Leader>d :Yazi<CR>
 nmap <leader>D :NvimTreeToggle<CR>
 nmap <Leader>g :LazyGit<CR>
 nmap <Leader>t :lua require('trouble').toggle('diagnostics')<CR>
-nmap <Leader>ai :lua require('sidekick.cli').toggle({name = 'opencode', focus = true})<CR>
+nmap <Leader>ai :lua require('sidekick.cli').toggle({name = 'claude', focus = true})<CR>
 vmap <Leader>ai :lua require('sidekick.cli').send({msg = "{this}"})<CR>
 nmap <silent><Esc> :cclose<CR>
 " LSP features
@@ -66,7 +66,6 @@ nmap <Leader>r :IncRename
 nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <Leader>e :lua require('conform').format({ async = true })<CR>
 nmap K :lua vim.lsp.buf.hover()<CR>
-nmap <silent><Tab> :lua require('sidekick').nes_jump_or_apply()<CR>
 " Below is also <C-W>d in neovim 0.10
 nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
 nmap <silent> gd :Glance definitions<CR>

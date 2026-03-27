@@ -79,8 +79,7 @@ return require('lazy').setup({
 				yamlls = {},
 				terraformls = {},
 				rust_analyzer = {},
-				copilot = {},
-				pylsp = {
+					pylsp = {
 					settings = {
 						pylsp = {
 							plugins = {
@@ -344,9 +343,6 @@ return require('lazy').setup({
 			keymap = {
 				preset = 'enter',
 				['<Tab>'] = {
-					function()
-						return require('sidekick').nes_jump_or_apply()
-					end,
 					'select_next',
 					'fallback'
 				},
@@ -440,6 +436,9 @@ return require('lazy').setup({
 
 	{
 		'zbirenbaum/copilot.lua', -- GitHub Copilot
+		dependencies = {
+			'copilotlsp-nvim/copilot-lsp',
+		},
 		cmd = 'Copilot',
 		event = 'InsertEnter',
 		config = function()
@@ -449,6 +448,13 @@ return require('lazy').setup({
 					auto_trigger = true,
 					keymap = {
 						accept = "<A-Tab>",
+					},
+					nes = {
+						enabled = true,
+						keymap = {
+							accept_and_goto = "<Tab>",
+							dismiss = "<Esc>"
+						}
 					}
 				},
 				panel = { enabled = false },
