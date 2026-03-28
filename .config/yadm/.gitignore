@@ -1,0 +1,8 @@
+# ai-context: sensitive org-specific files (not for public repo)
+ai-context/context/
+ai-context/memories/
+ai-context/context7-key.txt
+ai-context/INDEX.md
+
+# Claude Code: per-project memory (sensitive, ephemeral)
+.claude/projects/

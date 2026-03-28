@@ -18,5 +18,6 @@
 - Don't over-engineer. Simplest working solution wins.
 - When reviewing code: prioritize correctness and simplicity over cleverness
 
-## Context Files
-- Organizational context (team, processes, priorities): @~/ai-context/secretary-context.md
+## Context & Memory
+- Memory index (always loaded — context files and learned memories): @~/ai-context/INDEX.md
+- Use `/memory` skill to save, update, or clean up memories
