@@ -5,6 +5,17 @@
   "permissions": {
     "defaultMode": "auto"
   },
+  "deniedMcpServers": [
+    {
+      "serverName": "claude_ai_PostHog"
+    },
+    {
+      "serverName": "claude_ai_Gmail"
+    },
+    {
+      "serverName": "claude_ai_Google_Calendar"
+    }
+  ],
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
@@ -13,7 +24,6 @@
     "context7@claude-plugins-official": true,
     "frontend-design@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true,
-    "github@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
     "typescript-lsp@claude-plugins-official": true,
@@ -29,11 +39,6 @@
       }
     }
   },
-  "deniedMcpServers": [
-    { "serverName": "claude_ai_PostHog" },
-    { "serverName": "claude_ai_Gmail" },
-    { "serverName": "claude_ai_Google_Calendar" }
-  ],
   "syntaxHighlightingDisabled": false,
   "voiceEnabled": false,
   "skipAutoPermissionPrompt": true

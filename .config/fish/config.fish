@@ -53,3 +53,4 @@ end
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/opt/homebrew/share/google-cloud-sdk/path.fish.inc' ]; . '/opt/homebrew/share/google-cloud-sdk/path.fish.inc'; end
+source ~/.safe-chain/scripts/init-fish.fish # Safe-chain Fish initialization script

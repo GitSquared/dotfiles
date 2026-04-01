@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:github.com)",
+      "Bash(find:*)",
+      "WebFetch(domain:lazy.folke.io)",
+      "Bash(curl -s \"https://api.github.com/repos/norcalli/nvim-colorizer.lua/commits?per_page=1\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d[0]['commit']['committer']['date'] if d else 'no data'\\)\")",
+      "Bash(curl -s \"https://api.github.com/repos/lewis6991/gitsigns.nvim/contents/README.md\")",
+      "Bash(python3 -c \"import json,sys,base64; d=json.load\\(sys.stdin\\); print\\(base64.b64decode\\(d['content']\\).decode\\(\\)[:2000]\\)\")"
+    ],
+    "deny": []
+  }
+}

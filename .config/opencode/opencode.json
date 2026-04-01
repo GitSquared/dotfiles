@@ -1,6 +1,6 @@
 {
 	"$schema": "https://opencode.ai/config.json",
-	"plugin": ["opencode-anthropic-auth@latest"],
+	"plugin": [],
 	"agent": {
 		"plan": {
 			"disable": true
@@ -33,10 +33,6 @@
 		"notion": {
 			"type": "remote",
 			"url": "https://mcp.notion.com/mcp"
-		},
-		"sunsama": {
-			"type": "remote",
-			"url": "https://api.sunsama.com/mcp"
 		}
 	}
 }
