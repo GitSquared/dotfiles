@@ -19,12 +19,12 @@ return {
 					keymap = {
 						accept = '<A-Tab>',
 					},
-					nes = {
-						enabled = true,
-						keymap = {
-							accept_and_goto = '<Tab>',
-							dismiss = '<Esc>',
-						},
+				},
+				nes = {
+					enabled = true,
+					keymap = {
+						accept_and_goto = '<Tab>',
+						dismiss = '<Esc>',
 					},
 				},
 				panel = { enabled = false },

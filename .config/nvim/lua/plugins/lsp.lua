@@ -201,7 +201,7 @@ return {
 					local bufnr = args.buf
 					if client == nil then return end
 
-					if client.supports_method('textDocument/documentHighlight') then
+					if client:supports_method('textDocument/documentHighlight') then
 						vim.cmd([[
 							hi! link LspReferenceRead Visual
 							hi! link LspReferenceText Visual
