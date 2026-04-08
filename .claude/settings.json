@@ -39,6 +39,19 @@
       }
     }
   },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gaby/git/claude-carbon/scripts/persist-session.sh"
+          }
+        ]
+      }
+    ]
+  },
   "syntaxHighlightingDisabled": false,
   "voiceEnabled": false,
   "skipAutoPermissionPrompt": true

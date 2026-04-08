@@ -1,54 +1,67 @@
 #!/usr/bin/env bash
-# Claude Code status line script
-# Receives JSON via stdin
+# Claude Code status line — merged: cwd/worktree/git + CO2/cost from claude-carbon
 
-input=$(cat)
+CARBON_DIR="${HOME}/git/claude-carbon"
+FACTORS_FILE="${CARBON_DIR}/data/factors.json"
 
-cwd=$(echo "$input" | jq -r '.cwd // .workspace.current_dir // empty')
-model=$(echo "$input" | jq -r '.model.display_name // empty')
-used_pct=$(echo "$input" | jq -r '.context_window.used_percentage // empty')
+INPUT="$(cat)"
 
-# Shorten home directory
-cwd_display="${cwd/$HOME/\~}"
+# — Workspace & git info —
+CWD="$(echo "$INPUT" | jq -r '.cwd // .workspace.current_dir // ""')"
+CWD_DISPLAY="${CWD/$HOME/\~}"
 
-# Detect worktree: pattern is .claude/worktrees/<name> inside a repo
-worktree_part=""
-if [[ "$cwd" =~ \.claude/worktrees/([^/]+)(/|$) ]]; then
-  worktree_name="${BASH_REMATCH[1]}"
-  worktree_part=" [wt: $worktree_name]"
-  # For display, show the repo root (parent of .claude/worktrees/<name>) shortened
-  repo_root="${cwd%/.claude/worktrees/${worktree_name}*}"
-  cwd_display="${repo_root/$HOME/\~}"
+# Detect worktree
+WORKTREE_PART=""
+if [[ "$CWD" =~ \.claude/worktrees/([^/]+)(/|$) ]]; then
+  WORKTREE_NAME="${BASH_REMATCH[1]}"
+  WORKTREE_PART=" [wt: $WORKTREE_NAME]"
+  REPO_ROOT="${CWD%/.claude/worktrees/${WORKTREE_NAME}*}"
+  CWD_DISPLAY="${REPO_ROOT/$HOME/\~}"
 fi
 
-# Git branch (skip optional lock to avoid hanging)
-git_branch=""
-if git -C "$cwd" rev-parse --git-dir > /dev/null 2>&1; then
-  branch=$(git -C "$cwd" -c core.fsmonitor=false symbolic-ref --short HEAD 2>/dev/null || git -C "$cwd" -c core.fsmonitor=false rev-parse --short HEAD 2>/dev/null)
-  [ -n "$branch" ] && git_branch=" on $branch"
+# Git branch
+GIT_BRANCH=""
+if git -C "$CWD" rev-parse --git-dir > /dev/null 2>&1; then
+  BRANCH=$(git -C "$CWD" -c core.fsmonitor=false symbolic-ref --short HEAD 2>/dev/null \
+    || git -C "$CWD" -c core.fsmonitor=false rev-parse --short HEAD 2>/dev/null)
+  [ -n "$BRANCH" ] && GIT_BRANCH=" on $BRANCH"
 fi
 
-# Context usage indicator
-ctx_part=""
-if [ -n "$used_pct" ]; then
-  used_int=${used_pct%.*}
-  if [ "$used_int" -ge 80 ]; then
-    ctx_indicator="!!"
-  elif [ "$used_int" -ge 50 ]; then
-    ctx_indicator="!"
-  else
-    ctx_indicator=""
+# — Model & context —
+MODEL_ID="$(echo "$INPUT" | jq -r '.model.id // ""')"
+DISPLAY_NAME="$(echo "$INPUT" | jq -r '.model.display_name // "Unknown"')"
+USED_PCT="$(echo "$INPUT" | jq -r '.context_window.used_percentage // 0')"
+INPUT_TOKENS="$(echo "$INPUT" | jq -r '.context_window.total_input_tokens // 0')"
+OUTPUT_TOKENS="$(echo "$INPUT" | jq -r '.context_window.total_output_tokens // 0')"
+
+# Progress bar (10 blocks)
+FILLED=$(( USED_PCT * 10 / 100 ))
+EMPTY=$(( 10 - FILLED ))
+BAR=""
+for ((i=0; i<FILLED; i++)); do BAR="${BAR}▓"; done
+for ((i=0; i<EMPTY; i++)); do BAR="${BAR}░"; done
+
+PCT_DISPLAY="${USED_PCT}%"
+[ "${USED_PCT%.*}" -ge 80 ] 2>/dev/null && PCT_DISPLAY="COMPACT!"
+
+# — CO2 (if factors file exists) —
+CO2_PART=""
+if [ -f "$FACTORS_FILE" ]; then
+  MODEL_FAMILY="sonnet"
+  echo "$MODEL_ID" | grep -qi "opus" && MODEL_FAMILY="opus"
+  echo "$MODEL_ID" | grep -qi "haiku" && MODEL_FAMILY="haiku"
+
+  FACTOR_IN="$(jq -r ".models.${MODEL_FAMILY}.input" "$FACTORS_FILE" 2>/dev/null)"
+  FACTOR_OUT="$(jq -r ".models.${MODEL_FAMILY}.output" "$FACTORS_FILE" 2>/dev/null)"
+
+  if [ -n "$FACTOR_IN" ] && [ -n "$FACTOR_OUT" ]; then
+    CO2_G="$(echo "$INPUT_TOKENS $FACTOR_IN $OUTPUT_TOKENS $FACTOR_OUT" | LC_ALL=C awk '{printf "%.0f", ($1 * $2 + $3 * $4) / 1000000}')"
+    if [ "$CO2_G" -ge 1000 ] 2>/dev/null; then
+      CO2_PART=" | $(echo "$CO2_G" | LC_ALL=C awk '{printf "%.1fkg", $1/1000}') CO₂"
+    else
+      CO2_PART=" | ${CO2_G}g CO₂"
+    fi
   fi
-  ctx_part=" [ctx: ${used_pct}%${ctx_indicator}]"
 fi
 
-# Model short name
-model_part=""
-[ -n "$model" ] && model_part=" | $model"
-
-printf "\033[0;36m%s\033[0m\033[0;35m%s\033[0m\033[0;33m%s\033[0m\033[0;90m%s%s\033[0m" \
-  "$cwd_display" \
-  "$worktree_part" \
-  "$git_branch" \
-  "$model_part" \
-  "$ctx_part"
+echo "${CWD_DISPLAY}${WORKTREE_PART}${GIT_BRANCH} | ${DISPLAY_NAME} ${BAR} ${PCT_DISPLAY}${CO2_PART}"
