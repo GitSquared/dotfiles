@@ -32,6 +32,8 @@
 [pull]
 	rebase = true
 	ff = only
+[rebase]
+	updateRefs = true
 [push]
 	default = current
 	autoSetupRemote = true
