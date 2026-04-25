@@ -52,22 +52,18 @@ return {
 
 	{
 		'nvimdev/dashboard-nvim',
-		dependencies = { 'nvim-tree/nvim-web-devicons' },
+		dependencies = { 'nvim-tree/nvim-web-devicons',
+		'amansingh-afk/milli.nvim'
+	},
 		event = 'VimEnter',
-		config = function()
-			require('dashboard').setup({
+		opts = function()
+			local splash = require('milli').load({ splash = 'lights' })
+			return {
 				theme = 'hyper',
 				shortcut_type = 'number',
 				change_to_vcs_root = true,
 				config = {
-					header = {
-						'                        _           ',
-						'  _ __   ___  _____   _(_)_ __ ___  ',
-						' | \'_ \\ / _ \\/ _ \\ \\ / / | \'_ ` _  \\ ',
-						' | | | |  __/ (_) \\ V /| | | | | | |',
-						' |_| |_|\\___|\\___/ \\_/ |_|_| |_| |_|',
-						'                                    ',
-					},
+					header = splash.frames[1],
 					shortcut = {
 						{ desc = '󰏖 plugins', group = '@property', action = 'Lazy', key = 'p' },
 						{ desc = '󰗊 lsp servers', group = 'Label', action = 'Mason', key = 'l' },
@@ -76,8 +72,12 @@ return {
 					footer = {},
 				},
 				hide = { statusline = true, tabline = true, winbar = true },
-			})
+			}
 		end,
+		config = function(_, opts)
+			require('dashboard').setup(opts)
+			require('milli').dashboard({ splash = 'lights', loop = true })
+		end
 	},
 
 	{

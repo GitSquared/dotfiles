@@ -16,6 +16,19 @@
       "serverName": "claude_ai_Google_Calendar"
     }
   ],
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gaby/git/claude-carbon/scripts/persist-session.sh"
+          }
+        ]
+      }
+    ]
+  },
   "statusLine": {
     "type": "command",
     "command": "bash ~/.claude/statusline-command.sh"
@@ -39,20 +52,10 @@
       }
     }
   },
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/Users/gaby/git/claude-carbon/scripts/persist-session.sh"
-          }
-        ]
-      }
-    ]
-  },
   "syntaxHighlightingDisabled": false,
+  "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "skipAutoPermissionPrompt": true
+  "editorMode": "vim",
+  "remoteControlAtStartup": true,
+  "agentPushNotifEnabled": true
 }

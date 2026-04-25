@@ -85,7 +85,27 @@ return {
 				eslint = {},
 				html = {},
 				jsonls = {},
-				tsgo = {},
+				tsgo = {
+					-- Workaround: never attach tsgo without a real project root.
+					-- Upstream panics with `vfs: path "tsconfig.json" is not absolute`
+					-- when the root falls back to cwd. See microsoft/typescript-go#1905, #670.
+					root_dir = function(bufnr, on_dir)
+						local root = vim.fs.root(bufnr, {
+							'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+							'bun.lockb', 'bun.lock', 'package.json',
+						})
+						if root then on_dir(root) end
+					end,
+					-- Workaround: strip completion trigger chars that tsgo panics on
+					-- (`panic handling request textDocument/completion: Unknown trigger character`).
+					on_init = function(client)
+						local cp = client.server_capabilities and client.server_capabilities.completionProvider
+						if cp and cp.triggerCharacters then
+							local bad = { ['-']=true, [':']=true, ['!']=true, ['(']=true, [']']=true }
+							cp.triggerCharacters = vim.tbl_filter(function(c) return not bad[c] end, cp.triggerCharacters)
+						end
+					end,
+				},
 				tailwindcss = {},
 				prismals = {},
 				vimls = {},
