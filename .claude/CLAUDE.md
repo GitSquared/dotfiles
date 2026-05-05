@@ -25,3 +25,5 @@
 ## Context & Memory
 - Memory index (always loaded — context files and learned memories): @~/ai-context/INDEX.md
 - Use `/memory` skill to save, update, or clean up memories
+
+@RTK.md
