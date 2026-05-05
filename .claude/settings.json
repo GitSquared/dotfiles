@@ -38,6 +38,16 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"/Users/gaby/.claude/hooks/context-mode-cache-heal.mjs\""
+          }
+        ]
+      }
     ]
   },
   "statusLine": {
@@ -53,7 +63,8 @@
     "typescript-lsp@claude-plugins-official": true,
     "carbonfact-common@carbonfact-plugins": true,
     "carbonfact-cops@carbonfact-plugins": false,
-    "carbonfact-eng@carbonfact-plugins": true
+    "carbonfact-eng@carbonfact-plugins": true,
+    "context-mode@context-mode": true
   },
   "extraKnownMarketplaces": {
     "carbonfact-plugins": {
@@ -61,12 +72,20 @@
         "source": "github",
         "repo": "carbonfact/claude-plugins"
       }
+    },
+    "context-mode": {
+      "source": {
+        "source": "github",
+        "repo": "mksglu/context-mode"
+      }
     }
   },
   "syntaxHighlightingDisabled": false,
+  "advisorModel": "opus",
   "editorMode": "vim",
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false
+  "voiceEnabled": false,
+  "model": "sonnet[1m]"
 }
