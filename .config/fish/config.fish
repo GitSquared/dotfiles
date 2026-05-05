@@ -23,8 +23,8 @@ fish_add_path /opt/homebrew/opt/openjdk/bin
 set -x EDITOR nvim
 set -x HOMEBREW_NO_ENV_HINTS 1
 
-# Load kanagawa color scheme
-source ~/.config/fish/themes/kanagawa.fish
+# Load color scheme
+fish_config theme choose catppuccin-mocha
 
 # Prompt config
 fish_vi_key_bindings
