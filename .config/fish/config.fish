@@ -30,7 +30,6 @@ fish_config theme choose catppuccin-mocha
 fish_vi_key_bindings
 
 # Aliases
-alias full_upgrade='brew update; brew upgrade --greedy; npm update -g; fish_update_completions; fisher update; tldr --update; nvim --headless -c "Lazy! sync" +qa'
 
 alias ls='eza -l --git --group-directories-first --time-style=iso --icons'
 alias tree='eza -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
@@ -39,6 +38,7 @@ alias icat='kitty +kitten icat'
 alias lg='lazygit'
 alias pinentry='pinentry-mac'
 alias ranger='echo "use yazi instead!"' # retrain my muscle memory
+alias yazi='echo "use y instead!"'
 
 # Automatically switch node version based on .nvmrc
 function nvm_use_on_dir --on-variable PWD
@@ -54,3 +54,8 @@ end
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/opt/homebrew/share/google-cloud-sdk/path.fish.inc' ]; . '/opt/homebrew/share/google-cloud-sdk/path.fish.inc'; end
 source ~/.safe-chain/scripts/init-fish.fish # Safe-chain Fish initialization script
+
+# Added by LM Studio CLI (lms)
+set -gx PATH $PATH /Users/gaby/.lmstudio/bin
+# End of LM Studio CLI section
+
