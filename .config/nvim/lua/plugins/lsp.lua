@@ -101,8 +101,38 @@ return {
 					on_init = function(client)
 						local cp = client.server_capabilities and client.server_capabilities.completionProvider
 						if cp and cp.triggerCharacters then
-							local bad = { ['-']=true, [':']=true, ['!']=true, ['(']=true, [']']=true }
+							local bad = { ['-'] = true, [':'] = true, ['!'] = true, ['('] = true, [']'] = true }
 							cp.triggerCharacters = vim.tbl_filter(function(c) return not bad[c] end, cp.triggerCharacters)
+						end
+					end,
+					-- Workaround: nvim sends "file://" (no path) for unnamed buffers — tsgo
+					-- panics in computeConfigFileName(""). Also intercept completion requests
+					-- with trigger chars tsgo panics on (belt-and-suspenders over on_init, since
+					-- blink may not re-read server capabilities after we strip them).
+					-- Root: vim.uri_from_bufnr() → uri_from_fname("") → "file://"
+					on_attach = function(client)
+						local bad_triggers = { ['-'] = true, [':'] = true, ['!'] = true, ['('] = true, [']'] = true }
+						local function should_drop(method, params)
+							if type(params) ~= 'table' then return false end
+							local uri = type(params.textDocument) == 'table' and params.textDocument.uri
+							if uri == 'file://' then return true end
+							if method == 'textDocument/completion' then
+								local ctx = params.context
+								if type(ctx) == 'table' and ctx.triggerKind == 2 and bad_triggers[ctx.triggerCharacter] then
+									return true
+								end
+							end
+							return false
+						end
+						local _notify = client.notify
+						client.notify = function(self, method, params, ...)
+							if should_drop(method, params) then return end
+							return _notify(self, method, params, ...)
+						end
+						local _request = client.request
+						client.request = function(self, method, params, ...)
+							if should_drop(method, params) then return nil end
+							return _request(self, method, params, ...)
 						end
 					end,
 				},
@@ -110,6 +140,7 @@ return {
 				prismals = {},
 				vimls = {},
 				yamlls = {},
+				gh_actions_ls = {},
 				terraformls = {},
 				rust_analyzer = {},
 				pylsp = {
@@ -158,8 +189,8 @@ return {
 					if vim.fn.executable(venv_pylsp) ~= 1 then
 						vim.notify('Installing python-lsp-server in .venv...', vim.log.levels.INFO)
 						local install_cmd = vim.fn.executable('uv') == 1
-							and string.format("cd %s && uv pip install 'python-lsp-server[all]'", vim.fn.shellescape(root_dir))
-							or string.format("%s/bin/pip install 'python-lsp-server[all]'", vim.fn.shellescape(venv_path))
+							 and string.format("cd %s && uv pip install 'python-lsp-server[all]'", vim.fn.shellescape(root_dir))
+							 or string.format("%s/bin/pip install 'python-lsp-server[all]'", vim.fn.shellescape(venv_path))
 
 						vim.fn.jobstart(install_cmd, {
 							on_exit = function(_, exit_code)

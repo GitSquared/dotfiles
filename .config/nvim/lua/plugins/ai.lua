@@ -23,7 +23,7 @@ return {
 				nes = {
 					enabled = true,
 					keymap = {
-						accept_and_goto = '<Tab>',
+						accept_and_goto = '<C-Tab>',
 						dismiss = '<Esc>',
 					},
 				},

@@ -5,6 +5,7 @@
   "permissions": {
     "defaultMode": "auto"
   },
+  "model": "sonnet[1m]",
   "deniedMcpServers": [
     {
       "serverName": "claude_ai_PostHog"
@@ -77,7 +78,8 @@
       "source": {
         "source": "github",
         "repo": "mksglu/context-mode"
-      }
+      },
+      "autoUpdate": true
     }
   },
   "syntaxHighlightingDisabled": false,
@@ -86,6 +88,5 @@
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false,
-  "model": "sonnet[1m]"
+  "voiceEnabled": false
 }

@@ -45,3 +45,11 @@
 	prune = true
 [maintenance]
 	repo = /Users/gaby/git/carbonfact/carbonfact
+[credential "https://github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = 
+	helper = !/opt/homebrew/bin/gh auth git-credential
+[http]
+	sslCAInfo = /Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-git-combined-ca.pem

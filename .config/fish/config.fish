@@ -53,9 +53,19 @@ end
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/opt/homebrew/share/google-cloud-sdk/path.fish.inc' ]; . '/opt/homebrew/share/google-cloud-sdk/path.fish.inc'; end
-source ~/.safe-chain/scripts/init-fish.fish # Safe-chain Fish initialization script
 
 # Added by LM Studio CLI (lms)
 set -gx PATH $PATH /Users/gaby/.lmstudio/bin
 # End of LM Studio CLI section
 
+# aikido-endpoint-cert-config-start
+# Allow Node.js tooling to trust the SafeChain MITM CA while preserving public roots.
+set -gx NODE_EXTRA_CA_CERTS "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-combined-ca.pem"
+# aikido-endpoint-cert-config-end
+# aikido-endpoint-pip-cert-config-start
+# Allow Python package managers to trust the SafeChain MITM CA while preserving user-provided roots.
+set -gx PIP_CERT "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-pip-combined-ca.pem"
+set -gx REQUESTS_CA_BUNDLE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-pip-combined-ca.pem"
+set -gx POETRY_CERTIFICATES_PYPI_CERT "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-pip-combined-ca.pem"
+set -gx UV_SYSTEM_CERTS true
+# aikido-endpoint-pip-cert-config-end
