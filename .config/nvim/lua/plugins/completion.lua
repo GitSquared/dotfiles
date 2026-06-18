@@ -10,8 +10,32 @@ return {
 		opts = {
 			keymap = {
 				preset = 'enter',
-				['<Tab>'] = { 'select_next', 'fallback' },
+				['<Tab>'] = {
+					function(cmp)
+						local copilot = require('copilot.suggestion')
+						if copilot.is_visible() then
+							cmp.hide()
+							copilot.accept()
+							return true
+						end
+					end,
+					'select_next',
+					'fallback',
+				},
 				['<S-Tab>'] = { 'select_prev', 'fallback' },
+				['<Esc>'] = {
+					function(cmp)
+						local copilot = require('copilot.suggestion')
+						if copilot.is_visible() then
+							cmp.hide()
+							copilot.dismiss()
+							cmp.show()
+							return true
+						end
+					end,
+					'cancel',
+					'fallback',
+				},
 			},
 			signature = { enabled = true },
 			completion = {
