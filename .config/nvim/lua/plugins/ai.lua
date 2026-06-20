@@ -62,11 +62,6 @@ return {
 				suggestion = {
 					enabled = true,
 					auto_trigger = true,
-					suggestion_notification = function()
-						pcall(function()
-							require('blink.cmp').hide()
-						end)
-					end,
 					keymap = {
 						accept = false,
 						accept_word = false,
@@ -86,7 +81,7 @@ return {
 
 			install_nes_inline_guard()
 
-			vim.keymap.set('n', '<Tab>', function()
+			local function accept_ai_suggestion()
 				local bufnr = vim.api.nvim_get_current_buf()
 				if vim.b[bufnr].nes_state then
 					return require('copilot-lsp.nes').apply_pending_nes()
@@ -95,9 +90,25 @@ return {
 						or '<Ignore>'
 				end
 
+				local copilot = require('copilot.suggestion')
+				if copilot.is_visible() then
+					copilot.accept()
+					return '<Ignore>'
+				end
+
+				return '<Ignore>'
+			end
+
+			vim.keymap.set({ 'i', 'n' }, '<A-Tab>', accept_ai_suggestion, {
+				desc = 'Accept Copilot NES or inline suggestion',
+				expr = true,
+				replace_keycodes = true,
+			})
+
+			vim.keymap.set('n', '<Tab>', function()
 				return '<C-i>'
 			end, {
-				desc = 'Accept Copilot NES suggestion or jump forward',
+				desc = 'Jump forward',
 				expr = true,
 				replace_keycodes = true,
 			})
