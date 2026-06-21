@@ -52,4 +52,4 @@
 	helper = 
 	helper = !/opt/homebrew/bin/gh auth git-credential
 [http]
-	sslCAInfo = /Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-git-combined-ca.pem
+	sslCAInfo = /Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem

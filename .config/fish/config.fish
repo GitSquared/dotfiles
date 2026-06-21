@@ -34,11 +34,8 @@ fish_vi_key_bindings
 alias ls='eza -l --git --group-directories-first --time-style=iso --icons'
 alias tree='eza -T --git-ignore -I "**/node_modules" --icons --group-directories-first'
 alias cat='bat'
-alias icat='kitty +kitten icat'
 alias lg='lazygit'
 alias pinentry='pinentry-mac'
-alias ranger='echo "use yazi instead!"' # retrain my muscle memory
-alias yazi='echo "use y instead!"'
 
 # Automatically switch node version based on .nvmrc
 function nvm_use_on_dir --on-variable PWD
@@ -66,3 +63,11 @@ set -gx REQUESTS_CA_BUNDLE "/Library/Application Support/AikidoSecurity/Endpoint
 set -gx POETRY_CERTIFICATES_PYPI_CERT "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-pip-combined-ca.pem"
 set -gx UV_SYSTEM_CERTS true
 # aikido-endpoint-pip-cert-config-end
+# aikido-endpoint-ruby-cert-config-start
+# Allow Ruby Bundler to trust the SafeChain MITM CA while preserving public roots.
+set -gx BUNDLE_SSL_CA_CERT "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-ruby-combined-ca.pem"
+# aikido-endpoint-ruby-cert-config-end
+# aikido-endpoint-curl-cert-config-start
+# Allow curl and other OpenSSL-linked tools to trust the SafeChain MITM CA while preserving the system roots.
+set -gx CURL_CA_BUNDLE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
+# aikido-endpoint-curl-cert-config-end

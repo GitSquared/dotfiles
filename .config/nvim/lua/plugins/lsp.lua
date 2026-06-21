@@ -32,11 +32,12 @@ return {
 			formatters_by_ft = {
 				lua = { 'stylua' },
 				python = { 'ruff_fix', 'ruff_format' },
-				javascript = { 'biome', 'biome-check', 'biome-organize-imports', 'eslint_d' },
-				javascriptreact = { 'biome', 'biome-check', 'biome-organize-imports', 'eslint_d' },
-				typescript = { 'biome', 'biome-check', 'biome-organize-imports', 'eslint_d' },
-				typescriptreact = { 'biome', 'biome-check', 'biome-organize-imports', 'eslint_d' },
-				json = { 'biome', 'biome-check' },
+				javascript = { 'biome', 'biome-check', 'biome-organize-imports', 'prettier', 'eslint_d' },
+				javascriptreact = { 'biome', 'biome-check', 'biome-organize-imports', 'prettier', 'eslint_d' },
+				typescript = { 'biome', 'biome-check', 'biome-organize-imports', 'prettier', 'eslint_d' },
+				typescriptreact = { 'biome', 'biome-check', 'biome-organize-imports', 'prettier', 'eslint_d' },
+				svelte = { 'biome', 'biome-check', 'biome-organize-imports', 'prettier', 'eslint_d' },
+				json = { 'biome', 'biome-check', 'prettier' },
 				sql = { 'sqruff' },
 				['sql.jinja'] = { 'sqruff' },
 				terraform = { 'terraform_fmt' },
@@ -85,6 +86,7 @@ return {
 				eslint = {},
 				html = {},
 				jsonls = {},
+				svelte = {},
 				tsgo = {
 					-- Workaround: never attach tsgo without a real project root.
 					-- Upstream panics with `vfs: path "tsconfig.json" is not absolute`

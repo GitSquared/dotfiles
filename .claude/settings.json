@@ -5,7 +5,7 @@
   "permissions": {
     "defaultMode": "auto"
   },
-  "model": "sonnet[1m]",
+  "model": "sonnet",
   "deniedMcpServers": [
     {
       "serverName": "claude_ai_PostHog"
@@ -83,10 +83,11 @@
     }
   },
   "syntaxHighlightingDisabled": false,
-  "advisorModel": "opus",
+  "skipWorkflowUsageWarning": true,
   "editorMode": "vim",
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false
+  "voiceEnabled": false,
+  "advisorModel": "opus"
 }

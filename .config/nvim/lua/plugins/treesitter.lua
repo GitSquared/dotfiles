@@ -15,6 +15,14 @@ return {
 				'scss', 'yaml', 'python', 'toml', 'latex',
 				'html', 'json', 'http', 'graphql',
 				'fish', 'dockerfile', 'terraform', 'bash', 'css',
+				'svelte'
+			})
+
+			vim.api.nvim_create_autocmd('FileType', {
+				pattern = { 'svelte' },
+				callback = function()
+					vim.treesitter.start()
+				end,
 			})
 		end,
 	},
