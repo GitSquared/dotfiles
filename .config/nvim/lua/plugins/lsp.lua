@@ -174,6 +174,76 @@ return {
 		config = function(_, opts)
 			require('lsp-setup').setup(opts)
 
+			-- TypeScript's native LSP supports progressively expanding aliases in
+			-- hover results, but the standard Neovim hover does not request it.
+			local ts_hover_state = {}
+
+			local function expanded_ts_hover()
+				local bufnr = vim.api.nvim_get_current_buf()
+				local tsgo
+
+				for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
+					if client.name == 'tsgo' then
+						tsgo = client
+						break
+					end
+				end
+
+				if not tsgo then
+					return vim.lsp.buf.hover()
+				end
+
+				local cursor = vim.api.nvim_win_get_cursor(0)
+				local previous = ts_hover_state[bufnr]
+				local continuing = previous
+					and previous.row == cursor[1]
+					and previous.col == cursor[2]
+					and previous.winid
+					and vim.api.nvim_win_is_valid(previous.winid)
+				local level
+
+				if vim.v.count > 0 then
+					level = vim.v.count
+				elseif continuing then
+					level = previous.level + 1
+				else
+					level = 0
+				end
+
+				ts_hover_state[bufnr] = {
+					row = cursor[1],
+					col = cursor[2],
+					level = level,
+					winid = continuing and previous.winid or nil,
+				}
+
+				local params = vim.lsp.util.make_position_params(0, tsgo.offset_encoding)
+				params.verbosityLevel = level
+
+				tsgo:request('textDocument/hover', params, function(err, result, ctx)
+					if err then
+						vim.notify(err.message or tostring(err), vim.log.levels.ERROR)
+						return
+					end
+
+					local _, winid = vim.lsp.handlers.hover(nil, result, ctx, {
+						border = 'rounded',
+						focus = false,
+						footer = (' depth %d · K deeper '):format(level),
+						footer_pos = 'right',
+					})
+
+					local current = ts_hover_state[bufnr]
+					if current and current.level == level then
+						current.winid = winid
+					end
+				end, bufnr)
+			end
+
+			vim.keymap.set('n', 'K', expanded_ts_hover, {
+				desc = 'Expanded TypeScript hover (repeat to deepen)',
+			})
+
 			-- Auto-switch pylsp to project-local .venv
 			vim.api.nvim_create_autocmd('LspAttach', {
 				callback = function(args)

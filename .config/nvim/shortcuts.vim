@@ -65,7 +65,6 @@ nmap <silent><Esc> :cclose<CR>
 nmap <Leader>r :IncRename 
 nmap <Leader>c :lua vim.lsp.buf.code_action()<CR>
 nmap <Leader>e :lua require('conform').format({ async = true })<CR>
-nmap K :lua vim.lsp.buf.hover()<CR>
 " Below is also <C-W>d in neovim 0.10
 nmap <silent> KE :lua vim.diagnostic.open_float()<CR>
 nmap <silent> gd :Glance definitions<CR>
