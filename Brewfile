@@ -13,6 +13,8 @@ brew "bat"
 brew "libpng"
 brew "glib"
 brew "cairo"
+# Versatile and fast Unicode/ASCII/ANSI graphics renderer
+brew "chafa"
 brew "cloud-sql-proxy"
 brew "cmatrix"
 brew "diskus"
