@@ -83,11 +83,12 @@
     }
   },
   "syntaxHighlightingDisabled": false,
+  "advisorModel": "opus",
   "skipWorkflowUsageWarning": true,
   "editorMode": "vim",
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
   "voiceEnabled": false,
-  "advisorModel": "opus"
+  "tui": "fullscreen"
 }

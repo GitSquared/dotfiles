@@ -23,6 +23,12 @@
 - **Bug fixes: root cause first.** Before editing, state the root cause in one line and how you confirmed it — reproduction, log trace, query, or flagged as unverified hypothesis. Before pushing, re-run the failing reproduction and show it passes; lint/typecheck alone don't count as "validated."
 
 ## Context & Memory
+- **Canonical memory store is `~/ai-context/`**, managed with the `/memory` skill. This is the user/global tier and is always loaded.
+- **Routing — decide scope before saving any memory:**
+  - Global / cross-repo facts (workflow, comms, approval rules, hiring, preferences) → `~/ai-context/` via `/memory`.
+  - Project-specific facts → that project's native store at `~/.claude/projects/<encoded-cwd>/memory/` (the harness auto-loads its `MEMORY.md` only when working in that project).
+  - Never store the same fact in both tiers; never put a global fact in a project store. When unsure, treat it as global.
+- **Override the harness default:** the system prompt suggests saving memory under `~/.claude/projects/<cwd>/memory/` (e.g. the `-Users-gaby` home scope). Do NOT route *global* memory there — the home scope is not loaded in project sessions, which is what caused store divergence. Global memory goes to `~/ai-context/`.
 - Memory index (always loaded — context files and learned memories): @~/ai-context/INDEX.md
 - Use `/memory` skill to save, update, or clean up memories
 

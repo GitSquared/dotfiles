@@ -51,10 +51,9 @@ end
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/opt/homebrew/share/google-cloud-sdk/path.fish.inc' ]; . '/opt/homebrew/share/google-cloud-sdk/path.fish.inc'; end
 
-source /Users/gaby/.safe-chain/scripts/init-fish.fish # Safe-chain Fish initialization script
 # aikido-endpoint-cert-config-start
 # Allow Node.js tooling to trust the SafeChain MITM CA while preserving public roots.
-set -gx NODE_EXTRA_CA_CERTS "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-combined-ca.pem"
+set -gx NODE_EXTRA_CA_CERTS "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-node-combined-ca.pem"
 # aikido-endpoint-cert-config-end
 # aikido-endpoint-pip-cert-config-start
 # Allow Python package managers to trust the SafeChain MITM CA while preserving user-provided roots.
@@ -69,5 +68,6 @@ set -gx BUNDLE_SSL_CA_CERT "/Library/Application Support/AikidoSecurity/Endpoint
 # aikido-endpoint-ruby-cert-config-end
 # aikido-endpoint-curl-cert-config-start
 # Allow curl and other OpenSSL-linked tools to trust the SafeChain MITM CA while preserving the system roots.
+set -gx SSL_CERT_FILE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
 set -gx CURL_CA_BUNDLE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
 # aikido-endpoint-curl-cert-config-end

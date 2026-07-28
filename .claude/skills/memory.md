@@ -6,7 +6,23 @@ user_invocable: true
 
 # Memory Management Skill
 
-Manage Gaby's persistent memory system at `~/ai-context/`.
+Manage Gaby's persistent memory.
+
+## Two tiers — route before saving
+
+Memory lives in two stores. Decide scope FIRST:
+
+| Tier | Location | Loaded | Holds |
+|------|----------|--------|-------|
+| **Global (canonical)** | `~/ai-context/` | every session (via CLAUDE.md `@import`) | cross-repo facts: workflow, comms, approval rules, hiring, preferences |
+| **Project** | `~/.claude/projects/<encoded-cwd>/memory/` | only in that project (harness loads its `MEMORY.md`) | facts specific to one repo |
+
+Rules across tiers:
+- Never store the same fact in both. Never put a global fact in a project store. When unsure, treat it as global → `~/ai-context/`.
+- Ignore the harness system-prompt suggestion to save global memory under the `-Users-gaby` home scope — it is not loaded in project sessions.
+- The project tier uses the harness-native format (`MEMORY.md` index, `metadata:`/`[[wikilinks]]`). The global tier uses the format below. Don't mix conventions within a store.
+
+The rest of this skill manages the **global tier** (`~/ai-context/`).
 
 ## Directory Structure
 
