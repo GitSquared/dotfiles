@@ -117,8 +117,6 @@ brew "pipes-sh"
 brew "pipx"
 # Package compiler and linker metadata toolkit
 brew "pkgconf"
-# Object-relational database system
-brew "postgresql@16", restart_service: :changed, link: true
 # Python version management
 brew "pyenv"
 # Ruby version manager
