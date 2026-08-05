@@ -106,6 +106,8 @@ brew "node"
 brew "openjdk"
 # Command-line tool to generate, analyze, convert and manipulate colors
 brew "pastel"
+# AI agent toolkit
+brew "pi-coding-agent"
 # Pinentry for GPG on Mac
 brew "pinentry-mac"
 # Custom GPG pinentry program for macOS that allows using Touch ID for fetching the password from
@@ -117,12 +119,12 @@ brew "pipes-sh"
 brew "pipx"
 # Package compiler and linker metadata toolkit
 brew "pkgconf"
+# Object-relational database system
+brew "postgresql@17", link: true
 # Python version management
 brew "pyenv"
 # Ruby version manager
 brew "rbenv"
-# Persistent key-value database, with built-in net interface
-brew "redis", restart_service: :changed
 # Search tool like grep and The Silver Searcher
 brew "ripgrep"
 # CLI proxy to minimize LLM token consumption
@@ -205,6 +207,5 @@ npm "@sentry/cli"
 npm "eas-cli"
 npm "neovim"
 npm "npm-check-updates"
-npm "opencode-ai"
 npm "typescript"
 npm "vercel"
