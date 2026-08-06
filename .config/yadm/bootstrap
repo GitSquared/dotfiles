@@ -224,7 +224,6 @@ validate_fstab() {
 install_root_files() {
   local relative source destination backup_dir timestamp
   local daemon_changed=0
-  local systemd_changed=0
   local -a managed_files=(
     etc/fstab
     etc/docker/daemon.json
@@ -257,12 +256,11 @@ install_root_files() {
     fi
 
     [[ "$relative" == etc/docker/daemon.json ]] && daemon_changed=1
-    [[ "$relative" == etc/systemd/system/* ]] && systemd_changed=1
   done
 
-  if (( systemd_changed )); then
-    run sudo systemctl daemon-reload
-  fi
+  # Regenerate both explicit units and fstab-derived mount units. This is
+  # intentionally cheap and unconditional so a retry repairs a prior partial run.
+  run sudo systemctl daemon-reload
   if (( daemon_changed )); then
     run sudo systemctl restart docker
   fi
@@ -272,14 +270,22 @@ prepare_storage() {
   local mountpoint
   for mountpoint in /mnt/disk0 /mnt/disk1 /mnt/mergerfs; do
     run sudo install -d -m 0755 "$mountpoint"
+    if findmnt --mountpoint "$mountpoint" >/dev/null; then
+      log "already mounted: $mountpoint"
+    else
+      run sudo mount "$mountpoint"
+    fi
   done
-  run sudo mount -a
 
   if [[ "$DRY_RUN" != 1 ]]; then
     for mountpoint in /mnt/disk0 /mnt/disk1 /mnt/mergerfs; do
       findmnt --mountpoint "$mountpoint" >/dev/null || die "expected mount is unavailable: $mountpoint"
     done
   fi
+}
+
+ensure_docker() {
+  run sudo systemctl enable --now docker.service
 }
 
 validate_compose() {
@@ -331,6 +337,7 @@ main() {
   validate_fstab
   install_root_files
   prepare_storage
+  ensure_docker
   validate_compose
   reconcile_services
   log "$([[ "$DRY_RUN" == 1 ]] && printf 'dry-run audit' || printf 'full convergence') completed successfully"
