@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly STRAYLIGHT_HOME=/home/gaby
+readonly SOURCE_ROOT="$STRAYLIGHT_HOME/.config/yadm/straylight/rootfs"
+readonly PACKAGE_FILE="$STRAYLIGHT_HOME/.config/yadm/straylight/packages.apt"
+readonly CODEX_SOURCE="$STRAYLIGHT_HOME/.config/yadm/straylight/codex"
+readonly COMPOSE_DIR="$STRAYLIGHT_HOME/straylight-docker"
+readonly ENV_FILE="$COMPOSE_DIR/.env"
+readonly RCLONE_CONFIG="$STRAYLIGHT_HOME/.config/rclone/rclone.conf"
+readonly SSH_PRIVATE_KEY="$STRAYLIGHT_HOME/.ssh/id_ed25519"
+readonly SSH_PUBLIC_KEY="$STRAYLIGHT_HOME/.ssh/id_ed25519.pub"
+readonly EXPECTED_HOST=straylight
+readonly EXPECTED_USER=gaby
+readonly EXPECTED_UID=1000
+readonly DRY_RUN=${STRAYLIGHT_DRY_RUN:-0}
+
+log() {
+  printf 'straylight-bootstrap: %s\n' "$*"
+}
+
+die() {
+  printf 'straylight-bootstrap: ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+show_command() {
+  printf '  +'
+  printf ' %q' "$@"
+  printf '\n'
+}
+
+run() {
+  if [[ "$DRY_RUN" == 1 ]]; then
+    show_command "$@"
+  else
+    "$@"
+  fi
+}
+
+require_regular_owned_file() {
+  local path=$1
+  [[ -f "$path" ]] || die "required file is missing: $path"
+  [[ ! -L "$path" ]] || die "secret file must not be a symlink: $path"
+  [[ $(stat -c '%U' "$path") == "$EXPECTED_USER" ]] || die "secret file has the wrong owner: $path"
+}
+
+require_env_key() {
+  local key=$1
+  awk -v wanted="$key" '
+    /^[[:space:]]*#/ { next }
+    {
+      equals = index($0, "=")
+      if (!equals) next
+      name = substr($0, 1, equals - 1)
+      value = substr($0, equals + 1)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      if (value == "\"\"" || value == "\047\047") value = ""
+      if (name == wanted && length(value) > 0) found = 1
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$ENV_FILE" || die "required environment variable is absent or empty: $key"
+}
+
+preflight() {
+  local current_branch distro version path source
+
+  [[ $(id -u) -ne 0 ]] || die 'run as gaby, not root'
+  [[ $(id -un) == "$EXPECTED_USER" ]] || die "expected user $EXPECTED_USER"
+  [[ $(id -u) -eq "$EXPECTED_UID" ]] || die "expected UID $EXPECTED_UID"
+  [[ $(uname -n | cut -d. -f1) == "$EXPECTED_HOST" ]] || die "expected hostname $EXPECTED_HOST"
+
+  # shellcheck disable=SC1091
+  source /etc/os-release
+  distro=${ID:-}
+  version=${VERSION_ID:-}
+  [[ "$distro" == ubuntu && "$version" == 24.04 ]] || die 'expected Ubuntu 24.04'
+
+  command -v yadm >/dev/null 2>&1 || die 'yadm is not installed'
+  current_branch=$(yadm branch --show-current)
+  [[ "$current_branch" == straylight ]] || die 'the checked-out yadm branch must be straylight'
+
+  require_regular_owned_file "$ENV_FILE"
+  require_env_key ICLOUD_SMTP_PASS
+  require_env_key SAMBA_PASSWORD
+  require_env_key SAMBA_GUEST_PASSWORD
+
+  require_regular_owned_file "$RCLONE_CONFIG"
+  for remote in s3.net.gaby.dev s3-storage-crypt s3-config-crypt; do
+    grep -Fqx "[$remote]" "$RCLONE_CONFIG" || die "rclone remote is missing: $remote"
+  done
+
+  require_regular_owned_file "$SSH_PRIVATE_KEY"
+  require_regular_owned_file "$SSH_PUBLIC_KEY"
+  [[ $(ssh-keygen -lf "$SSH_PRIVATE_KEY" | awk '{print $2}') == $(ssh-keygen -lf "$SSH_PUBLIC_KEY" | awk '{print $2}') ]] || die 'SSH private and public keys do not match'
+
+  local -a state_files=(
+    "$COMPOSE_DIR/adguard/conf/AdGuardHome.yaml"
+    "$COMPOSE_DIR/homeassistant/config/.storage/core.config"
+    "$COMPOSE_DIR/jellyfin/config/config/system.xml"
+    "$COMPOSE_DIR/qbittorrent/config/qBittorrent.conf"
+    "$COMPOSE_DIR/radarr/radarr.db"
+    "$COMPOSE_DIR/sonarr/sonarr.db"
+    "$COMPOSE_DIR/prowlarr/prowlarr.db"
+  )
+  for path in "${state_files[@]}"; do
+    [[ -s "$path" ]] || die "application state must be restored before bootstrap: $path"
+  done
+
+  [[ -r "$PACKAGE_FILE" ]] || die "package manifest is missing: $PACKAGE_FILE"
+  [[ -r "$CODEX_SOURCE/config.toml" ]] || die 'managed Codex config is missing'
+  [[ -r "$CODEX_SOURCE/plugins.list" ]] || die 'managed Codex plugin manifest is missing'
+  [[ -r "$CODEX_SOURCE/rules/default.rules" ]] || die 'managed Codex rules are missing'
+  [[ -r "$SOURCE_ROOT/etc/fstab" ]] || die 'managed fstab is missing'
+  while read -r source; do
+    [[ -z "$source" || "$source" == /swap.img ]] && continue
+    [[ -e "$source" ]] || die "fstab source is unavailable: $source"
+  done < <(awk '!/^[[:space:]]*(#|$)/ && $1 ~ /^\/dev\// {print $1}' "$SOURCE_ROOT/etc/fstab")
+
+  log 'preflight passed'
+}
+
+configure_commit_signing() {
+  run yadm gitconfig user.name 'Gabriel Saillard'
+  run yadm gitconfig user.email 'gabriel@saillard.dev'
+  run yadm gitconfig gpg.format ssh
+  run yadm gitconfig user.signingkey "$SSH_PUBLIC_KEY"
+  run yadm gitconfig commit.gpgsign true
+}
+
+install_user_file() {
+  local source=$1 destination=$2 mode=$3
+
+  if [[ -f "$destination" ]] && cmp -s "$source" "$destination"; then
+    log "unchanged: $destination"
+    return
+  fi
+
+  if [[ "$DRY_RUN" == 1 ]]; then
+    [[ -e "$destination" ]] && show_command cp -p "$destination" "$destination.yadm-backup"
+    show_command install -D -m "$mode" "$source" "$destination"
+  else
+    [[ -e "$destination" ]] && cp -p "$destination" "$destination.yadm-backup"
+    install -D -m "$mode" "$source" "$destination"
+  fi
+}
+
+configure_codex() {
+  local plugin
+
+  install_user_file "$CODEX_SOURCE/config.toml" "$STRAYLIGHT_HOME/.codex/config.toml" 0600
+  install_user_file "$CODEX_SOURCE/rules/default.rules" "$STRAYLIGHT_HOME/.codex/rules/default.rules" 0600
+
+  if ! command -v codex >/dev/null 2>&1; then
+    log 'Codex CLI is not installed; desired config is ready for a future installation'
+    return
+  fi
+
+  while IFS= read -r plugin; do
+    [[ -z "$plugin" || "$plugin" == \#* ]] && continue
+    if codex plugin list 2>/dev/null | awk -v wanted="$plugin" '$1 == wanted && $2 ~ /^installed/ {found=1} END {exit(found ? 0 : 1)}'; then
+      log "Codex plugin is installed: $plugin"
+    else
+      run codex plugin add "$plugin"
+    fi
+  done < "$CODEX_SOURCE/plugins.list"
+}
+
+install_packages() {
+  local package
+  local -a missing=()
+
+  while IFS= read -r package; do
+    [[ -z "$package" || "$package" == \#* ]] && continue
+    dpkg-query -W -f='${db:Status-Abbrev}' "$package" 2>/dev/null | grep -q '^ii ' || missing+=("$package")
+  done < "$PACKAGE_FILE"
+
+  if [[ "$DRY_RUN" == 1 ]]; then
+    show_command sudo apt-get update
+    if ((${#missing[@]})); then
+      show_command sudo apt-get install -y "${missing[@]}"
+    else
+      log 'all managed packages are installed'
+    fi
+    return
+  fi
+
+  sudo apt-get update
+  if ((${#missing[@]})); then
+    sudo apt-get install -y "${missing[@]}"
+  else
+    log 'all managed packages are installed'
+  fi
+}
+
+validate_fstab() {
+  command -v findmnt >/dev/null 2>&1 || die 'findmnt is unavailable'
+  findmnt --verify --tab-file "$SOURCE_ROOT/etc/fstab" >/dev/null
+  log 'managed fstab validation passed'
+}
+
+install_root_files() {
+  local relative source destination backup_dir timestamp
+  local daemon_changed=0
+  local systemd_changed=0
+  local -a managed_files=(
+    etc/fstab
+    etc/docker/daemon.json
+    etc/systemd/system/backup-config.service
+    etc/systemd/system/backup-config.timer
+    etc/systemd/system/backup-storage.service
+    etc/systemd/system/backup-storage.timer
+    etc/systemd/system/notify-failure@.service
+  )
+
+  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+  backup_dir="/var/backups/straylight-yadm/$timestamp"
+
+  for relative in "${managed_files[@]}"; do
+    source="$SOURCE_ROOT/$relative"
+    destination="/$relative"
+    [[ -f "$source" ]] || die "managed source is missing: $source"
+
+    if [[ -f "$destination" ]] && cmp -s "$source" "$destination"; then
+      log "unchanged: $destination"
+      continue
+    fi
+
+    if [[ "$DRY_RUN" == 1 ]]; then
+      [[ -e "$destination" ]] && show_command sudo install -D -m 0644 "$destination" "$backup_dir/$relative"
+      show_command sudo install -D -m 0644 "$source" "$destination"
+    else
+      [[ -e "$destination" ]] && sudo install -D -m 0644 "$destination" "$backup_dir/$relative"
+      sudo install -D -m 0644 "$source" "$destination"
+    fi
+
+    [[ "$relative" == etc/docker/daemon.json ]] && daemon_changed=1
+    [[ "$relative" == etc/systemd/system/* ]] && systemd_changed=1
+  done
+
+  if (( systemd_changed )); then
+    run sudo systemctl daemon-reload
+  fi
+  if (( daemon_changed )); then
+    run sudo systemctl restart docker
+  fi
+}
+
+prepare_storage() {
+  local mountpoint
+  for mountpoint in /mnt/disk0 /mnt/disk1 /mnt/mergerfs; do
+    run sudo install -d -m 0755 "$mountpoint"
+  done
+  run sudo mount -a
+
+  if [[ "$DRY_RUN" != 1 ]]; then
+    for mountpoint in /mnt/disk0 /mnt/disk1 /mnt/mergerfs; do
+      findmnt --mountpoint "$mountpoint" >/dev/null || die "expected mount is unavailable: $mountpoint"
+    done
+  fi
+}
+
+validate_compose() {
+  command -v docker >/dev/null 2>&1 || die 'docker is unavailable after package convergence'
+  docker compose --project-directory "$COMPOSE_DIR" config --quiet
+  log 'Docker Compose validation passed'
+}
+
+reconcile_services() {
+  local expected
+  local -a missing=()
+
+  run sudo systemctl enable --now backup-config.timer backup-storage.timer
+  run docker compose --project-directory "$COMPOSE_DIR" up -d --remove-orphans
+
+  if [[ "$DRY_RUN" == 1 ]]; then
+    return
+  fi
+
+  systemctl is-enabled --quiet backup-config.timer || die 'backup-config.timer is not enabled'
+  systemctl is-enabled --quiet backup-storage.timer || die 'backup-storage.timer is not enabled'
+
+  while IFS= read -r expected; do
+    docker compose --project-directory "$COMPOSE_DIR" ps --services --status running | grep -Fqx "$expected" || missing+=("$expected")
+  done < <(docker compose --project-directory "$COMPOSE_DIR" config --services)
+  ((${#missing[@]} == 0)) || die "Compose services are not running: ${missing[*]}"
+}
+
+main() {
+  if [[ "$DRY_RUN" != 0 && "$DRY_RUN" != 1 ]]; then
+    die 'STRAYLIGHT_DRY_RUN must be 0 or 1'
+  fi
+
+  log "$([[ "$DRY_RUN" == 1 ]] && printf 'dry-run audit' || printf 'full convergence') started"
+  preflight
+
+  if [[ "$DRY_RUN" == 1 ]]; then
+    show_command chmod 0600 "$ENV_FILE" "$RCLONE_CONFIG" "$SSH_PRIVATE_KEY"
+    show_command chmod 0644 "$SSH_PUBLIC_KEY"
+  else
+    chmod 0600 "$ENV_FILE" "$RCLONE_CONFIG" "$SSH_PRIVATE_KEY"
+    chmod 0644 "$SSH_PUBLIC_KEY"
+    sudo -v
+  fi
+
+  configure_commit_signing
+  configure_codex
+  install_packages
+  validate_fstab
+  install_root_files
+  prepare_storage
+  validate_compose
+  reconcile_services
+  log "$([[ "$DRY_RUN" == 1 ]] && printf 'dry-run audit' || printf 'full convergence') completed successfully"
+}
+
+main "$@"

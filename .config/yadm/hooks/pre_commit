@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s nocasematch
+
+readonly MAX_BLOB_BYTES=1048576
+failed=0
+
+reject() {
+  printf 'pre_commit: reject %s (%s)\n' "$1" "$2" >&2
+  failed=1
+}
+
+is_forbidden_path() {
+  local path=$1
+
+  [[ "$path" == "straylight-docker/.env" ]] && return 0
+  [[ "$path" == ".config/rclone/rclone.conf" ]] && return 0
+  [[ "$path" == *"/secrets.yaml" ]] && return 0
+  [[ "$path" == *"/.storage/"* ]] && return 0
+  [[ "$path" == "straylight-docker/caddy/data/"* ]] && return 0
+  [[ "$path" == *"/AdGuardHome.yaml" ]] && return 0
+  [[ "$path" == *"/querylog.json" ]] && return 0
+  [[ "$path" == *"/qBittorrent.conf" ]] && return 0
+  [[ "$path" == *"/config.xml" ]] && return 0
+  [[ "$path" == *"/wud.json" ]] && return 0
+  [[ "$path" =~ \.(db|db-shm|db-wal|log|pid|sock|socket|torrent|pem|key|p12|pfx|crt|cer|der|archive)$ ]] && return 0
+  [[ "$path" =~ (^|/)(id_rsa|id_ed25519|credentials|private_key)(\.|$) ]] && return 0
+  return 1
+}
+
+contains_credential_assignment() {
+  local path=$1
+  local line key value
+
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    if [[ "$line" =~ (password|passwd|[_-]pass|api[_-]?key|token|secret)[A-Za-z0-9_\\-]*[[:space:]]*[:=][[:space:]]*(.*)$ ]]; then
+      key=${BASH_REMATCH[1]}
+      value=${BASH_REMATCH[2]}
+      value=${value%%#*}
+      value=${value//[[:space:]]/}
+      value=${value#\"}
+      value=${value%\"}
+      value=${value#\'}
+      value=${value%\'}
+      [[ -z "$value" ]] && continue
+      [[ "$value" == \$\{*\} ]] && continue
+      [[ "$value" == "!secret"* ]] && continue
+      [[ "$value" == "<"*">" ]] && continue
+      [[ "$value" == "REDACTED" ]] && continue
+      : "$key"
+      return 0
+    fi
+  done < <(yadm show ":$path" 2>/dev/null || true)
+  return 1
+}
+
+while IFS= read -r path; do
+  [[ -z "$path" ]] && continue
+
+  if is_forbidden_path "$path"; then
+    reject "$path" 'forbidden path'
+    continue
+  fi
+
+  size=$(yadm cat-file -s ":$path" 2>/dev/null || printf '0')
+  if [[ "$size" =~ ^[0-9]+$ ]] && (( size > MAX_BLOB_BYTES )); then
+    reject "$path" 'blob exceeds 1 MiB'
+  fi
+
+  if (( size > 0 )) && ! yadm show ":$path" 2>/dev/null | LC_ALL=C grep -Iq .; then
+    reject "$path" 'binary content'
+    continue
+  fi
+
+  if yadm show ":$path" 2>/dev/null | grep -Eiq 'BEGIN ([A-Z0-9]+ )?PRIVATE KEY'; then
+    reject "$path" 'private-key material'
+  fi
+
+  if [[ "$path" == "straylight-docker/.env.example" ]]; then
+    if yadm show ":$path" 2>/dev/null | grep -Evq '^[[:space:]]*(#.*|[A-Z_][A-Z0-9_]*=)?$'; then
+      reject "$path" 'example environment values must be blank'
+    fi
+  elif contains_credential_assignment "$path"; then
+    reject "$path" 'credential-shaped assignment'
+  fi
+done < <(yadm diff --cached --name-only --diff-filter=ACMR)
+
+if (( failed != 0 )); then
+  printf 'pre_commit: commit blocked; no secret values were printed.\n' >&2
+  exit 1
+fi
+
+printf 'pre_commit: staged-path and credential checks passed.\n'

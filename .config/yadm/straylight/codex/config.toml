@@ -1,0 +1,12 @@
+personality = "pragmatic"
+approval_policy = "on-request"
+approvals_reviewer = "guardian_subagent"
+sandbox_mode = "workspace-write"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+
+[projects."/home/gaby"]
+trust_level = "trusted"
+
+[mcp_servers.openaiDeveloperDocs]
+url = "https://developers.openai.com/mcp"
