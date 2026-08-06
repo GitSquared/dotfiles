@@ -1,0 +1,227 @@
+services:
+  whatsupdocker:
+    image: getwud/wud:8.2.2
+    container_name: wud
+    restart: unless-stopped
+    volumes:
+      - ./wud:/store
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./docker-compose.yml:/wud/docker-compose.yml
+    ports:
+      - 3333:3000
+    environment:
+      - WUD_TRIGGER_DOCKERCOMPOSE_STRAYLIGHT_FILE=/wud/docker-compose.yml
+      - WUD_TRIGGER_DOCKERCOMPOSE_STRAYLIGHT_PRUNE=true
+      - WUD_TRIGGER_DOCKERCOMPOSE_STRAYLIGHT_BACKUP=true
+      - WUD_TRIGGER_DOCKERCOMPOSE_STRAYLIGHT_THRESHOLD=patch
+      - WUD_TRIGGER_SMTP_ICLOUD_HOST=smtp.mail.me.com
+      - WUD_TRIGGER_SMTP_ICLOUD_PORT=587
+      - WUD_TRIGGER_SMTP_ICLOUD_USER=gabriel@saillard.dev
+      - WUD_TRIGGER_SMTP_ICLOUD_PASS=${ICLOUD_SMTP_PASS}
+      - WUD_TRIGGER_SMTP_ICLOUD_FROM=gabriel@saillard.dev
+      - WUD_TRIGGER_SMTP_ICLOUD_TO=gabriel@saillard.dev
+      - WUD_TRIGGER_SMTP_ICLOUD_TLS_ENABLED=false
+      - WUD_TRIGGER_SMTP_ICLOUD_MODE=batch
+    labels:
+      - "wud.watch=false"
+  samba:
+    image: ghcr.io/servercontainers/samba:latest
+    container_name: samba
+    network_mode: host
+    restart: unless-stopped
+    labels:
+      - "wud.watch=false"
+    environment:
+      # General settings
+      SAMBA_GLOBAL_STRAW: "vfs objects = fruit streams_xattr"
+      SAMBA_GLOBAL_STRAW2: "fruit:metadata = stream"
+      SAMBA_GLOBAL_STRAW3: "fruit:model = MacSamba"
+      SAMBA_GLOBAL_STRAW4: "fruit:nfs_aces = no"
+
+      ACCOUNT_gaby: "${SAMBA_PASSWORD}"
+      UID_gaby: "1000"
+
+      ACCOUNT_guest: "${SAMBA_GUEST_PASSWORD}"
+      UID_guest: "1000"
+
+      # General storage share
+      SAMBA_VOLUME_CONFIG_storage: |
+        [storage]
+          path = /storage
+          valid users = gaby,guest
+          read only = no
+          browseable = yes
+
+      # Time Machine share with 500GB quota
+      SAMBA_VOLUME_CONFIG_timemachine: |
+        [timemachine]
+          path = /timemachine
+          valid users = gaby
+          read only = no
+          browseable = yes
+          fruit:time machine = yes
+          fruit:time machine max size = 1000G
+    volumes:
+      - /mnt/mergerfs:/storage
+      - /mnt/mergerfs/TimeMachine:/timemachine
+    tmpfs:
+      - /tmp
+  jellyfin:
+    image: jellyfin/jellyfin:10.11.11
+    container_name: jellyfin
+    restart: unless-stopped
+    user: 1000:1000
+    group_add:
+      - "993"
+    network_mode: host
+    volumes:
+      - ./jellyfin/config:/config
+      - ./jellyfin/cache:/cache
+      - type: bind
+        source: /mnt/mergerfs
+        target: /media
+        read_only: true
+    devices:
+      - /dev/dri:/dev/dri
+    labels:
+      - "wud.tag.include=^\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  caddy:
+    image: caddy:2.11.4
+    container_name: caddy
+    restart: unless-stopped
+    depends_on:
+      - jellyfin
+    ports:
+      - 80:80
+      - 443:443
+      - 443:443/udp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./caddy/config/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/data:/data
+      - ./caddy/config:/config
+    networks:
+      caddy_proxy:
+        ipv4_address: 172.30.10.2
+    environment:
+      - TZ=Europe/Paris
+    labels:
+      - "wud.tag.include=^\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  fail2ban:
+    image: lscr.io/linuxserver/fail2ban:1.1.0
+    container_name: fail2ban
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - PUID=0
+      - PGID=0
+      - TZ=Europe/Paris
+    volumes:
+      - ./caddy/fail2ban:/config
+      - ./jellyfin/config/log:/remotelogs/jellyfin:ro
+    labels:
+      - "wud.watch=false"
+  prowlarr:
+    image: ghcr.io/hotio/prowlarr:release-2.4.0.5397
+    container_name: prowlarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - ./prowlarr:/config
+    ports:
+      - 9696:9696
+    labels:
+      - "wud.tag.include=^release-\\d+\\.\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  radarr:
+    image: ghcr.io/hotio/radarr:release-6.2.1.10461
+    container_name: radarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - ./radarr:/config
+      - /mnt/mergerfs:/data
+    ports:
+      - 7878:7878
+    labels:
+      - "wud.tag.include=^release-\\d+\\.\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  sonarr:
+    image: ghcr.io/hotio/sonarr:release-4.0.19.2979
+    container_name: sonarr
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - ./sonarr:/config
+      - /mnt/mergerfs:/data
+    ports:
+      - 8989:8989
+    labels:
+      - "wud.tag.include=^release-\\d+\\.\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  qbittorrent:
+    image: ghcr.io/hotio/qbittorrent:release-5.2.3
+    container_name: qbittorrent
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Paris
+    volumes:
+      - ./qbittorrent:/config
+      - ../qbittorrent-download-cache:/downloads-cache
+      - /mnt/mergerfs/Downloads:/downloads
+    ports:
+      - 8080:8080
+      - 6881:6881
+      - 6881:6881/udp
+    labels:
+      - "wud.tag.include=^release-\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  homeassistant:
+    container_name: homeassistant
+    image: ghcr.io/home-assistant/home-assistant:2026.6.4
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./homeassistant/config:/config
+      - /run/dbus:/run/dbus:ro
+    environment:
+      - TZ=Europe/Paris
+    labels:
+      - "wud.tag.include=^\\d{4}\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+  adguard:
+    container_name: adguard
+    image: adguard/adguardhome:v0.107.78
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./adguard/work:/opt/adguardhome/work
+      - ./adguard/conf:/opt/adguardhome/conf
+    environment:
+      - TZ=Europe/Paris
+    labels:
+      - "wud.tag.include=^v\\d+\\.\\d+\\.\\d+$$"
+      - "wud.compose.file=/wud/docker-compose.yml"
+
+networks:
+  caddy_proxy:
+    ipam:
+      config:
+        - subnet: 172.30.10.0/24

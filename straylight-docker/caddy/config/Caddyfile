@@ -1,0 +1,17 @@
+{
+	email gabriel@saillard.dev
+}
+
+media.gaby.dev {
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+
+	reverse_proxy host.docker.internal:8096
+}
