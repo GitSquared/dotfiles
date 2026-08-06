@@ -1,0 +1,9 @@
+[Unit]
+Description=Weekly storage backup
+
+[Timer]
+OnCalendar=Mon *-*-* 12:30:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

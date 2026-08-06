@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup storage pool to S3 Glacier Deep Archive
+Wants=network-online.target
+After=network-online.target
+OnFailure=notify-failure@%n.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/gaby/backup-scripts/backup-storage.sh

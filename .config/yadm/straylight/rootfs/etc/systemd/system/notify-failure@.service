@@ -1,0 +1,6 @@
+[Unit]
+Description=Send failure notification for %i
+
+[Service]
+Type=oneshot
+ExecStart=/home/gaby/backup-scripts/notify-failure.sh %i
