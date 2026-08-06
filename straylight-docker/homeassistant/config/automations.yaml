@@ -1,0 +1,130 @@
+- id: '1769458950962'
+  alias: HomeKit TV Remote to Samsung
+  triggers:
+  - trigger: event
+    event_type: homekit_tv_remote_key_pressed
+    event_data:
+      entity_id: media_player.tv
+  actions:
+  - choose:
+    - conditions: '{{ trigger.event.data.key_name == ''arrow_up'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_UP
+            media_content_type: send_key
+            metadata: {}
+    - conditions: '{{ trigger.event.data.key_name == ''arrow_down'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_DOWN
+            media_content_type: send_key
+            metadata: {}
+    - conditions: '{{ trigger.event.data.key_name == ''arrow_left'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_LEFT
+            media_content_type: send_key
+            metadata: {}
+    - conditions: '{{ trigger.event.data.key_name == ''arrow_right'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_RIGHT
+            media_content_type: send_key
+            metadata: {}
+    - conditions: '{{ trigger.event.data.key_name == ''select'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_ENTER
+            media_content_type: send_key
+            metadata: {}
+    - conditions: '{{ trigger.event.data.key_name == ''menu'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_MENU
+            media_content_type: send_key
+            metadata: {}
+    - conditions: '{{ trigger.event.data.key_name == ''play_pause'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_PLAY
+            media_content_type: send_key
+            metadata: {}
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.event.data.key_name == ''back'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_RETURN
+            media_content_type: send_key
+            metadata: {}
+    - conditions:
+      - condition: template
+        value_template: '{{ trigger.event.data.key_name == ''information'' }}'
+      sequence:
+      - action: media_player.play_media
+        target:
+          entity_id: media_player.tv
+        data:
+          media:
+            media_content_id: KEY_HOME
+            media_content_type: send_key
+            metadata: {}
+- id: '1777824224072'
+  alias: HomeKit Xbox Remote
+  description: ''
+  triggers:
+  - trigger: event
+    event_type: homekit_tv_remote_key_pressed
+    event_data:
+      entity_id: media_player.rebeval_x
+  actions:
+  - variables:
+      key_map:
+        arrow_up: Up
+        arrow_down: Down
+        arrow_left: Left
+        arrow_right: Right
+        select: A
+        back: B
+        menu: Menu
+        information: Nexus
+        play_pause: PlayPause
+  - condition: template
+    value_template: '{{ trigger.event.data.key_name in key_map }}'
+  - action: remote.send_command
+    target:
+      entity_id: remote.rebeval_x
+    data:
+      command: '{{ key_map[trigger.event.data.key_name] }}'
