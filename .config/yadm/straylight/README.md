@@ -66,8 +66,9 @@ to `/var/backups/straylight-yadm/<timestamp>/` before replacement.
 
 The public desired state includes stable Codex preferences, the official OpenAI
 developer-docs MCP endpoint, Straylight command rules, and the Sites and
-Visualize plugins. Bootstrap installs these when Codex is present and saves the
-previous config as `~/.codex/config.toml.yadm-backup`.
+Visualize plugins. On a fresh installation, bootstrap seeds `config.toml`. Once
+Codex has generated marketplace metadata, bootstrap preserves that file and
+reconciles MCP, marketplace, plugin, and rules state through supported commands.
 
 Codex itself and its login are provisioned separately. Never commit
 `~/.codex/auth.json`, sessions, archives, memories, goals, logs, databases,

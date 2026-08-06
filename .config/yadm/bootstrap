@@ -148,12 +148,33 @@ install_user_file() {
 
 configure_codex() {
   local plugin
+  local codex_config="$STRAYLIGHT_HOME/.codex/config.toml"
+  local bundled_marketplace="$STRAYLIGHT_HOME/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
-  install_user_file "$CODEX_SOURCE/config.toml" "$STRAYLIGHT_HOME/.codex/config.toml" 0600
+  if [[ -e "$codex_config" ]]; then
+    log "preserving existing generated Codex config: $codex_config"
+  else
+    install_user_file "$CODEX_SOURCE/config.toml" "$codex_config" 0600
+  fi
   install_user_file "$CODEX_SOURCE/rules/default.rules" "$STRAYLIGHT_HOME/.codex/rules/default.rules" 0600
 
   if ! command -v codex >/dev/null 2>&1; then
     log 'Codex CLI is not installed; desired config is ready for a future installation'
+    return
+  fi
+
+  if codex mcp get openaiDeveloperDocs >/dev/null 2>&1; then
+    log 'Codex MCP is configured: openaiDeveloperDocs'
+  else
+    run codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
+  fi
+
+  if codex plugin marketplace list 2>/dev/null | awk '$1 == "openai-bundled" {found=1} END {exit(found ? 0 : 1)}'; then
+    log 'Codex marketplace is configured: openai-bundled'
+  elif [[ -f "$bundled_marketplace/.agents/plugins/marketplace.json" ]]; then
+    run codex plugin marketplace add "$bundled_marketplace"
+  else
+    log 'Codex bundled marketplace snapshot is unavailable; plugin reconciliation skipped'
     return
   fi
 
