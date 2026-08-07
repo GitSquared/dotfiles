@@ -221,11 +221,15 @@ services:
       - "wud.compose.file=/wud/docker-compose.yml"
   linear-agent:
     container_name: linear-agent
-    image: straylight-linear-agent:local
+    image: straylight-linear-agent-controller:local
     build:
       context: ./linear-agent
+      target: controller
     restart: unless-stopped
     init: true
+    depends_on:
+      linear-agent-runner:
+        condition: service_healthy
     ports:
       - "127.0.0.1:8787:8787"
     environment:
@@ -238,17 +242,17 @@ services:
       LINEAR_AGENT_PUBLIC_URL: "${LINEAR_AGENT_PUBLIC_URL}"
       LINEAR_REDIRECT_URI: "${LINEAR_AGENT_PUBLIC_URL}/linear/oauth/callback"
       LINEAR_AGENT_STATE_DIR: /app/state
-      PI_WORKDIR: /workspace
-      PI_SESSION_DIR: /app/state/pi-sessions
-      PI_CODING_AGENT_DIR: /home/node/.pi/agent
-      PI_THEME: light
-      PI_PROGRESS_DEBOUNCE_MS: "3000"
-      PI_PROGRESS_HEARTBEAT_MS: "300000"
-      PI_TIMEOUT_MS: "1800000"
+      PI_RUNNER_URL: http://linear-agent-runner:8788
     volumes:
       - ./linear-agent/data:/app/state
-      - ./linear-agent/pi-config:/home/node/.pi/agent
-      - ./linear-agent/workspace:/workspace
+    networks:
+      - linear_agent
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m,mode=1777
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -265,9 +269,57 @@ services:
       start_period: 20s
     labels:
       - "wud.watch=false"
+  linear-agent-runner:
+    container_name: linear-agent-runner
+    image: straylight-linear-agent-runner:local
+    build:
+      context: ./linear-agent
+      target: runner
+    restart: unless-stopped
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8788"
+      PI_WORKDIR: /workspace
+      PI_SESSION_DIR: /app/state/pi-sessions
+      PI_CODING_AGENT_DIR: /home/node/.pi/agent
+      PI_THEME: light
+      PI_PROGRESS_DEBOUNCE_MS: "3000"
+      PI_PROGRESS_HEARTBEAT_MS: "300000"
+      PI_TIMEOUT_MS: "1800000"
+    volumes:
+      - ./linear-agent/data/pi-sessions:/app/state/pi-sessions
+      - ./linear-agent/pi-config:/home/node/.pi/agent
+      - ./linear-agent/workspace:/workspace
+    networks:
+      - linear_agent
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=2g,mode=1777
+    mem_limit: 4g
+    cpus: 2.0
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8788/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    labels:
+      - "wud.watch=false"
 
 networks:
   caddy_proxy:
     ipam:
       config:
         - subnet: 172.30.10.0/24
+  linear_agent:
+    driver: bridge

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isStopRequest } from "../src/controller.js";
-import { followUpPrompt, initialPrompt } from "../src/pi.js";
+import { githubPullRequestUrl, isStopRequest } from "../src/controller.js";
+import { followUpPrompt, initialPrompt } from "../src/prompts.js";
 import { finalText, progressText, redact } from "../src/redaction.js";
 
 test("builds a repository-aware initial prompt", () => {
@@ -31,12 +31,21 @@ test("recognizes explicit stop requests", () => {
 });
 
 test("redacts common credentials and sensitive URL parameters", () => {
-  const safe = redact("Authorization: Bearer abcdefghijklmnop https://x.test/a?token=hello sk-abcdefghijklmnop"); // yadm-secret-scan: ignore
+  const safe = redact('Authorization: Bearer abcdefghijklmnop https://x.test/a?token=hello sk-abcdefghijklmnop {"refresh_token":"super-private-value"}'); // yadm-secret-scan: ignore
   assert.doesNotMatch(safe, /abcdefghijklmnop/);
+  assert.doesNotMatch(safe, /super-private-value/);
   assert.match(safe, /redacted/);
 });
 
 test("bounds progress and final output", () => {
   assert.ok(progressText("x".repeat(500)).length <= 240);
   assert.ok(finalText("x".repeat(10_000)).length <= 8_000);
+});
+
+test("extracts a GitHub pull request for the Linear session", () => {
+  assert.equal(
+    githubPullRequestUrl("Opened https://github.com/GitSquared/nemo/pull/42 — ready for review."),
+    "https://github.com/GitSquared/nemo/pull/42",
+  );
+  assert.equal(githubPullRequestUrl("No pull request was created."), undefined);
 });

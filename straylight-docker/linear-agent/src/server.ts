@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
-import type { AgentConfig } from "./config.js";
+import type { ControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
 import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "./signature.js";
@@ -63,7 +63,7 @@ function matches(pathname: string, route: string): boolean {
   return pathname === `/linear${route}` || pathname === route;
 }
 
-export function createServer(config: AgentConfig, linear: LinearClient, controller: AgentController): http.Server {
+export function createServer(config: ControllerConfig, linear: LinearClient, controller: AgentController): http.Server {
   const deduper = new DeliveryDeduper();
   return http.createServer((request, response) => {
     void route(request, response).catch((error: unknown) => {

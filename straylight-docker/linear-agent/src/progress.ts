@@ -1,7 +1,8 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { progressText } from "./redaction.js";
+import type { RunnerEvent } from "./runner-protocol.js";
 
-type ProgressSender = (body: string) => Promise<void>;
+type ProgressSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 
 function firstString(value: unknown): string | undefined {
   if (typeof value === "string") return value.trim() || undefined;
@@ -24,12 +25,19 @@ function toolTarget(name: string, args: unknown): string | undefined {
   return undefined;
 }
 
+function actionName(name: string): string {
+  const normalized = name.replace(/[_-]+/g, " ").trim();
+  return normalized ? `Running ${normalized}` : "Running tool";
+}
+
 export class ProgressReporter {
-  private pending: string | undefined;
+  private pending: Exclude<RunnerEvent, { type: "result" }> | undefined;
   private timer: NodeJS.Timeout | undefined;
   private heartbeat: NodeJS.Timeout | undefined;
-  private lastSent: string | undefined;
+  private lastSent = "";
   private lastSentAt = 0;
+  private active = false;
+  private inFlight: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly send: ProgressSender,
@@ -37,10 +45,11 @@ export class ProgressReporter {
     private readonly heartbeatMs: number,
   ) {}
 
-  report(body: string): void {
-    const next = progressText(body);
-    if (!next || next === this.pending || next === this.lastSent) return;
-    this.pending = next;
+  report(event: Exclude<RunnerEvent, { type: "result" }>): void {
+    if (!this.active) return;
+    const encoded = JSON.stringify(event);
+    if (encoded === this.lastSent || encoded === JSON.stringify(this.pending)) return;
+    this.pending = event;
     if (this.timer) return;
     const delay = Math.max(0, this.debounceMs - (Date.now() - this.lastSentAt));
     this.timer = setTimeout(() => void this.flush(), delay);
@@ -50,21 +59,45 @@ export class ProgressReporter {
   handle(event: AgentSessionEvent): void {
     switch (event.type) {
       case "agent_start":
-        this.report("Pi is starting the coding session.");
+        this.report({ type: "activity", content: { type: "thought", body: "Pi is starting the coding session." }, ephemeral: true });
         break;
       case "tool_execution_start": {
+        if (event.toolName === "ask_linear" || event.toolName === "update_linear_plan") break;
         const target = toolTarget(event.toolName, event.args);
-        this.report(target ? `Running ${event.toolName}: ${target}` : `Running ${event.toolName}`);
+        this.report({
+          type: "activity",
+          content: {
+            type: "action",
+            action: actionName(event.toolName),
+            parameter: target ? progressText(target) : event.toolName,
+          },
+          ephemeral: true,
+        });
         break;
       }
       case "tool_execution_end":
-        if (event.isError) this.report(`${event.toolName} reported an error; Pi is adjusting.`);
+        if (event.isError) {
+          this.report({
+            type: "activity",
+            content: {
+              type: "action",
+              action: `${actionName(event.toolName)} failed`,
+              parameter: event.toolName,
+              result: "Pi is adjusting.",
+            },
+            ephemeral: true,
+          });
+        }
         break;
       case "compaction_start":
-        this.report("Pi is compacting context before continuing.");
+        this.report({ type: "activity", content: { type: "thought", body: "Pi is compacting context before continuing." }, ephemeral: true });
         break;
       case "auto_retry_start":
-        this.report(`Pi is retrying after an error (${event.attempt}/${event.maxAttempts}).`);
+        this.report({
+          type: "activity",
+          content: { type: "thought", body: `Pi is retrying after an error (${event.attempt}/${event.maxAttempts}).` },
+          ephemeral: true,
+        });
         break;
       default:
         break;
@@ -72,16 +105,18 @@ export class ProgressReporter {
   }
 
   start(): void {
+    this.active = true;
     if (this.heartbeat) return;
     this.heartbeat = setInterval(() => {
       if (!this.pending && Date.now() - this.lastSentAt >= this.heartbeatMs) {
-        this.report("Pi is still working.");
+        this.report({ type: "activity", content: { type: "thought", body: "Pi is still working." }, ephemeral: true });
       }
     }, this.heartbeatMs);
     this.heartbeat.unref();
   }
 
   stop(): void {
+    this.active = false;
     if (this.heartbeat) clearInterval(this.heartbeat);
     if (this.timer) clearTimeout(this.timer);
     this.heartbeat = undefined;
@@ -91,15 +126,18 @@ export class ProgressReporter {
   async flush(): Promise<void> {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
-    const body = this.pending;
+    const event = this.pending;
     this.pending = undefined;
-    if (!body) return;
-    try {
-      await this.send(body);
-      this.lastSent = body;
-      this.lastSentAt = Date.now();
-    } catch (error) {
-      console.error("failed to post progress", { message: error instanceof Error ? error.message : String(error) });
-    }
+    if (!event) return this.inFlight;
+    this.inFlight = this.inFlight.then(async () => {
+      try {
+        await this.send(event);
+        this.lastSent = JSON.stringify(event);
+        this.lastSentAt = Date.now();
+      } catch (error) {
+        console.error("failed to stream progress", { message: error instanceof Error ? error.message : String(error) });
+      }
+    });
+    await this.inFlight;
   }
 }

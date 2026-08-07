@@ -28,4 +28,10 @@ export type AgentActivityContent =
   | { type: "thought"; body: string }
   | { type: "response"; body: string }
   | { type: "error"; body: string }
-  | { type: "elicitation"; body: string };
+  | { type: "elicitation"; body: string }
+  | { type: "action"; action: string; parameter: string; result?: string };
+
+export type AgentPlanStep = {
+  content: string;
+  status: "pending" | "inProgress" | "completed" | "canceled";
+};

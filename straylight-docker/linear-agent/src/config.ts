@@ -1,4 +1,4 @@
-export type AgentConfig = {
+export type ControllerConfig = {
   linearClientId: string;
   linearClientSecret: string; // yadm-secret-scan: ignore
   linearWebhookSecret: string; // yadm-secret-scan: ignore
@@ -8,6 +8,12 @@ export type AgentConfig = {
   host: string;
   port: number;
   stateDirectory: string;
+  runnerUrl: string;
+};
+
+export type RunnerConfig = {
+  host: string;
+  port: number;
   piWorkdir: string;
   piSessionDirectory: string;
   piConfigDirectory: string;
@@ -23,10 +29,18 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
-function url(env: NodeJS.ProcessEnv, name: string): string {
+function httpsUrl(env: NodeJS.ProcessEnv, name: string): string {
   const value = required(env, name);
   const parsed = new URL(value);
   if (parsed.protocol !== "https:") throw new Error(`${name} must use https`);
+  return parsed.toString().replace(/\/$/, "");
+}
+
+function serviceUrl(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const parsed = new URL(env[name]?.trim() || fallback);
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(`${name} must use http or https`);
+  }
   return parsed.toString().replace(/\/$/, "");
 }
 
@@ -38,7 +52,7 @@ function positiveInteger(env: NodeJS.ProcessEnv, name: string, fallback: number)
   return value;
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv): AgentConfig {
+export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
   const installSecret = required(env, "LINEAR_AGENT_INSTALL_SECRET"); // yadm-secret-scan: ignore
   if (installSecret.length < 32) throw new Error("LINEAR_AGENT_INSTALL_SECRET must contain at least 32 characters");
 
@@ -47,11 +61,19 @@ export function loadConfig(env: NodeJS.ProcessEnv): AgentConfig {
     linearClientSecret: required(env, "LINEAR_CLIENT_SECRET"), // yadm-secret-scan: ignore
     linearWebhookSecret: required(env, "LINEAR_WEBHOOK_SECRET"), // yadm-secret-scan: ignore
     installSecret,
-    linearRedirectUri: url(env, "LINEAR_REDIRECT_URI"),
-    baseUrl: url(env, "LINEAR_AGENT_PUBLIC_URL"),
+    linearRedirectUri: httpsUrl(env, "LINEAR_REDIRECT_URI"),
+    baseUrl: httpsUrl(env, "LINEAR_AGENT_PUBLIC_URL"),
     host: env.HOST?.trim() || "0.0.0.0",
     port: positiveInteger(env, "PORT", 8787),
     stateDirectory: env.LINEAR_AGENT_STATE_DIR?.trim() || "/app/state",
+    runnerUrl: serviceUrl(env, "PI_RUNNER_URL", "http://linear-agent-runner:8788"),
+  };
+}
+
+export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
+  return {
+    host: env.HOST?.trim() || "0.0.0.0",
+    port: positiveInteger(env, "PORT", 8788),
     piWorkdir: env.PI_WORKDIR?.trim() || "/workspace",
     piSessionDirectory: env.PI_SESSION_DIR?.trim() || "/app/state/pi-sessions",
     piConfigDirectory: env.PI_CODING_AGENT_DIR?.trim() || "/home/node/.pi/agent",
@@ -62,19 +84,17 @@ export function loadConfig(env: NodeJS.ProcessEnv): AgentConfig {
   };
 }
 
-export function publicConfig(config: AgentConfig) {
+export function publicControllerConfig(config: ControllerConfig) {
   return {
     baseUrl: config.baseUrl,
     redirectUri: config.linearRedirectUri,
     host: config.host,
     port: config.port,
     stateDirectory: config.stateDirectory,
-    piWorkdir: config.piWorkdir,
-    piSessionDirectory: config.piSessionDirectory,
-    piConfigDirectory: config.piConfigDirectory,
-    piTheme: config.piTheme,
-    piTimeoutMs: config.piTimeoutMs,
-    progressDebounceMs: config.progressDebounceMs,
-    progressHeartbeatMs: config.progressHeartbeatMs,
+    runnerUrl: config.runnerUrl,
   };
+}
+
+export function publicRunnerConfig(config: RunnerConfig) {
+  return { ...config };
 }

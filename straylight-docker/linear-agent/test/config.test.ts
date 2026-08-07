@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadConfig } from "../src/config.js";
+import { loadControllerConfig, loadRunnerConfig } from "../src/config.js";
 
 function environment(): NodeJS.ProcessEnv {
   return {
@@ -14,27 +14,32 @@ function environment(): NodeJS.ProcessEnv {
 }
 
 test("loads safe defaults", () => {
-  const config = loadConfig(environment());
+  const config = loadControllerConfig(environment());
   assert.equal(config.baseUrl, "https://straylight.example.ts.net");
   assert.equal(config.host, "0.0.0.0");
   assert.equal(config.port, 8787);
-  assert.equal(config.piWorkdir, "/workspace");
+  assert.equal(config.runnerUrl, "http://linear-agent-runner:8788");
 });
 
 test("rejects a short install secret", () => {
   const env = environment();
   env.LINEAR_AGENT_INSTALL_SECRET = "too-short"; // yadm-secret-scan: ignore
-  assert.throws(() => loadConfig(env), /at least 32/);
+  assert.throws(() => loadControllerConfig(env), /at least 32/);
 });
 
 test("rejects non-HTTPS public URLs", () => {
   const env = environment();
   env.LINEAR_AGENT_PUBLIC_URL = "http://localhost:8787";
-  assert.throws(() => loadConfig(env), /must use https/);
+  assert.throws(() => loadControllerConfig(env), /must use https/);
 });
 
 test("rejects invalid numeric configuration", () => {
-  const env = environment();
-  env.PI_TIMEOUT_MS = "none";
-  assert.throws(() => loadConfig(env), /positive integer/);
+  assert.throws(() => loadRunnerConfig({ PI_TIMEOUT_MS: "none" }), /positive integer/);
+});
+
+test("loads isolated runner defaults without Linear configuration", () => {
+  const config = loadRunnerConfig({});
+  assert.equal(config.port, 8788);
+  assert.equal(config.piWorkdir, "/workspace");
+  assert.equal(config.piTimeoutMs, 1_800_000);
 });

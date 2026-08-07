@@ -1,8 +1,8 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import type { AgentConfig } from "./config.js";
+import type { ControllerConfig } from "./config.js";
 import { JsonStore } from "./storage.js";
-import type { AgentActivityContent } from "./types.js";
+import type { AgentActivityContent, AgentPlanStep } from "./types.js";
 
 const AUTHORIZE_URL = "https://linear.app/oauth/authorize";
 const OAUTH_URL = "https://api.linear.app/oauth/token";
@@ -34,7 +34,7 @@ export class LinearClient {
   private readonly tokens: JsonStore<TokenFile>; // yadm-secret-scan: ignore
   private refreshInFlight: Promise<string> | undefined;
 
-  constructor(private readonly config: AgentConfig) {
+  constructor(private readonly config: ControllerConfig) {
     this.states = new JsonStore(path.join(config.stateDirectory, "oauth-states.json"), { states: [] });
     this.tokens = new JsonStore(path.join(config.stateDirectory, "linear-tokens.json"), { installations: {} }); // yadm-secret-scan: ignore
   }
@@ -85,16 +85,40 @@ export class LinearClient {
     return token.scope === undefined ? { appUserId } : { appUserId, scope: token.scope };
   }
 
-  async createActivity(agentSessionId: string, content: AgentActivityContent): Promise<void> {
+  async createActivity(
+    agentSessionId: string,
+    content: AgentActivityContent,
+    options: { ephemeral?: boolean } = {},
+  ): Promise<void> {
     const data = await this.graphql<{
       agentActivityCreate: { success: boolean; agentActivity?: { id?: string } };
     }>(
       `mutation CreateAgentActivity($input: AgentActivityCreateInput!) {
         agentActivityCreate(input: $input) { success agentActivity { id } }
       }`,
-      { input: { agentSessionId, content } },
+      { input: { agentSessionId, content, ...(options.ephemeral === undefined ? {} : { ephemeral: options.ephemeral }) } },
     );
     if (!data.agentActivityCreate.success) throw new Error("Linear rejected agent activity");
+  }
+
+  async updatePlan(agentSessionId: string, plan: AgentPlanStep[]): Promise<void> {
+    const data = await this.graphql<{ agentSessionUpdate: { success: boolean } }>(
+      `mutation UpdateAgentSession($id: String!, $input: AgentSessionUpdateInput!) {
+        agentSessionUpdate(id: $id, input: $input) { success }
+      }`,
+      { id: agentSessionId, input: { plan } },
+    );
+    if (!data.agentSessionUpdate.success) throw new Error("Linear rejected Agent Session plan update");
+  }
+
+  async addExternalUrl(agentSessionId: string, externalUrl: { label: string; url: string }): Promise<void> {
+    const data = await this.graphql<{ agentSessionUpdate: { success: boolean } }>(
+      `mutation AddAgentSessionExternalUrl($id: String!, $input: AgentSessionUpdateInput!) {
+        agentSessionUpdate(id: $id, input: $input) { success }
+      }`,
+      { id: agentSessionId, input: { addedExternalUrls: [externalUrl] } },
+    );
+    if (!data.agentSessionUpdate.success) throw new Error("Linear rejected Agent Session external URL");
   }
 
   private async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {

@@ -32,6 +32,7 @@ export function redact(value: string): string {
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer [redacted]")
     .replace(/(?:github_pat_|ghp_)[A-Za-z0-9_]{16,}/g, "github_[redacted]")
     .replace(/sk-[A-Za-z0-9_-]{12,}/g, "sk-[redacted]")
+    .replace(/(["']?(?:access[_-]?token|refresh[_-]?token|api[_-]?key|client[_-]?secret|password)["']?\s*[:=]\s*["']?)[^\s"',}]+/gi, "$1[redacted]")
     .replace(/(--(?:token|api-key|key|secret|password|auth)(?:\s+|=))\S+/gi, "$1[redacted]")
     .replace(/(\b[A-Z0-9_.-]{0,80}(?:TOKEN|SECRET|PASSWORD|API_KEY)[A-Z0-9_.-]{0,80}\s*[=:]\s*)\S+/gi, "$1[redacted]");
 }

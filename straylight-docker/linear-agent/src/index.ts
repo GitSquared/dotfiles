@@ -1,17 +1,17 @@
-import { loadConfig, publicConfig } from "./config.js";
+import { loadControllerConfig, publicControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
-import { PiHarness } from "./pi.js";
+import { PiRunnerClient } from "./runner-client.js";
 import { createServer } from "./server.js";
 
-const config = loadConfig(process.env);
+const config = loadControllerConfig(process.env);
 const linear = new LinearClient(config);
-const pi = new PiHarness(config);
-const controller = new AgentController(linear, pi);
+const runner = new PiRunnerClient(config.runnerUrl);
+const controller = new AgentController(linear, runner);
 const server = createServer(config, linear, controller);
 
 server.listen(config.port, config.host, () => {
-  console.log("Straylight Linear agent listening", publicConfig(config));
+  console.log("Straylight Linear controller listening", publicControllerConfig(config));
 });
 
 function stop(signal: string): void {

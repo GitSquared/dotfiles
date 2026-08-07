@@ -3,27 +3,28 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import {
   createAgentSession,
+  defineTool,
   initTheme,
   SessionManager,
+  type ToolDefinition,
   type AgentSession,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentConfig } from "./config.js";
+import { Type } from "typebox";
+import type { RunnerConfig } from "./config.js";
 import { ProgressReporter } from "./progress.js";
+import { followUpPrompt, initialPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
+import type { PiResult, RunnerEvent } from "./runner-protocol.js";
 import type { AgentSessionWebhook } from "./types.js";
 
 type ManagedSession = {
   session: AgentSession;
   unsubscribe: () => void;
   reporter: { current: ProgressReporter | undefined };
+  runState: { current: { send: RunnerSender; awaitingInput: boolean } | undefined };
 };
 
-export type PiResult = {
-  ok: boolean;
-  timedOut: boolean;
-  summary: string;
-  elapsedMs: number;
-};
+type RunnerSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 
 function messageText(message: unknown): string {
   if (!message || typeof message !== "object") return "";
@@ -49,53 +50,22 @@ function latestAssistantText(messages: unknown): string {
   return "";
 }
 
-function guidance(payload: AgentSessionWebhook): string[] {
-  const bodies = payload.guidance?.flatMap((item) => item.body?.trim() ? [item.body.trim()] : []) ?? [];
-  return bodies.length ? ["", "Linear guidance:", ...bodies.map((body) => `- ${body}`)] : [];
-}
-
-export function initialPrompt(payload: AgentSessionWebhook): string {
-  const issue = payload.agentSession?.issue;
-  const context = payload.promptContext ?? payload.agentSession?.promptContext;
-  return [
-    "You are Straylight's Pi coding agent, working from a Linear Agent Session.",
-    "Follow /workspace/AGENTS.md. Treat the named repository and permissions as authoritative.",
-    "Do not expose secrets. Do not push, deploy, or perform destructive actions unless the Linear request explicitly authorizes it.",
-    "",
-    issue ? "Linear issue:" : "Linear session:",
-    issue?.identifier ? `- Identifier: ${issue.identifier}` : undefined,
-    issue?.title ? `- Title: ${issue.title}` : undefined,
-    issue?.url ? `- URL: ${issue.url}` : undefined,
-    issue?.description ? `- Description:\n${issue.description}` : undefined,
-    context ? `\nLinear context:\n${context}` : undefined,
-    ...guidance(payload),
-    "",
-    "When finished, summarize changes, checks, worktree/branch, and remaining decisions for Linear.",
-  ].filter((line): line is string => Boolean(line)).join("\n");
-}
-
-export function followUpPrompt(payload: AgentSessionWebhook): string {
-  const body = payload.agentActivity?.content?.body?.trim()
-    || payload.promptContext?.trim()
-    || payload.agentSession?.promptContext?.trim()
-    || "Continue from the existing Linear session and report useful status.";
-  return `Linear follow-up:\n${body}\n\nContinue from the existing Pi session.`;
-}
-
 export class PiHarness {
   private readonly sessions = new Map<string, ManagedSession>();
 
-  constructor(private readonly config: AgentConfig) {
+  constructor(private readonly config: RunnerConfig) {
     initTheme(config.piTheme, false);
   }
 
-  async run(payload: AgentSessionWebhook, sendProgress: (body: string) => Promise<void>): Promise<PiResult> {
+  async run(payload: AgentSessionWebhook, send: RunnerSender): Promise<PiResult> {
     const sessionId = payload.agentSession?.id;
     if (!sessionId) throw new Error("agentSession.id is required");
     const startedAt = performance.now();
-    const reporter = new ProgressReporter(sendProgress, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
+    const reporter = new ProgressReporter(send, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
     const managed = await this.session(sessionId);
     managed.reporter.current = reporter;
+    const runState = { send, awaitingInput: false };
+    managed.runState.current = runState;
     let output = "";
     let timedOut = false;
     let timeout: NodeJS.Timeout | undefined;
@@ -121,6 +91,7 @@ export class PiHarness {
       return {
         ok: true,
         timedOut: false,
+        awaitingInput: runState.awaitingInput,
         summary: finalText(output || "Pi completed without a textual summary."),
         elapsedMs: Math.round(performance.now() - startedAt),
       };
@@ -131,6 +102,7 @@ export class PiHarness {
       return {
         ok: false,
         timedOut,
+        awaitingInput: false,
         summary: finalText([output, reason].filter(Boolean).join("\n\n")),
         elapsedMs: Math.round(performance.now() - startedAt),
       };
@@ -139,6 +111,7 @@ export class PiHarness {
       capture();
       reporter.stop();
       managed.reporter.current = undefined;
+      managed.runState.current = undefined;
     }
   }
 
@@ -163,12 +136,69 @@ export class PiHarness {
     const safeName = sessionId.replace(/[^A-Za-z0-9_.-]/g, "_");
     const sessionFile = path.join(this.config.piSessionDirectory, `${safeName}.jsonl`);
     const manager = SessionManager.open(sessionFile, this.config.piSessionDirectory, this.config.piWorkdir);
-    const { session } = await createAgentSession({ cwd: this.config.piWorkdir, sessionManager: manager });
     const reporter: ManagedSession["reporter"] = { current: undefined };
+    const runState: ManagedSession["runState"] = { current: undefined };
+    const { session } = await createAgentSession({
+      cwd: this.config.piWorkdir,
+      agentDir: this.config.piConfigDirectory,
+      sessionManager: manager,
+      customTools: this.linearTools(runState, reporter),
+    });
     const unsubscribe = session.subscribe((event) => reporter.current?.handle(event));
     await session.bindExtensions({});
-    const managed = { session, unsubscribe, reporter };
+    const managed = { session, unsubscribe, reporter, runState };
     this.sessions.set(sessionId, managed);
     return managed;
+  }
+
+  private linearTools(
+    runState: ManagedSession["runState"],
+    reporter: ManagedSession["reporter"],
+  ): ToolDefinition[] {
+    return [
+      defineTool({
+        name: "ask_linear",
+        label: "Ask in Linear",
+        description: "Ask the user a blocking clarification question in the native Linear Agent Session UI.",
+        promptSnippet: "Ask the user for required input in Linear",
+        promptGuidelines: ["Use ask_linear only when work cannot proceed safely without a user decision, then end the turn."],
+        parameters: Type.Object({ question: Type.String({ minLength: 1, maxLength: 4000 }) }),
+        async execute(_toolCallId, params) {
+          const current = runState.current;
+          if (!current) throw new Error("No active Linear run");
+          await reporter.current?.flush();
+          await current.send({ type: "activity", content: { type: "elicitation", body: finalText(params.question) } });
+          current.awaitingInput = true;
+          reporter.current?.stop();
+          return { content: [{ type: "text", text: "Question sent to Linear. End this turn and wait for the user's follow-up." }], details: {} };
+        },
+      }),
+      defineTool({
+        name: "update_linear_plan",
+        label: "Update Linear plan",
+        description: "Replace the native Linear Agent Session checklist with the current execution plan and statuses.",
+        promptSnippet: "Publish or update the task checklist in Linear",
+        parameters: Type.Object({
+          steps: Type.Array(Type.Object({
+            content: Type.String({ minLength: 1, maxLength: 500 }),
+            status: Type.Union([
+              Type.Literal("pending"),
+              Type.Literal("inProgress"),
+              Type.Literal("completed"),
+              Type.Literal("canceled"),
+            ]),
+          }), { minItems: 1, maxItems: 20 }),
+        }),
+        async execute(_toolCallId, params) {
+          const current = runState.current;
+          if (!current) throw new Error("No active Linear run");
+          await current.send({
+            type: "plan",
+            steps: params.steps.map((step) => ({ ...step, content: finalText(step.content).slice(0, 500) })),
+          });
+          return { content: [{ type: "text", text: "Linear session plan updated." }], details: {} };
+        },
+      }),
+    ];
   }
 }

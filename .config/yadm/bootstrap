@@ -321,6 +321,7 @@ ensure_docker() {
 prepare_linear_agent() {
   run install -d -m 0700 \
     "$LINEAR_AGENT_DIR/data" \
+    "$LINEAR_AGENT_DIR/data/pi-sessions" \
     "$LINEAR_AGENT_DIR/pi-config"
   run install -d -m 0755 \
     "$LINEAR_AGENT_DIR/workspace" \
@@ -339,6 +340,7 @@ reconcile_services() {
   local -a missing=()
 
   run sudo systemctl enable --now backup-config.timer backup-storage.timer
+  run docker compose --project-directory "$COMPOSE_DIR" build linear-agent linear-agent-runner
   run docker compose --project-directory "$COMPOSE_DIR" up -d --remove-orphans
 
   if [[ "$DRY_RUN" == 1 ]]; then

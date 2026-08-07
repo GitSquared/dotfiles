@@ -74,9 +74,11 @@ yadm bootstrap
 
 Bootstrap validates the host, secrets, state, disks, fstab, and Compose model;
 installs packages and root-owned configuration; mounts storage; enables backup
-timers; reconciles the Docker Compose stack; and publishes the Linear bridge at
-`/linear` through Straylight's existing Tailscale Funnel. Changed root files are copied
-to `/var/backups/straylight-yadm/<timestamp>/` before replacement.
+timers; reconciles the Docker Compose stack; and publishes the credential-isolated
+Linear controller at `/linear` through Straylight's existing Tailscale Funnel.
+Pi runs in a separate constrained container without Linear credentials. Changed
+root files are copied to `/var/backups/straylight-yadm/<timestamp>/` before
+replacement.
 
 ## Codex
 
