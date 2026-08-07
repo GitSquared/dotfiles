@@ -107,12 +107,9 @@ preflight() {
   linear_agent_url=$(env_value LINEAR_AGENT_PUBLIC_URL)
   [[ "$linear_agent_url" == "https://$tailscale_dns" ]] || die "LINEAR_AGENT_PUBLIC_URL must be https://$tailscale_dns"
 
-  if [[ ! -s "$LINEAR_AGENT_DIR/pi-config/auth.json" ]] \
-    && [[ -z $(env_value ANTHROPIC_API_KEY) ]] \
-    && [[ -z $(env_value OPENAI_API_KEY) ]] \
-    && [[ -z $(env_value GOOGLE_GENERATIVE_AI_API_KEY) ]]; then
-    die 'configure a model provider key or linear-agent/pi-config/auth.json'
-  fi
+  require_regular_owned_file "$LINEAR_AGENT_DIR/pi-config/auth.json"
+  [[ $(stat -c '%a' "$LINEAR_AGENT_DIR/pi-config/auth.json") == 600 ]] \
+    || die 'linear-agent/pi-config/auth.json must have mode 0600'
 
   require_regular_owned_file "$RCLONE_CONFIG"
   for remote in s3.net.gaby.dev s3-storage-crypt s3-config-crypt; do

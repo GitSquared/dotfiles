@@ -25,9 +25,42 @@ Add these values to `/home/gaby/straylight-docker/.env`:
 - `LINEAR_AGENT_INSTALL_SECRET` (at least 32 random characters)
 - `LINEAR_AGENT_PUBLIC_URL` (`https://<Straylight MagicDNS name>`)
 
-Also set a supported model-provider key, or place Pi's `auth.json` in
-`linear-agent/pi-config/`. Bootstrap verifies that the host is already connected
-to Tailscale and that the public URL matches its MagicDNS identity.
+The agent uses Pi's `openai-codex` provider with a ChatGPT Plus or Pro
+subscription. API keys are not used. After filling the Linear values, prepare
+the mounted directories and build the image from `/home/gaby/straylight-docker`:
+
+```sh
+install -d -m 0700 linear-agent/data linear-agent/pi-config
+install -d -m 0755 \
+  linear-agent/workspace \
+  linear-agent/workspace/repos \
+  linear-agent/workspace/runs
+docker compose build linear-agent
+```
+
+Then authenticate Pi directly into its persistent mounted configuration:
+
+```sh
+docker compose run --rm --no-deps \
+  --workdir /home/node/.pi/agent \
+  --entrypoint /app/node_modules/.bin/pi-ai \
+  linear-agent login openai-codex
+```
+
+Choose **Device code login (headless)**, open the URL Pi displays, and sign in
+with the ChatGPT account that owns the Codex subscription. Pi writes a
+refreshable OAuth credential to `linear-agent/pi-config/auth.json`; do not print,
+copy from `~/.codex/auth.json`, or commit it. Confirm the result without exposing
+its contents:
+
+```sh
+test -s linear-agent/pi-config/auth.json
+test "$(stat -c '%a' linear-agent/pi-config/auth.json)" = 600
+```
+
+Bootstrap requires this user-owned `0600` file, verifies that the host is
+already connected to Tailscale, and checks that the public URL matches its
+MagicDNS identity.
 
 Create a Linear OAuth application with:
 

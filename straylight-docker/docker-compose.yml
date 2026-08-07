@@ -245,9 +245,6 @@ services:
       PI_PROGRESS_DEBOUNCE_MS: "3000"
       PI_PROGRESS_HEARTBEAT_MS: "300000"
       PI_TIMEOUT_MS: "1800000"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      GOOGLE_GENERATIVE_AI_API_KEY: "${GOOGLE_GENERATIVE_AI_API_KEY:-}"
     volumes:
       - ./linear-agent/data:/app/state
       - ./linear-agent/pi-config:/home/node/.pi/agent

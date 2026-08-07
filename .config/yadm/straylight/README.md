@@ -49,7 +49,8 @@ Before bootstrap, securely provision:
 - `/home/gaby/straylight-docker/.env`
 - `/home/gaby/.ssh/id_ed25519` and its `.pub` file
 - Linear OAuth and webhook values in `/home/gaby/straylight-docker/.env`
-- a Pi provider key in that file or `straylight-docker/linear-agent/pi-config/auth.json`
+- Pi's ChatGPT subscription credential in
+  `straylight-docker/linear-agent/pi-config/auth.json` (follow the agent README)
 
 Register the public SSH key with GitHub as both an authentication key and a
 signing key. Bootstrap configures the local yadm repository to use the confirmed
