@@ -1,5 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
+import type { RepositoryCandidate } from "./types.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -30,9 +31,15 @@ type RunnerHarness = {
   run(payload: RunRequest["payload"], send: (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>): Promise<PiResult>;
   followUp(sessionId: string, prompt: string): Promise<boolean>;
   abort(sessionId: string): Promise<boolean>;
+  repositories?(): Promise<RepositoryCandidate[]>;
+  health?(): Promise<Record<string, unknown>>;
 };
 
-export function createRunnerServer(pi: RunnerHarness): http.Server {
+function authorized(request: IncomingMessage, token: string): boolean { // yadm-secret-scan: ignore
+  return request.headers.authorization === `Bearer ${token}`;
+}
+
+export function createRunnerServer(pi: RunnerHarness, token: string): http.Server { // yadm-secret-scan: ignore
   return http.createServer((request, response) => {
     void route(request, response).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
@@ -46,19 +53,46 @@ export function createRunnerServer(pi: RunnerHarness): http.Server {
     const method = request.method ?? "GET";
     const pathname = new URL(request.url ?? "/", "http://runner.internal").pathname;
     if (method === "GET" && pathname === "/healthz") {
-      json(response, 200, { ok: true, service: "straylight-pi-runner" });
+      try {
+        const details = await pi.health?.() ?? {};
+        json(response, 200, { ok: true, service: "straylight-pi-runner", ...details });
+      } catch (error) {
+        json(response, 503, {
+          ok: false,
+          service: "straylight-pi-runner",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return;
+    }
+    if (!authorized(request, token)) {
+      json(response, 401, { ok: false, error: "unauthorized" });
+      return;
+    }
+    if (method === "GET" && pathname === "/repositories") {
+      json(response, 200, { ok: true, repositories: await pi.repositories?.() ?? [] });
       return;
     }
     if (method === "POST" && pathname === "/run") {
       const input = await body<RunRequest>(request);
+      const sessionId = input.payload.agentSession?.id;
+      if (!sessionId) {
+        json(response, 400, { ok: false, error: "missing_agent_session_id" });
+        return;
+      }
       response.writeHead(200, {
         "cache-control": "no-store",
         "content-type": "application/x-ndjson; charset=utf-8",
         "x-content-type-options": "nosniff",
       });
+      let completed = false;
+      response.once("close", () => {
+        if (!completed) void pi.abort(sessionId).catch(() => undefined);
+      });
       const result = await pi.run(input.payload, async (event) => {
         if (!response.write(encodeRunnerEvent(event))) await new Promise<void>((resolve) => response.once("drain", resolve));
       });
+      completed = true;
       response.end(encodeRunnerEvent({ type: "result", result }));
       return;
     }

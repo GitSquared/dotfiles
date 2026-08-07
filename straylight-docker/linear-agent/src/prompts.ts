@@ -1,11 +1,29 @@
-import type { AgentSessionWebhook } from "./types.js";
+import type { AgentSessionWebhook, AgentTaskPayload } from "./types.js";
 
 function guidance(payload: AgentSessionWebhook): string[] {
   const bodies = payload.guidance?.flatMap((item) => item.body?.trim() ? [item.body.trim()] : []) ?? [];
   return bodies.length ? ["", "Linear guidance:", ...bodies.map((body) => `- ${body}`)] : [];
 }
 
-export function initialPrompt(payload: AgentSessionWebhook): string {
+function repositories(payload: AgentTaskPayload): string[] {
+  const candidates = payload.workbench?.repositories ?? [];
+  const suggestions = payload.workbench?.repositorySuggestions ?? [];
+  if (!candidates.length) return [];
+  const confidence = new Map(suggestions.map((suggestion) => [
+    `${suggestion.hostname}/${suggestion.repositoryFullName}`,
+    suggestion.confidence,
+  ]));
+  return [
+    "",
+    "Available read-only repository sources (clone the chosen repository into /workspace before editing):",
+    ...candidates.map((candidate) => {
+      const score = confidence.get(`${candidate.hostname}/${candidate.repositoryFullName}`);
+      return `- ${candidate.hostname}/${candidate.repositoryFullName}: ${candidate.path ?? "/repositories"}${score === undefined ? "" : ` (Linear confidence ${score})`}`;
+    }),
+  ];
+}
+
+export function initialPrompt(payload: AgentTaskPayload): string {
   const issue = payload.agentSession?.issue;
   const context = payload.promptContext ?? payload.agentSession?.promptContext;
   return [
@@ -13,7 +31,7 @@ export function initialPrompt(payload: AgentSessionWebhook): string {
     "Follow /workspace/AGENTS.md. Treat the named repository and permissions as authoritative.",
     "Do not expose secrets. Do not push, deploy, or perform destructive actions unless the Linear request explicitly authorizes it.",
     "For multi-step work, maintain the native Linear checklist with update_linear_plan.",
-    "If a missing user decision blocks safe progress, call ask_linear and then end the turn without adding a final response.",
+    "If a missing user decision blocks safe progress, call ask_linear and then end the turn without adding a final response. Provide 2-12 options when a native Linear picker is useful.",
     "",
     issue ? "Linear issue:" : "Linear session:",
     issue?.identifier ? `- Identifier: ${issue.identifier}` : undefined,
@@ -22,6 +40,7 @@ export function initialPrompt(payload: AgentSessionWebhook): string {
     issue?.description ? `- Description:\n${issue.description}` : undefined,
     context ? `\nLinear context:\n${context}` : undefined,
     ...guidance(payload),
+    ...repositories(payload),
     "",
     "When finished, summarize changes, checks, worktree/branch, and remaining decisions for Linear.",
   ].filter((line): line is string => Boolean(line)).join("\n");

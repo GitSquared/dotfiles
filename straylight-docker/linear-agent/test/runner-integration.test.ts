@@ -17,7 +17,8 @@ test("streams structured events across the controller-runner boundary", async ()
     async followUp(_sessionId: string, _prompt: string) { return true; },
     async abort(_sessionId: string) { return true; },
   };
-  const server = createRunnerServer(harness);
+  const token = "runner-test-token"; // yadm-secret-scan: ignore
+  const server = createRunnerServer(harness, token);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -25,7 +26,11 @@ test("streams structured events across the controller-runner boundary", async ()
 
   try {
     const address = server.address() as AddressInfo;
-    const client = new PiRunnerClient(`http://127.0.0.1:${address.port}`);
+    const unauthorized = await fetch(`http://127.0.0.1:${address.port}/repositories`);
+    assert.equal(unauthorized.status, 401);
+    const health = await fetch(`http://127.0.0.1:${address.port}/healthz`);
+    assert.equal(health.status, 200);
+    const client = new PiRunnerClient(`http://127.0.0.1:${address.port}`, token);
     const events: unknown[] = [];
     const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });
     assert.deepEqual(events, [{

@@ -1,22 +1,25 @@
 # Straylight agent workspace
 
-Repositories belong in `/workspace/repos`. Issue-specific worktrees belong in
-`/workspace/runs`.
+Every Linear Agent Session receives this private `/workspace`. Repository sources
+are mounted read-only under `/repositories`; other sessions' workspaces are not
+mounted at all.
 
 ## Select the repository
 
-- Use the repository named in the Linear issue or its Linear guidance.
+- Use the repository named in the Linear issue, its Linear guidance, or the
+  ranked repository suggestions in the task prompt.
 - If the repository is ambiguous, ask in the Agent Session before editing.
 - Never guess that a similarly named repository is the requested target.
+- Clone the chosen source into `/workspace/<repository-name>` before editing.
+  `git clone --shared /repositories/<repository-name> /workspace/<repository-name>`
+  is fast and keeps all task writes inside this jail.
 
 ## Isolate implementation work
 
-- Do not implement changes in a repository's default checkout.
-- Create or reuse `/workspace/runs/<issue-identifier>/<repository-name>` as a Git
-  worktree for an implementation task.
+- Do not modify anything below `/repositories`; it is a shared read-only source.
+- Implement only in the private clone below `/workspace`.
 - Use branch `agent/<lowercase-issue-identifier>` unless the issue specifies a
   branch.
-- Never edit or remove another issue's worktree.
 - Run the repository's relevant checks in the task worktree.
 
 ## Authority

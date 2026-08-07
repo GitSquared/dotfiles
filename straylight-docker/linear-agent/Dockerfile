@@ -40,7 +40,7 @@ EXPOSE 8787
 
 CMD ["node", "dist/index.js"]
 
-FROM runtime-base AS runner
+FROM runtime-base AS runner-base
 
 USER root
 
@@ -74,3 +74,11 @@ ENV PI_CODING_AGENT_DIR=/home/node/.pi/agent \
 EXPOSE 8788
 
 CMD ["node", "dist/runner-index.js"]
+
+FROM runner-base AS runner
+
+CMD ["node", "dist/runner-index.js"]
+
+FROM runner-base AS workbench
+
+CMD ["node", "dist/workbench-index.js"]

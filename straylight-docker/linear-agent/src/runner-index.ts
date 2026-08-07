@@ -4,7 +4,7 @@ import { createRunnerServer } from "./runner-server.js";
 
 const config = loadRunnerConfig(process.env);
 const pi = new PiHarness(config);
-const server = createRunnerServer(pi);
+const server = createRunnerServer(pi, config.authToken);
 
 server.listen(config.port, config.host, () => {
   console.log("Straylight Pi runner listening", publicRunnerConfig(config));

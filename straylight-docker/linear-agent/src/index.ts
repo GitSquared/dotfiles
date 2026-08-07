@@ -6,7 +6,7 @@ import { createServer } from "./server.js";
 
 const config = loadControllerConfig(process.env);
 const linear = new LinearClient(config);
-const runner = new PiRunnerClient(config.runnerUrl);
+const runner = new PiRunnerClient(config.runnerUrl, config.runnerToken);
 const controller = new AgentController(linear, runner);
 const server = createServer(config, linear, controller);
 

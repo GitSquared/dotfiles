@@ -4,7 +4,12 @@ import type { ControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
 import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "./signature.js";
-import type { AgentSessionWebhook } from "./types.js";
+import type {
+  AgentSessionWebhook,
+  AppUserNotificationWebhook,
+  LinearWebhook,
+  PermissionChangeWebhook,
+} from "./types.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -79,7 +84,16 @@ export function createServer(config: ControllerConfig, linear: LinearClient, con
     const url = new URL(request.url ?? "/", config.baseUrl);
 
     if (method === "GET" && url.pathname === "/healthz") {
-      json(response, 200, { ok: true, service: "straylight-linear-agent" });
+      try {
+        const workbench = await controller.health();
+        json(response, 200, { ok: true, service: "straylight-linear-agent", workbench });
+      } catch (error) {
+        json(response, 503, {
+          ok: false,
+          service: "straylight-linear-agent",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
       return;
     }
 
@@ -121,9 +135,9 @@ export function createServer(config: ControllerConfig, linear: LinearClient, con
         json(response, 401, { ok: false, error: "invalid_signature" });
         return;
       }
-      let payload: AgentSessionWebhook;
+      let payload: LinearWebhook;
       try {
-        payload = JSON.parse(rawBody.toString("utf8")) as AgentSessionWebhook;
+        payload = JSON.parse(rawBody.toString("utf8")) as LinearWebhook;
       } catch {
         json(response, 400, { ok: false, error: "invalid_json" });
         return;
@@ -133,12 +147,32 @@ export function createServer(config: ControllerConfig, linear: LinearClient, con
         return;
       }
       const fresh = deduper.accept(rawBody);
-      const accepted = fresh && payload.type === "AgentSessionEvent";
+      const acceptedTypes = new Set(["AgentSessionEvent", "AppUserNotification", "PermissionChange", "OAuthApp"]);
+      const accepted = fresh && Boolean(payload.type && acceptedTypes.has(payload.type));
       json(response, 200, { ok: true, accepted, duplicate: !fresh });
       if (accepted) {
-        setImmediate(() => void controller.handle(payload).catch((error: unknown) => {
-          console.error("Agent Session handler failed", { message: error instanceof Error ? error.message : String(error) });
-        }));
+        setImmediate(() => {
+          let handling: Promise<void>;
+          switch (payload.type) {
+            case "AgentSessionEvent":
+              handling = controller.handle(payload as AgentSessionWebhook);
+              break;
+            case "AppUserNotification":
+              handling = controller.handleNotification(payload as AppUserNotificationWebhook);
+              break;
+            case "PermissionChange":
+              handling = controller.handlePermissionChange(payload as PermissionChangeWebhook);
+              break;
+            case "OAuthApp":
+              handling = payload.action === "revoked" ? controller.handleRevocation() : Promise.resolve();
+              break;
+            default:
+              handling = Promise.resolve();
+          }
+          void handling.catch((error: unknown) => {
+            console.error("Linear webhook handler failed", { message: error instanceof Error ? error.message : String(error) });
+          });
+        });
       }
       return;
     }

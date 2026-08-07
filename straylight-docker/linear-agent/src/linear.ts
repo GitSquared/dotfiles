@@ -2,7 +2,14 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { ControllerConfig } from "./config.js";
 import { JsonStore } from "./storage.js";
-import type { AgentActivityContent, AgentPlanStep } from "./types.js";
+import type {
+  AgentActivityContent,
+  AgentActivitySignal,
+  AgentActivitySignalMetadata,
+  AgentPlanStep,
+  RepositoryCandidate,
+  RepositorySuggestion,
+} from "./types.js";
 
 const AUTHORIZE_URL = "https://linear.app/oauth/authorize";
 const OAUTH_URL = "https://api.linear.app/oauth/token";
@@ -88,7 +95,11 @@ export class LinearClient {
   async createActivity(
     agentSessionId: string,
     content: AgentActivityContent,
-    options: { ephemeral?: boolean } = {},
+    options: {
+      ephemeral?: boolean;
+      signal?: AgentActivitySignal;
+      signalMetadata?: AgentActivitySignalMetadata;
+    } = {},
   ): Promise<void> {
     const data = await this.graphql<{
       agentActivityCreate: { success: boolean; agentActivity?: { id?: string } };
@@ -96,9 +107,91 @@ export class LinearClient {
       `mutation CreateAgentActivity($input: AgentActivityCreateInput!) {
         agentActivityCreate(input: $input) { success agentActivity { id } }
       }`,
-      { input: { agentSessionId, content, ...(options.ephemeral === undefined ? {} : { ephemeral: options.ephemeral }) } },
+      {
+        input: {
+          agentSessionId,
+          content,
+          ...(options.ephemeral === undefined ? {} : { ephemeral: options.ephemeral }),
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(options.signalMetadata === undefined ? {} : { signalMetadata: options.signalMetadata }),
+        },
+      },
     );
     if (!data.agentActivityCreate.success) throw new Error("Linear rejected agent activity");
+  }
+
+  async beginHumanDelegation(issueId: string, appUserId: string): Promise<void> {
+    const data = await this.graphql<{
+      issue: {
+        id: string;
+        delegate?: { id?: string } | null;
+        state?: { type?: string } | null;
+        team: { states: { nodes: Array<{ id: string; position: number }> } };
+      };
+    }>(
+      `query HumanDelegationContext($issueId: String!) {
+        issue(id: $issueId) {
+          id
+          delegate { id }
+          state { type }
+          team {
+            states(filter: { type: { eq: "started" } }) {
+              nodes { id position }
+            }
+          }
+        }
+      }`,
+      { issueId },
+    );
+    if (data.issue.delegate?.id !== appUserId) return;
+    if (["started", "completed", "canceled"].includes(data.issue.state?.type ?? "")) return;
+    const started = [...data.issue.team.states.nodes].sort((left, right) => left.position - right.position)[0];
+    if (!started) return;
+    const updated = await this.graphql<{ issueUpdate: { success: boolean } }>(
+      `mutation StartDelegatedIssue($id: String!, $input: IssueUpdateInput!) {
+        issueUpdate(id: $id, input: $input) { success }
+      }`,
+      { id: data.issue.id, input: { stateId: started.id } },
+    );
+    if (!updated.issueUpdate.success) throw new Error("Linear rejected delegated issue status update");
+  }
+
+  async repositorySuggestions(
+    issueId: string,
+    agentSessionId: string,
+    candidates: RepositoryCandidate[],
+  ): Promise<RepositorySuggestion[]> {
+    if (!candidates.length) return [];
+    const data = await this.graphql<{
+      issueRepositorySuggestions: { suggestions: RepositorySuggestion[] };
+    }>(
+      `query RepositorySuggestions(
+        $issueId: String!
+        $agentSessionId: String!
+        $candidateRepositories: [CandidateRepository!]!
+      ) {
+        issueRepositorySuggestions(
+          issueId: $issueId
+          agentSessionId: $agentSessionId
+          candidateRepositories: $candidateRepositories
+        ) {
+          suggestions { hostname repositoryFullName confidence }
+        }
+      }`,
+      {
+        issueId,
+        agentSessionId,
+        candidateRepositories: candidates.map(({ hostname, repositoryFullName }) => ({ hostname, repositoryFullName })),
+      },
+    );
+    return data.issueRepositorySuggestions.suggestions;
+  }
+
+  async revokeInstallation(): Promise<void> {
+    await this.tokens.update((store) => {
+      delete store.defaultAppUserId;
+      store.installations = {};
+    });
   }
 
   async updatePlan(agentSessionId: string, plan: AgentPlanStep[]): Promise<void> {

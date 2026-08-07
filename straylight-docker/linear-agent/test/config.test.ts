@@ -8,6 +8,7 @@ function environment(): NodeJS.ProcessEnv {
     LINEAR_CLIENT_SECRET: "client-secret", // yadm-secret-scan: ignore
     LINEAR_WEBHOOK_SECRET: "webhook-secret", // yadm-secret-scan: ignore
     LINEAR_AGENT_INSTALL_SECRET: "x".repeat(32), // yadm-secret-scan: ignore
+    PI_RUNNER_TOKEN: "r".repeat(32), // yadm-secret-scan: ignore
     LINEAR_REDIRECT_URI: "https://straylight.example.ts.net/linear/oauth/callback",
     LINEAR_AGENT_PUBLIC_URL: "https://straylight.example.ts.net/",
   };
@@ -38,7 +39,7 @@ test("rejects invalid numeric configuration", () => {
 });
 
 test("loads isolated runner defaults without Linear configuration", () => {
-  const config = loadRunnerConfig({});
+  const config = loadRunnerConfig({ PI_RUNNER_TOKEN: "r".repeat(32) }); // yadm-secret-scan: ignore
   assert.equal(config.port, 8788);
   assert.equal(config.piWorkdir, "/workspace");
   assert.equal(config.piTimeoutMs, 1_800_000);

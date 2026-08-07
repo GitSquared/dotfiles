@@ -77,7 +77,7 @@ env_value() {
 }
 
 preflight() {
-  local current_branch distro version path source tailscale_dns linear_agent_url linear_agent_install_secret
+  local current_branch distro version path source tailscale_dns linear_agent_url linear_agent_install_secret linear_agent_runner_secret docker_gid
 
   [[ $(id -u) -ne 0 ]] || die 'run as gaby, not root'
   [[ $(id -un) == "$EXPECTED_USER" ]] || die "expected user $EXPECTED_USER"
@@ -102,10 +102,17 @@ preflight() {
   require_env_key LINEAR_CLIENT_SECRET
   require_env_key LINEAR_WEBHOOK_SECRET
   require_env_key LINEAR_AGENT_INSTALL_SECRET
+  require_env_key LINEAR_AGENT_RUNNER_SECRET
   require_env_key LINEAR_AGENT_PUBLIC_URL
+  require_env_key DOCKER_GID
 
   linear_agent_install_secret=$(env_value LINEAR_AGENT_INSTALL_SECRET) # yadm-secret-scan: ignore
   [[ ${#linear_agent_install_secret} -ge 32 ]] || die 'LINEAR_AGENT_INSTALL_SECRET must contain at least 32 characters'
+  linear_agent_runner_secret=$(env_value LINEAR_AGENT_RUNNER_SECRET) # yadm-secret-scan: ignore
+  [[ ${#linear_agent_runner_secret} -ge 32 ]] || die 'LINEAR_AGENT_RUNNER_SECRET must contain at least 32 characters'
+  docker_gid=$(env_value DOCKER_GID)
+  [[ "$docker_gid" =~ ^[0-9]+$ ]] || die 'DOCKER_GID must be numeric'
+  [[ "$docker_gid" == $(getent group docker | cut -d: -f3) ]] || die 'DOCKER_GID must match the host docker group'
   command -v tailscale >/dev/null 2>&1 || die 'the existing Straylight Tailscale installation is unavailable'
   tailscale_dns=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
   [[ -n "$tailscale_dns" ]] || die 'Tailscale is not connected or has no MagicDNS name'
@@ -321,7 +328,7 @@ ensure_docker() {
 prepare_linear_agent() {
   run install -d -m 0700 \
     "$LINEAR_AGENT_DIR/data" \
-    "$LINEAR_AGENT_DIR/data/pi-sessions" \
+    "$LINEAR_AGENT_DIR/data/tasks" \
     "$LINEAR_AGENT_DIR/pi-config"
   run install -d -m 0755 \
     "$LINEAR_AGENT_DIR/workspace" \

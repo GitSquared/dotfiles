@@ -243,6 +243,7 @@ services:
       LINEAR_REDIRECT_URI: "${LINEAR_AGENT_PUBLIC_URL}/linear/oauth/callback"
       LINEAR_AGENT_STATE_DIR: /app/state
       PI_RUNNER_URL: http://linear-agent-runner:8788
+      PI_RUNNER_TOKEN: "${LINEAR_AGENT_RUNNER_SECRET}"
     volumes:
       - ./linear-agent/data:/app/state
     networks:
@@ -274,31 +275,46 @@ services:
     image: straylight-linear-agent-runner:local
     build:
       context: ./linear-agent
-      target: runner
+      target: workbench
     restart: unless-stopped
     init: true
+    group_add:
+      - "${DOCKER_GID}"
     environment:
       HOST: 0.0.0.0
       PORT: "8788"
-      PI_WORKDIR: /workspace
-      PI_SESSION_DIR: /app/state/pi-sessions
-      PI_CODING_AGENT_DIR: /home/node/.pi/agent
-      PI_THEME: light
-      PI_PROGRESS_DEBOUNCE_MS: "3000"
-      PI_PROGRESS_HEARTBEAT_MS: "300000"
-      PI_TIMEOUT_MS: "1800000"
+      PI_RUNNER_TOKEN: "${LINEAR_AGENT_RUNNER_SECRET}"
+      PI_DOCKER_SOCKET: /var/run/docker.sock
+      PI_TASK_IMAGE: straylight-linear-agent-runner:local
+      PI_TASK_NETWORK: straylight-linear-agent-tasks
+      PI_HOST_ROOT: "${LINEAR_AGENT_HOST_ROOT:-/home/gaby/straylight-docker/linear-agent}"
+      PI_WORKBENCH_DATA_DIR: /workbench/data
+      PI_WORKSPACE_RUNS_DIR: /workbench/workspace-runs
+      PI_REPOSITORY_DIR: /repositories
+      PI_WORKSPACE_INSTRUCTIONS: /workbench/AGENTS.md
+      PI_CONFIG_SOURCE: /workbench/pi-config
+      PI_MAX_CONCURRENT_TASKS: "${LINEAR_AGENT_MAX_CONCURRENT_TASKS:-3}"
+      PI_TASK_STARTUP_TIMEOUT_MS: "30000"
+      PI_TASK_MEMORY_BYTES: "4294967296"
+      PI_TASK_NANO_CPUS: "2000000000"
+      PI_TASK_PIDS_LIMIT: "512"
     volumes:
-      - ./linear-agent/data/pi-sessions:/app/state/pi-sessions
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./linear-agent/data:/workbench/data
+      - ./linear-agent/pi-config:/workbench/pi-config
       - ./linear-agent/pi-config:/home/node/.pi/agent
-      - ./linear-agent/workspace:/workspace
+      - ./linear-agent/workspace/repos:/repositories:ro
+      - ./linear-agent/workspace/runs:/workbench/workspace-runs
+      - ./linear-agent/workspace/AGENTS.md:/workbench/AGENTS.md:ro
     networks:
       - linear_agent
+      - linear_agent_tasks
     read_only: true
     tmpfs:
-      - /tmp:rw,nosuid,nodev,size=2g,mode=1777
-    mem_limit: 4g
-    cpus: 2.0
-    pids_limit: 512
+      - /tmp:rw,nosuid,nodev,size=64m,mode=1777
+    mem_limit: 512m
+    cpus: 0.5
+    pids_limit: 128
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -322,4 +338,7 @@ networks:
       config:
         - subnet: 172.30.10.0/24
   linear_agent:
+    driver: bridge
+  linear_agent_tasks:
+    name: straylight-linear-agent-tasks
     driver: bridge

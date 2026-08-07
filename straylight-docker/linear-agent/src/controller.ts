@@ -4,13 +4,21 @@ import { followUpPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
 import type { AgentRunner } from "./runner-client.js";
 import type { PiResult } from "./runner-protocol.js";
-import type { AgentPlanStep, AgentSessionWebhook } from "./types.js";
+import type {
+  AgentPlanStep,
+  AgentSessionWebhook,
+  AgentTaskPayload,
+  AppUserNotificationWebhook,
+  PermissionChangeWebhook,
+} from "./types.js";
 
 type SessionState = {
   running: boolean;
   generation: number;
   startedAt: number | undefined;
   pending: AgentSessionWebhook | undefined;
+  issueId: string | undefined;
+  teamId: string | undefined;
 };
 
 function elapsed(ms: number): string {
@@ -21,6 +29,7 @@ function elapsed(ms: number): string {
 }
 
 export function isStopRequest(payload: AgentSessionWebhook): boolean {
+  if (payload.agentActivity?.signal === "stop") return true;
   const action = payload.action?.toLowerCase();
   if (action && ["cancel", "canceled", "cancelled", "stop", "stopped", "abort", "aborted"].includes(action)) return true;
   const body = payload.agentActivity?.content?.body?.trim().toLowerCase();
@@ -36,13 +45,27 @@ export class AgentController {
     private readonly runner: AgentRunner,
   ) {}
 
+  health(): Promise<Record<string, unknown>> {
+    return this.runner.health();
+  }
+
   async handle(payload: AgentSessionWebhook): Promise<void> {
-    const sessionId = payload.agentSession?.id;
+    const session = payload.agentSession;
+    const sessionId = session?.id;
     if (!sessionId) {
       console.warn("ignored Agent Session event without an id");
       return;
     }
-    const state = this.states.get(sessionId) ?? { running: false, generation: 0, startedAt: undefined, pending: undefined };
+    const state = this.states.get(sessionId) ?? {
+      running: false,
+      generation: 0,
+      startedAt: undefined,
+      pending: undefined,
+      issueId: undefined,
+      teamId: undefined,
+    };
+    state.issueId = session.issueId ?? session.issue?.id ?? state.issueId;
+    state.teamId = session.issue?.teamId ?? session.issue?.team?.id ?? state.teamId;
     this.states.set(sessionId, state);
 
     if (isStopRequest(payload)) {
@@ -72,6 +95,30 @@ export class AgentController {
       return;
     }
     this.start(sessionId, payload, state);
+  }
+
+  async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
+    if (payload.action !== "issueUnassignedFromYou" && payload.action !== "issueStatusChanged") {
+      console.info("received Linear app notification", { action: payload.action });
+      return;
+    }
+    const issueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
+    if (!issueId) return;
+    await this.cancelMatching(
+      (state) => state.issueId === issueId,
+      payload.action === "issueUnassignedFromYou" ? "Agent was unassigned from the issue." : "Issue entered a terminal status.",
+    );
+  }
+
+  async handlePermissionChange(payload: PermissionChangeWebhook): Promise<void> {
+    const removed = new Set(payload.removedTeamIds ?? []);
+    if (!removed.size) return;
+    await this.cancelMatching((state) => Boolean(state.teamId && removed.has(state.teamId)), "Agent lost access to the Linear team.");
+  }
+
+  async handleRevocation(): Promise<void> {
+    await this.cancelMatching(() => true, "Linear installation was revoked.");
+    await this.linear.revokeInstallation();
   }
 
   private start(sessionId: string, payload: AgentSessionWebhook, state: SessionState): void {
@@ -109,10 +156,30 @@ export class AgentController {
       { type: "thought", body: `Pi received ${label} and started working.` },
       { ephemeral: true },
     );
+    if (payload.action === "created" && payload.agentSession?.creatorId && state.issueId && payload.appUserId) {
+      await this.linear.beginHumanDelegation(state.issueId, payload.appUserId).catch((error: unknown) => {
+        console.warn("failed to move human-delegated issue to started", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
     await this.updatePlan(sessionId, initialPlan());
+    const taskPayload: AgentTaskPayload = structuredClone(payload);
+    try {
+      const repositories = await this.runner.repositories();
+      const suggestions = state.issueId && repositories.length
+        ? await this.linear.repositorySuggestions(state.issueId, sessionId, repositories)
+        : [];
+      taskPayload.workbench = { repositories, repositorySuggestions: suggestions };
+    } catch (error) {
+      console.warn("repository discovery or Linear suggestions unavailable; Pi will inspect the workbench directly", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     let customPlan = false;
     let startedWork = false;
-    const result = await this.runner.run(payload, async (event) => {
+    const result = await this.runner.run(taskPayload, async (event) => {
+      if (state.generation !== generation) return;
       if (event.type === "plan") {
         customPlan = true;
         await this.updatePlan(sessionId, event.steps);
@@ -125,7 +192,11 @@ export class AgentController {
       await this.linear.createActivity(
         sessionId,
         event.content,
-        event.ephemeral === undefined ? {} : { ephemeral: event.ephemeral },
+        {
+          ...(event.ephemeral === undefined ? {} : { ephemeral: event.ephemeral }),
+          ...(event.signal === undefined ? {} : { signal: event.signal }),
+          ...(event.signalMetadata === undefined ? {} : { signalMetadata: event.signalMetadata }),
+        },
       );
     });
     if (state.generation !== generation) return;
@@ -166,6 +237,25 @@ export class AgentController {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private async cancelMatching(predicate: (state: SessionState) => boolean, reason: string): Promise<void> {
+    const cancellations: Promise<void>[] = [];
+    for (const [sessionId, state] of this.states) {
+      if (!predicate(state)) continue;
+      state.generation += 1;
+      state.running = false;
+      state.startedAt = undefined;
+      state.pending = undefined;
+      cancellations.push(this.runner.abort(sessionId).then(() => undefined).catch((error: unknown) => {
+        console.warn("failed to abort invalidated Pi task", {
+          sessionId,
+          reason,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }));
+    }
+    await Promise.all(cancellations);
   }
 }
 

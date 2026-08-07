@@ -1,4 +1,10 @@
-import type { AgentActivityContent, AgentPlanStep, AgentSessionWebhook } from "./types.js";
+import type {
+  AgentActivityContent,
+  AgentActivitySignal,
+  AgentActivitySignalMetadata,
+  AgentPlanStep,
+  AgentTaskPayload,
+} from "./types.js";
 
 export type PiResult = {
   ok: boolean;
@@ -9,11 +15,17 @@ export type PiResult = {
 };
 
 export type RunnerEvent =
-  | { type: "activity"; content: AgentActivityContent; ephemeral?: boolean }
+  | {
+      type: "activity";
+      content: AgentActivityContent;
+      ephemeral?: boolean;
+      signal?: AgentActivitySignal;
+      signalMetadata?: AgentActivitySignalMetadata;
+    }
   | { type: "plan"; steps: AgentPlanStep[] }
   | { type: "result"; result: PiResult };
 
-export type RunRequest = { payload: AgentSessionWebhook };
+export type RunRequest = { payload: AgentTaskPayload };
 export type SessionRequest = { sessionId: string; prompt?: string };
 
 export function encodeRunnerEvent(event: RunnerEvent): string {

@@ -14,3 +14,18 @@ test("round-trips structured runner activity", () => {
 test("rejects an unknown runner event", () => {
   assert.throws(() => parseRunnerEvent('{"type":"surprise"}'), /invalid event/);
 });
+
+test("round-trips a native Linear select signal", () => {
+  const event = {
+    type: "activity" as const,
+    content: { type: "elicitation" as const, body: "Choose a repository" },
+    signal: "select" as const,
+    signalMetadata: {
+      options: [
+        { label: "Nemo", value: "GitSquared/nemo" },
+        { label: "Dotfiles", value: "GitSquared/dotfiles" },
+      ],
+    },
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);
+});

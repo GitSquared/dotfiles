@@ -25,9 +25,24 @@ test("uses the activity body for follow-ups", () => {
 });
 
 test("recognizes explicit stop requests", () => {
+  assert.equal(isStopRequest({ agentActivity: { signal: "stop", content: { body: "Please wrap up" } } }), true);
   assert.equal(isStopRequest({ action: "canceled" }), true);
   assert.equal(isStopRequest({ agentActivity: { content: { body: " stop " } } }), true);
   assert.equal(isStopRequest({ agentActivity: { content: { body: "keep going" } } }), false);
+});
+
+test("includes ranked workbench repositories without choosing for the agent", () => {
+  const prompt = initialPrompt({
+    agentSession: { id: "session" },
+    workbench: {
+      repositories: [{ hostname: "github.com", repositoryFullName: "GitSquared/nemo", path: "/repositories/nemo" }],
+      repositorySuggestions: [{ hostname: "github.com", repositoryFullName: "GitSquared/nemo", confidence: 0.92 }],
+    },
+  });
+  assert.match(prompt, /GitSquared\/nemo/);
+  assert.match(prompt, /\/repositories\/nemo/);
+  assert.match(prompt, /0\.92/);
+  assert.match(prompt, /ask_linear/);
 });
 
 test("redacts common credentials and sensitive URL parameters", () => {

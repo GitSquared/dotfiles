@@ -15,7 +15,7 @@ import { ProgressReporter } from "./progress.js";
 import { followUpPrompt, initialPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
 import type { PiResult, RunnerEvent } from "./runner-protocol.js";
-import type { AgentSessionWebhook } from "./types.js";
+import type { AgentTaskPayload } from "./types.js";
 
 type ManagedSession = {
   session: AgentSession;
@@ -57,7 +57,7 @@ export class PiHarness {
     initTheme(config.piTheme, false);
   }
 
-  async run(payload: AgentSessionWebhook, send: RunnerSender): Promise<PiResult> {
+  async run(payload: AgentTaskPayload, send: RunnerSender): Promise<PiResult> {
     const sessionId = payload.agentSession?.id;
     if (!sessionId) throw new Error("agentSession.id is required");
     const startedAt = performance.now();
@@ -162,12 +162,26 @@ export class PiHarness {
         description: "Ask the user a blocking clarification question in the native Linear Agent Session UI.",
         promptSnippet: "Ask the user for required input in Linear",
         promptGuidelines: ["Use ask_linear only when work cannot proceed safely without a user decision, then end the turn."],
-        parameters: Type.Object({ question: Type.String({ minLength: 1, maxLength: 4000 }) }),
+        parameters: Type.Object({
+          question: Type.String({ minLength: 1, maxLength: 4000 }),
+          options: Type.Optional(Type.Array(Type.Object({
+            label: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+            value: Type.String({ minLength: 1, maxLength: 1000 }),
+          }), { minItems: 2, maxItems: 12 })),
+        }),
         async execute(_toolCallId, params) {
           const current = runState.current;
           if (!current) throw new Error("No active Linear run");
           await reporter.current?.flush();
-          await current.send({ type: "activity", content: { type: "elicitation", body: finalText(params.question) } });
+          const options = params.options?.map((option) => ({
+            ...(option.label ? { label: finalText(option.label).slice(0, 200) } : {}),
+            value: finalText(option.value).slice(0, 1000),
+          }));
+          await current.send({
+            type: "activity",
+            content: { type: "elicitation", body: finalText(params.question) },
+            ...(options ? { signal: "select" as const, signalMetadata: { options } } : {}),
+          });
           current.awaitingInput = true;
           reporter.current?.stop();
           return { content: [{ type: "text", text: "Question sent to Linear. End this turn and wait for the user's follow-up." }], details: {} };

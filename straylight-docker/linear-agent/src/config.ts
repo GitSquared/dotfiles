@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export type ControllerConfig = {
   linearClientId: string;
   linearClientSecret: string; // yadm-secret-scan: ignore
@@ -9,6 +11,7 @@ export type ControllerConfig = {
   port: number;
   stateDirectory: string;
   runnerUrl: string;
+  runnerToken: string; // yadm-secret-scan: ignore
 };
 
 export type RunnerConfig = {
@@ -21,6 +24,27 @@ export type RunnerConfig = {
   piTimeoutMs: number;
   progressDebounceMs: number;
   progressHeartbeatMs: number;
+  authToken: string; // yadm-secret-scan: ignore
+};
+
+export type WorkbenchConfig = {
+  host: string;
+  port: number;
+  authToken: string; // yadm-secret-scan: ignore
+  dockerSocket: string;
+  taskImage: string;
+  taskNetwork: string;
+  hostRoot: string;
+  dataDirectory: string;
+  workspaceRunsDirectory: string;
+  repositoryDirectory: string;
+  workspaceInstructions: string;
+  piConfigSource: string;
+  maxConcurrentTasks: number;
+  taskStartupTimeoutMs: number;
+  taskMemoryBytes: number;
+  taskNanoCpus: number;
+  taskPidsLimit: number;
 };
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -52,9 +76,20 @@ function positiveInteger(env: NodeJS.ProcessEnv, name: string, fallback: number)
   return value;
 }
 
+function secret(env: NodeJS.ProcessEnv, name: string): string {
+  const value = required(env, name); // yadm-secret-scan: ignore
+  if (value.length < 32) throw new Error(`${name} must contain at least 32 characters`);
+  return value;
+}
+
+function absolutePath(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = env[name]?.trim() || fallback;
+  if (!path.isAbsolute(value)) throw new Error(`${name} must be an absolute path`);
+  return path.normalize(value);
+}
+
 export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
-  const installSecret = required(env, "LINEAR_AGENT_INSTALL_SECRET"); // yadm-secret-scan: ignore
-  if (installSecret.length < 32) throw new Error("LINEAR_AGENT_INSTALL_SECRET must contain at least 32 characters");
+  const installSecret = secret(env, "LINEAR_AGENT_INSTALL_SECRET"); // yadm-secret-scan: ignore
 
   return {
     linearClientId: required(env, "LINEAR_CLIENT_ID"),
@@ -67,6 +102,7 @@ export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
     port: positiveInteger(env, "PORT", 8787),
     stateDirectory: env.LINEAR_AGENT_STATE_DIR?.trim() || "/app/state",
     runnerUrl: serviceUrl(env, "PI_RUNNER_URL", "http://linear-agent-runner:8788"),
+    runnerToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
   };
 }
 
@@ -81,6 +117,29 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
     piTimeoutMs: positiveInteger(env, "PI_TIMEOUT_MS", 1_800_000),
     progressDebounceMs: positiveInteger(env, "PI_PROGRESS_DEBOUNCE_MS", 3_000),
     progressHeartbeatMs: positiveInteger(env, "PI_PROGRESS_HEARTBEAT_MS", 300_000),
+    authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
+  };
+}
+
+export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
+  return {
+    host: env.HOST?.trim() || "0.0.0.0",
+    port: positiveInteger(env, "PORT", 8788),
+    authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
+    dockerSocket: absolutePath(env, "PI_DOCKER_SOCKET", "/var/run/docker.sock"),
+    taskImage: env.PI_TASK_IMAGE?.trim() || "straylight-linear-agent-runner:local",
+    taskNetwork: env.PI_TASK_NETWORK?.trim() || "straylight-linear-agent-tasks",
+    hostRoot: absolutePath(env, "PI_HOST_ROOT", "/home/gaby/straylight-docker/linear-agent"),
+    dataDirectory: absolutePath(env, "PI_WORKBENCH_DATA_DIR", "/workbench/data"),
+    workspaceRunsDirectory: absolutePath(env, "PI_WORKSPACE_RUNS_DIR", "/workbench/workspace-runs"),
+    repositoryDirectory: absolutePath(env, "PI_REPOSITORY_DIR", "/repositories"),
+    workspaceInstructions: absolutePath(env, "PI_WORKSPACE_INSTRUCTIONS", "/workbench/AGENTS.md"),
+    piConfigSource: absolutePath(env, "PI_CONFIG_SOURCE", "/workbench/pi-config"),
+    maxConcurrentTasks: positiveInteger(env, "PI_MAX_CONCURRENT_TASKS", 3),
+    taskStartupTimeoutMs: positiveInteger(env, "PI_TASK_STARTUP_TIMEOUT_MS", 30_000),
+    taskMemoryBytes: positiveInteger(env, "PI_TASK_MEMORY_BYTES", 4 * 1024 * 1024 * 1024),
+    taskNanoCpus: positiveInteger(env, "PI_TASK_NANO_CPUS", 2_000_000_000),
+    taskPidsLimit: positiveInteger(env, "PI_TASK_PIDS_LIMIT", 512),
   };
 }
 
@@ -96,5 +155,11 @@ export function publicControllerConfig(config: ControllerConfig) {
 }
 
 export function publicRunnerConfig(config: RunnerConfig) {
-  return { ...config };
+  const { authToken: _authToken, ...safe } = config; // yadm-secret-scan: ignore
+  return safe;
+}
+
+export function publicWorkbenchConfig(config: WorkbenchConfig) {
+  const { authToken: _authToken, ...safe } = config; // yadm-secret-scan: ignore
+  return safe;
 }
