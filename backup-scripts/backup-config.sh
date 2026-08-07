@@ -17,6 +17,8 @@ rclone sync /home/gaby/straylight-docker s3-config-crypt:docker/ \
   --exclude "jellyfin/cache/**" \
   --exclude "adguard/work/data/querylog.json" \
   --exclude "qbittorrent/config/ipc-socket" \
+  --exclude "linear-agent/workspace/repos/**" \
+  --exclude "linear-agent/workspace/runs/**" \
   --config "$RCLONE_CONFIG" --verbose --stats 1m
 
 # rclone config (important!)

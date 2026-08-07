@@ -13,6 +13,18 @@ databases, Jellyfin state, logs, caches, sockets, torrents, credentials, or
 private keys. The root `.gitignore` and yadm `pre_commit` hook enforce this
 boundary, but every staged diff must still be reviewed before publication.
 
+The credential scanner permits a deliberately narrow false-positive escape
+hatch. Append the appropriate marker to the exact affected line:
+
+```text
+# yadm-secret-scan: ignore
+// yadm-secret-scan: ignore
+```
+
+The marker is line-scoped, must be the trailing comment, and should be used
+only when the staged value is visibly code or a placeholder rather than
+credential material.
+
 The branch intentionally exposes the service list and versions, public domain
 and email address, backup schedules, disk identifiers, mount topology, and the
 audited Home Assistant automation logic.
@@ -36,6 +48,8 @@ Before bootstrap, securely provision:
 - `/home/gaby/.config/rclone/rclone.conf`
 - `/home/gaby/straylight-docker/.env`
 - `/home/gaby/.ssh/id_ed25519` and its `.pub` file
+- Linear OAuth and webhook values in `/home/gaby/straylight-docker/.env`
+- a Pi provider key in that file or `straylight-docker/linear-agent/pi-config/auth.json`
 
 Register the public SSH key with GitHub as both an authentication key and a
 signing key. Bootstrap configures the local yadm repository to use the confirmed
@@ -59,7 +73,8 @@ yadm bootstrap
 
 Bootstrap validates the host, secrets, state, disks, fstab, and Compose model;
 installs packages and root-owned configuration; mounts storage; enables backup
-timers; and reconciles the Docker Compose stack. Changed root files are copied
+timers; reconciles the Docker Compose stack; and publishes the Linear bridge at
+`/linear` through Straylight's existing Tailscale Funnel. Changed root files are copied
 to `/var/backups/straylight-yadm/<timestamp>/` before replacement.
 
 ## Codex

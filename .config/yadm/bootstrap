@@ -7,6 +7,7 @@ readonly PACKAGE_FILE="$STRAYLIGHT_HOME/.config/yadm/straylight/packages.apt"
 readonly CODEX_SOURCE="$STRAYLIGHT_HOME/.config/yadm/straylight/codex"
 readonly COMPOSE_DIR="$STRAYLIGHT_HOME/straylight-docker"
 readonly ENV_FILE="$COMPOSE_DIR/.env"
+readonly LINEAR_AGENT_DIR="$COMPOSE_DIR/linear-agent"
 readonly RCLONE_CONFIG="$STRAYLIGHT_HOME/.config/rclone/rclone.conf"
 readonly SSH_PRIVATE_KEY="$STRAYLIGHT_HOME/.ssh/id_ed25519"
 readonly SSH_PUBLIC_KEY="$STRAYLIGHT_HOME/.ssh/id_ed25519.pub"
@@ -47,6 +48,11 @@ require_regular_owned_file() {
 
 require_env_key() {
   local key=$1
+  [[ -n $(env_value "$key") ]] || die "required environment variable is absent or empty: $key"
+}
+
+env_value() {
+  local key=$1
   awk -v wanted="$key" '
     /^[[:space:]]*#/ { next }
     {
@@ -56,15 +62,17 @@ require_env_key() {
       value = substr($0, equals + 1)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", name)
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
-      if (value == "\"\"" || value == "\047\047") value = ""
-      if (name == wanted && length(value) > 0) found = 1
+      if (value ~ /^\".*\"$/ || value ~ /^\047.*\047$/) value = substr(value, 2, length(value) - 2)
+      if (name == wanted) {
+        print value
+        exit
+      }
     }
-    END { exit(found ? 0 : 1) }
-  ' "$ENV_FILE" || die "required environment variable is absent or empty: $key"
+  ' "$ENV_FILE"
 }
 
 preflight() {
-  local current_branch distro version path source
+  local current_branch distro version path source tailscale_dns linear_agent_url linear_agent_install_secret
 
   [[ $(id -u) -ne 0 ]] || die 'run as gaby, not root'
   [[ $(id -un) == "$EXPECTED_USER" ]] || die "expected user $EXPECTED_USER"
@@ -85,6 +93,26 @@ preflight() {
   require_env_key ICLOUD_SMTP_PASS
   require_env_key SAMBA_PASSWORD
   require_env_key SAMBA_GUEST_PASSWORD
+  require_env_key LINEAR_CLIENT_ID
+  require_env_key LINEAR_CLIENT_SECRET
+  require_env_key LINEAR_WEBHOOK_SECRET
+  require_env_key LINEAR_AGENT_INSTALL_SECRET
+  require_env_key LINEAR_AGENT_PUBLIC_URL
+
+  linear_agent_install_secret=$(env_value LINEAR_AGENT_INSTALL_SECRET) # yadm-secret-scan: ignore
+  [[ ${#linear_agent_install_secret} -ge 32 ]] || die 'LINEAR_AGENT_INSTALL_SECRET must contain at least 32 characters'
+  command -v tailscale >/dev/null 2>&1 || die 'the existing Straylight Tailscale installation is unavailable'
+  tailscale_dns=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
+  [[ -n "$tailscale_dns" ]] || die 'Tailscale is not connected or has no MagicDNS name'
+  linear_agent_url=$(env_value LINEAR_AGENT_PUBLIC_URL)
+  [[ "$linear_agent_url" == "https://$tailscale_dns" ]] || die "LINEAR_AGENT_PUBLIC_URL must be https://$tailscale_dns"
+
+  if [[ ! -s "$LINEAR_AGENT_DIR/pi-config/auth.json" ]] \
+    && [[ -z $(env_value ANTHROPIC_API_KEY) ]] \
+    && [[ -z $(env_value OPENAI_API_KEY) ]] \
+    && [[ -z $(env_value GOOGLE_GENERATIVE_AI_API_KEY) ]]; then
+    die 'configure a model provider key or linear-agent/pi-config/auth.json'
+  fi
 
   require_regular_owned_file "$RCLONE_CONFIG"
   for remote in s3.net.gaby.dev s3-storage-crypt s3-config-crypt; do
@@ -288,6 +316,16 @@ ensure_docker() {
   run sudo systemctl enable --now docker.service
 }
 
+prepare_linear_agent() {
+  run install -d -m 0700 \
+    "$LINEAR_AGENT_DIR/data" \
+    "$LINEAR_AGENT_DIR/pi-config"
+  run install -d -m 0755 \
+    "$LINEAR_AGENT_DIR/workspace" \
+    "$LINEAR_AGENT_DIR/workspace/repos" \
+    "$LINEAR_AGENT_DIR/workspace/runs"
+}
+
 validate_compose() {
   command -v docker >/dev/null 2>&1 || die 'docker is unavailable after package convergence'
   docker compose --project-directory "$COMPOSE_DIR" config --quiet
@@ -314,6 +352,20 @@ reconcile_services() {
   ((${#missing[@]} == 0)) || die "Compose services are not running: ${missing[*]}"
 }
 
+configure_linear_agent_funnel() {
+  run sudo tailscale funnel \
+    --bg \
+    --yes \
+    --https=443 \
+    --set-path=/linear \
+    http://127.0.0.1:8787
+
+  if [[ "$DRY_RUN" != 1 ]]; then
+    sudo tailscale funnel status --json >/dev/null || die 'Tailscale Funnel status is unavailable'
+    log 'Tailscale Funnel routes /linear to the local agent'
+  fi
+}
+
 main() {
   if [[ "$DRY_RUN" != 0 && "$DRY_RUN" != 1 ]]; then
     die 'STRAYLIGHT_DRY_RUN must be 0 or 1'
@@ -338,8 +390,10 @@ main() {
   install_root_files
   prepare_storage
   ensure_docker
+  prepare_linear_agent
   validate_compose
   reconcile_services
+  configure_linear_agent_funnel
   log "$([[ "$DRY_RUN" == 1 ]] && printf 'dry-run audit' || printf 'full convergence') completed successfully"
 }
 

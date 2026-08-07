@@ -25,6 +25,16 @@
 !/straylight-docker/docker-compose.yml
 !/straylight-docker/.env.example
 
+!/straylight-docker/linear-agent/
+!/straylight-docker/linear-agent/**
+/straylight-docker/linear-agent/data/
+/straylight-docker/linear-agent/dist/
+/straylight-docker/linear-agent/node_modules/
+/straylight-docker/linear-agent/pi-config/*
+!/straylight-docker/linear-agent/pi-config/README.md
+/straylight-docker/linear-agent/workspace/repos/
+/straylight-docker/linear-agent/workspace/runs/
+
 !/straylight-docker/caddy/
 /straylight-docker/caddy/*
 !/straylight-docker/caddy/config/
