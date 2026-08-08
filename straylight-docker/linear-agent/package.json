@@ -13,7 +13,8 @@
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.84.0",
+    "pi-web-access": "0.18.0",
     "typebox": "1.3.7"
   },
   "devDependencies": {

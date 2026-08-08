@@ -214,6 +214,93 @@ export class LinearClient {
     if (!data.agentSessionUpdate.success) throw new Error("Linear rejected Agent Session external URL");
   }
 
+  async uploadFile(filename: string, contentType: string, contents: Uint8Array): Promise<string> {
+    const data = await this.graphql<{
+      fileUpload: {
+        success: boolean;
+        uploadFile?: {
+          assetUrl: string;
+          uploadUrl: string;
+          headers: Array<{ key: string; value: string }>;
+        } | null;
+      };
+    }>(
+      `mutation FileUpload($contentType: String!, $filename: String!, $size: Int!) {
+        fileUpload(contentType: $contentType, filename: $filename, size: $size) {
+          success
+          uploadFile { assetUrl uploadUrl headers { key value } }
+        }
+      }`,
+      { contentType, filename, size: contents.byteLength },
+    );
+    const upload = data.fileUpload.uploadFile;
+    if (!data.fileUpload.success || !upload) throw new Error("Linear rejected file upload preparation");
+    const headers = new Headers({ "content-type": contentType, "cache-control": "public, max-age=31536000" });
+    for (const header of upload.headers) headers.set(header.key, header.value);
+    const body = contents.buffer.slice(contents.byteOffset, contents.byteOffset + contents.byteLength) as ArrayBuffer;
+    const response = await fetch(upload.uploadUrl, { method: "PUT", headers, body });
+    if (!response.ok) throw new Error(`Linear file upload failed: HTTP ${response.status}`);
+    return upload.assetUrl;
+  }
+
+  async createDocument(issueId: string, id: string, title: string, content: string): Promise<{ id: string; title: string; url: string }> {
+    const data = await this.graphql<{
+      documentCreate: { success: boolean; document: { id: string; title: string; url: string } };
+    }>(
+      `mutation CreateReviewDocument($input: DocumentCreateInput!) {
+        documentCreate(input: $input) { success document { id title url } }
+      }`,
+      { input: { id, issueId, title, content, icon: "📝" } },
+    );
+    if (!data.documentCreate.success) throw new Error("Linear rejected document creation");
+    return data.documentCreate.document;
+  }
+
+  async updateDocument(id: string, title: string, content: string): Promise<{ id: string; title: string; url: string }> {
+    const data = await this.graphql<{
+      documentUpdate: { success: boolean; document: { id: string; title: string; url: string } };
+    }>(
+      `mutation UpdateReviewDocument($id: String!, $input: DocumentUpdateInput!) {
+        documentUpdate(id: $id, input: $input) { success document { id title url } }
+      }`,
+      { id, input: { title, content } },
+    );
+    if (!data.documentUpdate.success) throw new Error("Linear rejected document update");
+    return data.documentUpdate.document;
+  }
+
+  async createIssueAttachment(
+    issueId: string,
+    attachment: {
+      title: string;
+      url: string;
+      subtitle?: string;
+      commentBody?: string;
+      agentSessionId: string;
+    },
+  ): Promise<{ id: string; title: string; url: string }> {
+    const data = await this.graphql<{
+      attachmentCreate: { success: boolean; attachment: { id: string; title: string; url: string } };
+    }>(
+      `mutation CreateReviewAttachment($input: AttachmentCreateInput!) {
+        attachmentCreate(input: $input) { success attachment { id title url } }
+      }`,
+      {
+        input: {
+          issueId,
+          title: attachment.title,
+          url: attachment.url,
+          groupBySource: true,
+          metadata: { agentSessionId: attachment.agentSessionId },
+          ...(attachment.subtitle ? { subtitle: attachment.subtitle } : {}),
+          ...(attachment.commentBody ? { commentBody: attachment.commentBody } : {}),
+        },
+      },
+    );
+    if (!data.attachmentCreate.success) throw new Error("Linear rejected issue attachment");
+    return data.attachmentCreate.attachment;
+  }
+
   private async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
     return this.graphqlWithToken(await this.accessToken(), query, variables);
   }

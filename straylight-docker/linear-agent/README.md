@@ -4,6 +4,13 @@ This is Straylight's owned Linear-to-Pi bridge. It contains no source or build
 dependency on `hiasinho/linear-pi-agent`; that project was only a behavioral
 reference for the first OAuth and Agent Session loop.
 
+The runtime uses mainline Pi from `earendil-works/pi`, published as
+`@earendil-works/pi-coding-agent`. This is the successor npm scope and GitHub
+location for the original `@mariozechner/pi-coding-agent` / `badlogic/pi-mono`
+project, not a Straylight or third-party fork. The runtime currently pins the
+latest published mainline npm release, `0.84.0`, so upstream SDK changes are
+upgraded and verified deliberately.
+
 ## Stack namespace
 
 Owned services, containers, images, and networks use the `linear-agent-*` namespace.
@@ -25,14 +32,18 @@ There are four roles:
   Linear token store.
 - Every Linear Agent Session is executed by a fresh task container. The task has
   one private persistent `/workspace`, its own Pi history and copy of Pi auth,
-  read-only repository sources at `/repositories`, and a one-time control token.
+  read-only repository sources at `/repositories`, a shared single-engineer
+  developer-tool profile at `/tool-profile`, and a one-time control token.
   It has no host port, Docker socket, SSH key, other task workspace, or
   `LINEAR_*` environment variable. The container is destroyed after each turn;
   the session workspace and history remain for native Linear follow-ups.
+- Every active turn also gets a private auxiliary bridge network for supervised
+  PostgreSQL and Playwright sidecars. The task joins it as `task`; sidecars have
+  no host ports and cannot join another session's auxiliary network.
 - `linear-agent-claude-capsule` is one engineer's persistent Claude Code identity and
   personal connection workbench. Its common image is stateless; Claude settings,
   connector approvals, and tokens live only in the named profile volume. Pi gets
-  conversational `ask_claude` and `request_claude_access` tools. Claude can use
+  conversational `ask_claude` and generic `request_access` tools. Claude can use
   the engineer's existing claude.ai corporate integrations—including Slack,
   Notion, Google Drive, Gmail, and others—to retrieve context or carry out actions
   authorized by the Linear request. Task containers never mount or receive the
@@ -62,33 +73,43 @@ comments:
 - immediate ephemeral thoughts so a new session is acknowledged within Linear's
   responsiveness window
 - native action cards for Pi tool calls and isolated-workspace preparation
-- task-specific Agent Plans only when Pi emits one; otherwise the plan stays empty
-- native elicitation; Pi's `ask_linear` tool can include 2-12 options to render a
-  Linear `select` signal while still accepting free-text replies
+- durable task-specific Agent Plans managed with list/add/update/remove/replace
+  verbs and reconstructed from Pi history across disposable containers
+- one generic `linear` collaboration tool for native input requests, blockers,
+  review notes, private file/image uploads, arbitrary session URLs, native
+  review Documents, and rich issue attachments; input
+  requests can include 2-12 options while still accepting free-text replies
 - structured human `stop` signals, with generation invalidation and hard task
   container cancellation so no later action is published
 - active-turn follow-ups, queued follow-ups, and conversation history across
   disposable containers
 - ranked repository context from Linear's repository-suggestions API
-- automatic pull-request session links when Pi reports a GitHub PR URL
+- generic session URL attachment plus automatic pull-request discovery; GitHub
+  PR URLs receive Linear's native enrichment without a PR-specific Pi tool
 - human-delegated issues move to the team's first started state when the issue is
   actually delegated to the app user
 - unassignment, terminal issue status, team-access removal, and OAuth revocation
   cancel affected work
 
-Pi judges Claude's answer itself. When a login, connection, approval, or
-permission is missing, Pi calls the separate `request_claude_access` tool with a
-specific user-facing explanation. The resulting `auth` signal always links to
-the same first-party workbench instructions page; Pi cannot supply another URL.
+Pi judges access failures itself. When a login, connection, approval, or
+permission is missing, Pi calls `request_access` with a specific user-facing
+explanation and selects either the Claude or developer-tool workbench. The
+resulting `auth` signal always links to a matching first-party instructions page;
+Pi cannot supply another URL.
 
 ## Host data layout
 
-- `pi-config/auth.json` is the master Codex-subscription credential. A private
-  copy is made for each task and a newer refreshed copy is atomically retained.
+- `pi-config/` is Pi's persistent global profile. `auth.json` is the master
+  Codex-subscription credential; global instructions and settings placed here
+  are copied privately into every task.
 - `workspace/repos/<name>` contains local repository sources. They are mounted
   read-only and should have an `origin` remote so Linear can rank them.
 - `workspace/runs/<session-hash>` is the persistent private workspace for one
   Linear Agent Session.
+- `tool-profile/` contains the single engineer's persistent GitHub CLI and Git
+  credential-helper state plus an optional web-search provider configuration. It
+  is mounted read-only into coding tasks and is not mounted into the controller
+  or Claude capsule.
 - `data/tasks/<session-hash>` contains the matching Pi history, Pi config, and a
   `session.json` mapping back to the Linear session and issue.
 - `${LINEAR_AGENT_CLAUDE_PROFILE_VOLUME:-linear-agent-claude-profile}` is the Docker
@@ -140,6 +161,28 @@ test -s linear-agent/pi-config/auth.json
 test "$(stat -c '%a' linear-agent/pi-config/auth.json)" = 600
 ```
 
+## Persistent Pi instructions
+
+Pi loads global instructions from `~/.pi/agent/AGENTS.md` and appends them to
+the `AGENTS.md` files found on the path to the active repository. In this stack,
+the persistent host-side source for that global profile is
+`linear-agent/pi-config/`. To add notes that should apply to every future Linear
+Agent Session, SSH into Straylight and edit:
+
+```sh
+cd /home/gaby/straylight-docker
+${EDITOR:-vi} linear-agent/pi-config/AGENTS.md
+```
+
+Each new task receives a private copy at `~/.pi/agent/AGENTS.md`, in addition to
+the curated `/workspace/AGENTS.md` shipped by this repository. Existing active
+tasks keep their current copy; start a new task to pick up changes.
+
+For instructions that specifically need system-prompt priority without
+replacing Pi's defaults, use `linear-agent/pi-config/APPEND_SYSTEM.md`. Pi also
+supports `SYSTEM.md`, but that replaces its default coding-agent system prompt
+and should be reserved for deliberate prompt development.
+
 ## Connection capsule authentication
 
 No Claude or Slack credential is present in an image, environment variable,
@@ -183,6 +226,64 @@ Cancellation is propagated across the task request, workbench proxy, capsule HTT
 request, and Claude child process. A Linear stop or task disconnect therefore
 terminates in-flight side-kick work instead of letting it run until the five-minute
 capsule timeout.
+
+## Developer-tool authentication
+
+The runner image contains Node.js 24 LTS, Bun, Git, GitHub CLI, build tools,
+Python, curl, jq, ripgrep, and fd. Pi is online and explicitly receives writable
+filesystem and shell tools inside its bounded task jail.
+
+GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
+
+```sh
+cd /home/gaby/straylight-docker
+docker compose run --rm --no-deps --entrypoint gh \
+  linear-agent-runner auth login --hostname github.com --git-protocol https --web --insecure-storage
+docker compose run --rm --no-deps --entrypoint gh \
+  linear-agent-runner auth setup-git
+docker compose run --rm --no-deps --entrypoint gh \
+  linear-agent-runner auth status
+```
+
+This deliberately gives one trusted engineer's task jails reusable GitHub access.
+It is appropriate for the personal pilot, but it is not a multi-user capability
+broker. Pi should call `request_access` with the developer-tools workspace when
+the CLI reports missing or expired authentication; after SSH setup, reply
+`resume` in Linear.
+
+Pi can delegate bounded exploration, planning, review, and implementation tasks
+to helper Pi processes. Helpers share `/workspace`, inherit cancellation and the
+task jail, can use the same web-research extension, and cannot call the
+controller-only Linear, Claude, or service-supervisor tools. Parallel
+implementation should be reserved for edits that cannot overlap.
+
+## Web research
+
+The runner pins `pi-web-access@0.18.0` and loads it explicitly rather than
+allowing task repositories to select extensions. It provides generic search,
+claim checking, readable/raw content fetching, and bounded retrieval of stored
+results. The task configuration selects keyless Exa MCP search and disables the
+interactive browser curator. An optional `exaApiKey` may be placed in
+`tool-profile/web-search.json` if anonymous rate limits become material; the
+workbench copies it privately into each task's Pi configuration.
+
+## Development services
+
+Pi's generic `service` tool supports `start`, `status`, `logs`, and `stop` for:
+
+- PostgreSQL 17.10, disposable by default or retained under the session's
+  `.services/postgres` workspace directory when `persistent` is explicitly set
+- a Playwright 1.62 remote browser server for headless frontend QA
+
+Docker stays entirely behind the trusted workbench. The tool returns connection
+details rather than Docker identifiers. Project servers run in the task
+container and must bind to `0.0.0.0`; the browser reaches them through the
+private network host `task`. Sidecars have read-only roots, dropped capabilities,
+no privilege escalation, CPU/memory/PID limits, no workspace mounts, and no host
+ports. All sidecars and their private network are removed when the task ends;
+only explicitly persistent PostgreSQL files remain.
+
+The tracked capability slices and acceptance checks live in `ROADMAP.md`.
 
 ## Linear application configuration
 
@@ -247,6 +348,20 @@ Useful Linear smoke tests:
 4. Put a Git repository with an `origin` under `workspace/repos`, delegate an
    issue naming it, and confirm Pi clones into its private workspace rather than
    editing the source.
+5. Ask Pi to publish a screenshot or report from `/workspace`; confirm it is
+   uploaded to Linear's private storage and rendered in the Agent Session.
+6. Ask Pi to attach an HTTPS review URL, then a GitHub pull request URL; confirm
+   both appear without invoking a PR-specific tool.
+7. Create and mutate a plan, stop, resume, and confirm plan IDs and statuses are
+   retained. Delegate a review helper and confirm stop terminates it too.
+8. Ask Pi to search for a current fact and fetch one primary documentation page;
+   confirm cited URLs are returned without requesting a credential.
+9. Start disposable PostgreSQL, wait for healthy status, run a migration, and
+   confirm the service and private session network disappear when the turn ends.
+10. Start a project server on `0.0.0.0`, start the browser service, run a
+    Playwright check through `task`, and publish its screenshot to Linear.
+11. Publish a native review Document, update it using the returned document id,
+    then publish a rich preview or pull-request attachment to the issue.
 
 Logs:
 
@@ -259,7 +374,10 @@ docker compose logs -f linear-agent-controller linear-agent-runner linear-agent-
 This is a substantial isolation improvement, not a hostile-code microVM. Docker
 containers share Straylight's kernel and task containers have outbound internet
 access for Codex and development tools. Each task can also read its private copy
-of the Codex OAuth credential while it runs. A future credential/model broker
+of the Codex OAuth credential and the shared single-engineer GitHub tool profile
+while it runs. The pinned web extension is third-party code running inside that
+same task boundary, and the Playwright image is intended for development QA, not
+as a hardened browser for hostile sites. A future credential/model broker
 would remove that reusable secret from task containers; gVisor, Kata, or a
 microVM backend could strengthen kernel isolation without changing the Linear
 controller contract.

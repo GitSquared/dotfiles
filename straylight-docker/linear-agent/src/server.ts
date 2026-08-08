@@ -115,6 +115,33 @@ export function createServer(config: ControllerConfig, linear: LinearClient, con
       return;
     }
 
+    if (method === "GET" && matches(url.pathname, "/tools/auth")) {
+      text(response, 200, [
+        "Straylight developer-tool access",
+        "",
+        "Linear's button opens instructions only. Credentials stay on Straylight and are never sent through Linear.",
+        "SSH into Straylight, then authenticate the missing tool in the persistent workbench profile.",
+        "",
+        "GitHub CLI (clone, fetch, push, pull requests):",
+        "",
+        "  cd /home/gaby/straylight-docker",
+        "  docker compose run --rm --no-deps --entrypoint gh linear-agent-runner auth login --hostname github.com --git-protocol https --web --insecure-storage",
+        "  docker compose run --rm --no-deps --entrypoint gh linear-agent-runner auth setup-git",
+        "  docker compose run --rm --no-deps --entrypoint gh linear-agent-runner auth status",
+        "",
+        "Optional web-search capacity (anonymous Exa search works without this):",
+        "",
+        "  install -m 600 /dev/null linear-agent/tool-profile/web-search.json",
+        "  # edit that file to contain: {\"exaApiKey\":\"your-key\"}",
+        "  jq empty linear-agent/tool-profile/web-search.json",
+        "",
+        "The profile is mounted at /tool-profile. GH_CONFIG_DIR and GIT_CONFIG_GLOBAL point there, so authentication survives task containers and image rebuilds.",
+        "When finished, return to Linear and reply: resume",
+        "",
+      ].join("\n"));
+      return;
+    }
+
     if (method === "GET" && matches(url.pathname, "/install")) {
       if (!authorizedInstall(config.installSecret, installCredential(request, url))) {
         text(response, 401, "Missing or invalid install secret.\n");

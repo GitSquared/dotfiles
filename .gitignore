@@ -32,6 +32,7 @@
 /straylight-docker/linear-agent/node_modules/
 /straylight-docker/linear-agent/pi-config/*
 !/straylight-docker/linear-agent/pi-config/README.md
+/straylight-docker/linear-agent/tool-profile/
 /straylight-docker/linear-agent/workspace/repos/
 /straylight-docker/linear-agent/workspace/runs/
 

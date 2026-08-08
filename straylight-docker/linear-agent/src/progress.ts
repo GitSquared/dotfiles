@@ -62,7 +62,7 @@ export class ProgressReporter {
         this.report({ type: "activity", content: { type: "thought", body: "Pi is starting the coding session." }, ephemeral: true });
         break;
       case "tool_execution_start": {
-        if (event.toolName === "ask_linear" || event.toolName === "request_claude_access" || event.toolName === "update_linear_plan") break;
+        if (event.toolName === "linear" || event.toolName === "request_access" || event.toolName === "manage_plan") break;
         const target = toolTarget(event.toolName, event.args);
         this.report({
           type: "activity",

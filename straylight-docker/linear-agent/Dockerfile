@@ -1,4 +1,4 @@
-FROM node:22-trixie-slim AS build
+FROM node:24-trixie-slim AS build
 
 WORKDIR /source
 
@@ -16,7 +16,7 @@ RUN npm run check \
 
 FROM oven/bun:1 AS bun
 
-FROM node:22-trixie-slim AS runtime-base
+FROM node:24-trixie-slim AS runtime-base
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -49,6 +49,7 @@ RUN apt-get update \
       build-essential \
       curl \
       git \
+      gh \
       jq \
       openssh-client \
       python3 \
@@ -64,7 +65,6 @@ COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 USER node
 
 ENV PI_CODING_AGENT_DIR=/home/node/.pi/agent \
-    PI_OFFLINE=1 \
     PI_SKIP_VERSION_CHECK=1 \
     PI_TELEMETRY=0 \
     XDG_CACHE_HOME=/tmp/cache \

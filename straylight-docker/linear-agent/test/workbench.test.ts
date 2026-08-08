@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { WorkbenchConfig } from "../src/config.js";
-import { parseRepositoryRemote, taskContainerSpec } from "../src/workbench.js";
+import { decodeDockerStream, type ContainerEngine } from "../src/docker-engine.js";
+import { parseRepositoryRemote, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
 
 function config(): WorkbenchConfig {
   return {
@@ -17,13 +18,21 @@ function config(): WorkbenchConfig {
     repositoryDirectory: "/repositories",
     workspaceInstructions: "/workbench/AGENTS.md",
     piConfigSource: "/workbench/pi-config",
+    toolProfileDirectory: "/tool-profile",
     maxConcurrentTasks: 3,
     taskStartupTimeoutMs: 30_000,
     taskMemoryBytes: 4 * 1024 * 1024 * 1024,
     taskNanoCpus: 2_000_000_000,
     taskPidsLimit: 512,
+    postgresImage: "postgres:17.10-bookworm",
+    browserImage: "mcr.microsoft.com/playwright:v1.62.0-noble",
+    browserVersion: "1.62.0",
+    serviceMemoryBytes: 2 * 1024 * 1024 * 1024,
+    serviceNanoCpus: 1_000_000_000,
+    servicePidsLimit: 256,
     capsuleUrl: "http://linear-agent-claude-capsule:8790",
     capsuleAuthUrl: "https://straylight.example.ts.net/linear/capsule/auth",
+    toolAuthUrl: "https://straylight.example.ts.net/linear/tools/auth",
     capsuleControlToken: "c".repeat(32), // yadm-secret-scan: ignore
   };
 }
@@ -56,5 +65,62 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.Env.some((value) => value.startsWith("CAPSULE_CONTROL_")), false);
   assert.equal(spec.Env.some((value) => value === "PI_RUNNER_TOKEN=task-token"), true); // yadm-secret-scan: ignore
   assert.equal(spec.Env.some((value) => value === "CAPSULE_URL=http://linear-agent-runner:8788"), true);
+  assert.equal(spec.Env.some((value) => value === "WORKBENCH_URL=http://linear-agent-runner:8788"), true);
+  assert.equal(spec.Env.some((value) => value === "GH_CONFIG_DIR=/tool-profile/gh"), true);
+  assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/tool-profile:/tool-profile:ro"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
+});
+
+test("decodes multiplexed Docker logs without exposing frame headers", () => {
+  const line = Buffer.from("postgres ready\n");
+  const frame = Buffer.alloc(8 + line.length);
+  frame[0] = 1;
+  frame.writeUInt32BE(line.length, 4);
+  line.copy(frame, 8);
+  assert.equal(decodeDockerStream(frame), "postgres ready\n");
+  assert.equal(decodeDockerStream(Buffer.from("plain log\n")), "plain log\n");
+});
+
+test("does not create a late service after its task request is cancelled", async () => {
+  let pullStarted!: () => void;
+  let finishPull!: () => void;
+  const started = new Promise<void>((resolve) => { pullStarted = resolve; });
+  const held = new Promise<void>((resolve) => { finishPull = resolve; });
+  let creates = 0;
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    async pull() { pullStarted(); await held; },
+    async create() { creates += 1; return "container"; },
+    start: unused,
+    stop: unused,
+    remove: unused,
+    listByLabel: unused,
+    inspect: unused,
+    logs: unused,
+    createNetwork: unused,
+    connectNetwork: unused,
+    removeNetwork: unused,
+    listNetworksByLabel: unused,
+  };
+  const harness = new WorkbenchHarness(config(), engine);
+  const token = "one-time-task-token"; // yadm-secret-scan: ignore
+  const active = {
+    aborted: false,
+    client: {},
+    containerId: "task",
+    networkId: "network",
+    networkName: "network",
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token,
+  };
+  (harness as unknown as { active: Map<string, unknown> }).active.set("session", active);
+  const controller = new AbortController();
+  const request = harness.manageService(token, { action: "start", service: "postgres" }, controller.signal);
+  await started;
+  controller.abort();
+  finishPull();
+  await assert.rejects(request, /cancelled/);
+  assert.equal(creates, 0);
 });

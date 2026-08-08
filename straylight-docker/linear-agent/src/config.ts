@@ -27,7 +27,9 @@ export type RunnerConfig = {
   progressHeartbeatMs: number;
   authToken: string; // yadm-secret-scan: ignore
   capsuleUrl: string;
+  workbenchUrl: string;
   capsuleAuthUrl: string;
+  toolAuthUrl: string;
 };
 
 export type WorkbenchConfig = {
@@ -43,13 +45,21 @@ export type WorkbenchConfig = {
   repositoryDirectory: string;
   workspaceInstructions: string;
   piConfigSource: string;
+  toolProfileDirectory: string;
   maxConcurrentTasks: number;
   taskStartupTimeoutMs: number;
   taskMemoryBytes: number;
   taskNanoCpus: number;
   taskPidsLimit: number;
+  postgresImage: string;
+  browserImage: string;
+  browserVersion: string;
+  serviceMemoryBytes: number;
+  serviceNanoCpus: number;
+  servicePidsLimit: number;
   capsuleUrl: string;
   capsuleAuthUrl: string;
+  toolAuthUrl: string;
   capsuleControlToken: string; // yadm-secret-scan: ignore
 };
 
@@ -132,7 +142,9 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
     progressHeartbeatMs: positiveInteger(env, "PI_PROGRESS_HEARTBEAT_MS", 300_000),
     authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
     capsuleUrl: serviceUrl(env, "CAPSULE_URL", "http://linear-agent-claude-capsule:8790"),
+    workbenchUrl: serviceUrl(env, "WORKBENCH_URL", "http://linear-agent-runner:8788"),
     capsuleAuthUrl: httpsUrl(env, "CAPSULE_AUTH_URL"),
+    toolAuthUrl: httpsUrl(env, "TOOL_AUTH_URL"),
   };
 }
 
@@ -150,13 +162,21 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     repositoryDirectory: absolutePath(env, "PI_REPOSITORY_DIR", "/repositories"),
     workspaceInstructions: absolutePath(env, "PI_WORKSPACE_INSTRUCTIONS", "/workbench/AGENTS.md"),
     piConfigSource: absolutePath(env, "PI_CONFIG_SOURCE", "/workbench/pi-config"),
+    toolProfileDirectory: absolutePath(env, "PI_TOOL_PROFILE_DIR", "/tool-profile"),
     maxConcurrentTasks: positiveInteger(env, "PI_MAX_CONCURRENT_TASKS", 3),
     taskStartupTimeoutMs: positiveInteger(env, "PI_TASK_STARTUP_TIMEOUT_MS", 30_000),
     taskMemoryBytes: positiveInteger(env, "PI_TASK_MEMORY_BYTES", 4 * 1024 * 1024 * 1024),
     taskNanoCpus: positiveInteger(env, "PI_TASK_NANO_CPUS", 2_000_000_000),
     taskPidsLimit: positiveInteger(env, "PI_TASK_PIDS_LIMIT", 512),
+    postgresImage: env.PI_POSTGRES_IMAGE?.trim() || "postgres:17.10-bookworm",
+    browserImage: env.PI_BROWSER_IMAGE?.trim() || "mcr.microsoft.com/playwright:v1.62.0-noble",
+    browserVersion: env.PI_BROWSER_VERSION?.trim() || "1.62.0",
+    serviceMemoryBytes: positiveInteger(env, "PI_SERVICE_MEMORY_BYTES", 2 * 1024 * 1024 * 1024),
+    serviceNanoCpus: positiveInteger(env, "PI_SERVICE_NANO_CPUS", 1_000_000_000),
+    servicePidsLimit: positiveInteger(env, "PI_SERVICE_PIDS_LIMIT", 256),
     capsuleUrl: serviceUrl(env, "CAPSULE_URL", "http://linear-agent-claude-capsule:8790"),
     capsuleAuthUrl: httpsUrl(env, "CAPSULE_AUTH_URL"),
+    toolAuthUrl: httpsUrl(env, "TOOL_AUTH_URL"),
     capsuleControlToken: secretFile(env, "CAPSULE_CONTROL_TOKEN_FILE", "/run/secrets/capsule-control-token"), // yadm-secret-scan: ignore
   };
 }

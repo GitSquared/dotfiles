@@ -1,6 +1,7 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
 import type { CapsuleResult } from "./capsule-client.js";
+import type { ServiceRequest, ServiceResult } from "./service-client.js";
 import type { RepositoryCandidate } from "./types.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -35,6 +36,7 @@ type RunnerHarness = {
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
+  manageService?(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult>; // yadm-secret-scan: ignore
 };
 
 function authorized(request: IncomingMessage, token: string): boolean { // yadm-secret-scan: ignore
@@ -89,6 +91,34 @@ export function createRunnerServer(pi: RunnerHarness, token: string): http.Serve
         response.off("close", abort);
       }
       if (!response.destroyed) json(response, result.status === "error" ? 502 : 200, result);
+      return;
+    }
+    if (method === "POST" && pathname === "/v1/services") {
+      const authorization = request.headers.authorization;
+      const taskToken = typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
+      const input = await body<ServiceRequest>(request);
+      if (!pi.manageService || !input || typeof input !== "object") {
+        json(response, 400, { ok: false, message: "Invalid development service request." });
+        return;
+      }
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      request.once("aborted", abort);
+      response.once("close", abort);
+      if (request.aborted || response.destroyed) controller.abort();
+      try {
+        try {
+          const result = await pi.manageService(taskToken, input, controller.signal);
+          if (!response.destroyed) json(response, 200, result);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const status = message.startsWith("Unauthorized") ? 401 : 502;
+          if (!response.destroyed) json(response, status, { ok: false, message });
+        }
+      } finally {
+        request.off("aborted", abort);
+        response.off("close", abort);
+      }
       return;
     }
     if (!authorized(request, token)) {

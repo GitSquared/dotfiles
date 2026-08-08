@@ -26,6 +26,39 @@ test("round-trips Pi task-specific plan updates", () => {
   assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);
 });
 
+test("round-trips a generic Linear session attachment", () => {
+  const event = {
+    type: "external_url" as const,
+    label: "Review artifact",
+    url: "https://example.com/review/42",
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);
+});
+
+test("round-trips a Linear review artifact", () => {
+  const event = {
+    type: "artifact" as const,
+    filename: "screenshot.png",
+    contentType: "image/png",
+    dataBase64: "aGVsbG8=",
+    title: "Updated homepage",
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);
+});
+
+test("round-trips generic native Linear publications", () => {
+  const document = {
+    type: "linear_publish" as const,
+    publication: { kind: "document" as const, id: "document-id", title: "Review", body: "# Review", update: false },
+  };
+  const attachment = {
+    type: "linear_publish" as const,
+    publication: { kind: "attachment" as const, title: "Preview", url: "https://example.com/preview", subtitle: "Ready" },
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(document).trim()), document);
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(attachment).trim()), attachment);
+});
+
 test("round-trips a native Linear select signal", () => {
   const event = {
     type: "activity" as const,

@@ -23,6 +23,14 @@ export type RunnerEvent =
       signalMetadata?: AgentActivitySignalMetadata;
     }
   | { type: "plan"; steps: AgentPlanStep[] }
+  | { type: "external_url"; label: string; url: string }
+  | { type: "artifact"; filename: string; contentType: string; dataBase64: string; title?: string; body?: string }
+  | {
+      type: "linear_publish";
+      publication:
+        | { kind: "document"; id: string; title: string; body: string; update: boolean }
+        | { kind: "attachment"; title: string; url: string; subtitle?: string; body?: string };
+    }
   | { type: "result"; result: PiResult };
 
 export type RunRequest = { payload: AgentTaskPayload };
@@ -34,7 +42,7 @@ export function encodeRunnerEvent(event: RunnerEvent): string {
 
 export function parseRunnerEvent(line: string): RunnerEvent {
   const event = JSON.parse(line) as RunnerEvent;
-  if (!event || typeof event !== "object" || !["activity", "plan", "result"].includes(event.type)) {
+  if (!event || typeof event !== "object" || !["activity", "plan", "external_url", "artifact", "linear_publish", "result"].includes(event.type)) {
     throw new Error("Runner returned an invalid event");
   }
   return event;

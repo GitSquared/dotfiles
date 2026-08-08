@@ -22,6 +22,18 @@ mounted at all.
   branch.
 - Run the repository's relevant checks in the task worktree.
 
+## Research and development services
+
+- Use the web research tools for current facts and primary documentation. Keep
+  source URLs in conclusions that depend on the web.
+- Use the generic development-service tool for PostgreSQL or browser QA. Prefer
+  disposable PostgreSQL state unless the task truly needs it across turns.
+- Bind project development servers to `0.0.0.0`, not localhost, when the remote
+  browser needs to reach them. Use the connection values returned by the tool;
+  never assume container names.
+- Publish useful screenshots and reports through Linear. Use a native review
+  document for substantial Markdown that should remain editable in Linear.
+
 ## Authority
 
 - Reading, analysis, local edits, and local checks are allowed when requested.

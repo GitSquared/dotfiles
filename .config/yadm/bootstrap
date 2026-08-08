@@ -340,7 +340,23 @@ prepare_linear_agent() {
   run install -d -m 0700 \
     "$LINEAR_AGENT_DIR/data" \
     "$LINEAR_AGENT_DIR/data/tasks" \
-    "$LINEAR_AGENT_DIR/pi-config"
+    "$LINEAR_AGENT_DIR/pi-config" \
+    "$LINEAR_AGENT_DIR/tool-profile" \
+    "$LINEAR_AGENT_DIR/tool-profile/gh"
+  local tool_gitconfig="$LINEAR_AGENT_DIR/tool-profile/gitconfig"
+  [[ ! -L "$tool_gitconfig" ]] || die "Linear agent tool gitconfig must not be a symlink"
+  if [[ ! -e "$tool_gitconfig" ]]; then
+    run install -m 0600 /dev/null "$tool_gitconfig"
+  elif [[ "$DRY_RUN" != 1 ]]; then
+    require_regular_owned_file "$tool_gitconfig"
+    chmod 0600 "$tool_gitconfig"
+  fi
+  local web_search_config="$LINEAR_AGENT_DIR/tool-profile/web-search.json"
+  [[ ! -L "$web_search_config" ]] || die "Linear agent web-search config must not be a symlink"
+  if [[ -e "$web_search_config" && "$DRY_RUN" != 1 ]]; then
+    require_regular_owned_file "$web_search_config"
+    chmod 0600 "$web_search_config"
+  fi
   local capsule_token="$LINEAR_AGENT_DIR/data/capsule-control-token" # yadm-secret-scan: ignore
   [[ ! -L "$capsule_token" ]] || die "capsule control token must not be a symlink"
   if [[ ! -s "$capsule_token" ]]; then

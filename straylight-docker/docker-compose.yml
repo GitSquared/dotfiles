@@ -297,13 +297,24 @@ services:
       PI_REPOSITORY_DIR: /repositories
       PI_WORKSPACE_INSTRUCTIONS: /workbench/AGENTS.md
       PI_CONFIG_SOURCE: /workbench/pi-config
+      PI_TOOL_PROFILE_DIR: /tool-profile
+      GH_CONFIG_DIR: /tool-profile/gh
+      GIT_CONFIG_GLOBAL: /tool-profile/gitconfig
+      GIT_TERMINAL_PROMPT: "0"
       PI_MAX_CONCURRENT_TASKS: "${LINEAR_AGENT_MAX_CONCURRENT_TASKS:-3}"
       PI_TASK_STARTUP_TIMEOUT_MS: "30000"
       PI_TASK_MEMORY_BYTES: "4294967296"
       PI_TASK_NANO_CPUS: "2000000000"
       PI_TASK_PIDS_LIMIT: "512"
+      PI_POSTGRES_IMAGE: "postgres:17.10-bookworm"
+      PI_BROWSER_IMAGE: "mcr.microsoft.com/playwright:v1.62.0-noble"
+      PI_BROWSER_VERSION: "1.62.0"
+      PI_SERVICE_MEMORY_BYTES: "2147483648"
+      PI_SERVICE_NANO_CPUS: "1000000000"
+      PI_SERVICE_PIDS_LIMIT: "256"
       CAPSULE_URL: http://linear-agent-claude-capsule:8790
       CAPSULE_AUTH_URL: "${LINEAR_AGENT_PUBLIC_URL}/linear/capsule/auth"
+      TOOL_AUTH_URL: "${LINEAR_AGENT_PUBLIC_URL}/linear/tools/auth"
       CAPSULE_CONTROL_TOKEN_FILE: /run/secrets/capsule-control-token # yadm-secret-scan: ignore
     volumes:
       - ./linear-agent/data/capsule-control-token:/run/secrets/capsule-control-token:ro # yadm-secret-scan: ignore
@@ -311,6 +322,7 @@ services:
       - ./linear-agent/data:/workbench/data
       - ./linear-agent/pi-config:/workbench/pi-config
       - ./linear-agent/pi-config:/home/node/.pi/agent
+      - ./linear-agent/tool-profile:/tool-profile
       - ./linear-agent/workspace/repos:/repositories:ro
       - ./linear-agent/workspace/runs:/workbench/workspace-runs
       - ./linear-agent/workspace/AGENTS.md:/workbench/AGENTS.md:ro

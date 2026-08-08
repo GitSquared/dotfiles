@@ -4,6 +4,7 @@ import test from "node:test";
 import { CapsuleClient } from "../src/capsule-client.js";
 import { PiRunnerClient } from "../src/runner-client.js";
 import { createRunnerServer } from "../src/runner-server.js";
+import { ServiceClient } from "../src/service-client.js";
 
 test("streams structured events across the controller-runner boundary", async () => {
   const harness = {
@@ -11,6 +12,11 @@ test("streams structured events across the controller-runner boundary", async ()
       return taskCredential === "one-time-task-token" && request === "Find the context"
         ? { status: "ok" as const, answer: "Corporate context" }
         : { status: "error" as const, message: "Unauthorized." };
+    },
+    async manageService(taskCredential: string, request: { action: "start"; service: "postgres" }) {
+      return taskCredential === "one-time-task-token"
+        ? { ok: true, service: request.service, status: "starting" as const, connection: { host: "postgres", port: 5432 } }
+        : { ok: false, service: request.service, status: "failed" as const, message: "Unauthorized task service request" };
     },
     async run(_payload: unknown, send: (event: {
       type: "activity";
@@ -45,6 +51,9 @@ test("streams structured events across the controller-runner boundary", async ()
     assert.deepEqual(await claude.json(), { status: "ok", answer: "Corporate context" });
     const rejectedClaude = await new CapsuleClient(`http://127.0.0.1:${address.port}`, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
     assert.deepEqual(rejectedClaude, { status: "error", message: "Unauthorized." });
+    const service = await new ServiceClient(`http://127.0.0.1:${address.port}`, "one-time-task-token").manage({ action: "start", service: "postgres" }); // yadm-secret-scan: ignore
+    assert.equal(service.status, "starting");
+    assert.deepEqual(service.connection, { host: "postgres", port: 5432 });
     const client = new PiRunnerClient(`http://127.0.0.1:${address.port}`, token);
     const events: unknown[] = [];
     const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });

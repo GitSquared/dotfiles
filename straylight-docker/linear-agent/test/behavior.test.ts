@@ -17,7 +17,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /Use the nemo repository/);
   assert.match(prompt, /Keep the change targeted/);
   assert.match(prompt, /Do not push/);
-  assert.match(prompt, /request_claude_access/);
+  assert.match(prompt, /request_access/);
+  assert.match(prompt, /manage_plan/);
   assert.match(prompt, /take actions in connected corporate systems/);
 });
 
@@ -44,7 +45,7 @@ test("includes ranked workbench repositories without choosing for the agent", ()
   assert.match(prompt, /GitSquared\/nemo/);
   assert.match(prompt, /\/repositories\/nemo/);
   assert.match(prompt, /0\.92/);
-  assert.match(prompt, /ask_linear/);
+  assert.match(prompt, /linear tool/);
 });
 
 test("redacts common credentials and sensitive URL parameters", () => {

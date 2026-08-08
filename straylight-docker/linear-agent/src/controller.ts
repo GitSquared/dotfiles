@@ -181,6 +181,47 @@ export class AgentController {
         await this.updatePlan(sessionId, event.steps);
         return;
       }
+      if (event.type === "external_url") {
+        await this.linear.addExternalUrl(sessionId, { label: event.label, url: event.url });
+        return;
+      }
+      if (event.type === "artifact") {
+        const bytes = Buffer.from(event.dataBase64, "base64");
+        if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Linear artifact must be between 1 byte and 10 MB");
+        const assetUrl = await this.linear.uploadFile(event.filename, event.contentType, bytes);
+        const label = event.title || event.filename;
+        const link = event.contentType.startsWith("image/")
+          ? `![${label.replace(/[\[\]]/g, "")}](${assetUrl})`
+          : `[${label}](${assetUrl})`;
+        await this.linear.createActivity(sessionId, {
+          type: "thought",
+          body: [event.body, link].filter(Boolean).join("\n\n"),
+        });
+        return;
+      }
+      if (event.type === "linear_publish") {
+        if (!state.issueId) throw new Error("Linear documents and rich attachments require an issue-backed Agent Session");
+        if (event.publication.kind === "document") {
+          const document = event.publication.update
+            ? await this.linear.updateDocument(event.publication.id, event.publication.title, event.publication.body)
+            : await this.linear.createDocument(state.issueId, event.publication.id, event.publication.title, event.publication.body);
+          await this.linear.addExternalUrl(sessionId, { label: document.title, url: document.url });
+          await this.linear.createActivity(sessionId, {
+            type: "thought",
+            body: `[${document.title}](${document.url}) is ready for review.`,
+          });
+          return;
+        }
+        const attachment = await this.linear.createIssueAttachment(state.issueId, {
+          title: event.publication.title,
+          url: event.publication.url,
+          ...(event.publication.subtitle ? { subtitle: event.publication.subtitle } : {}),
+          ...(event.publication.body ? { commentBody: event.publication.body } : {}),
+          agentSessionId: sessionId,
+        });
+        await this.linear.addExternalUrl(sessionId, { label: attachment.title, url: attachment.url });
+        return;
+      }
       await this.linear.createActivity(
         sessionId,
         event.content,
