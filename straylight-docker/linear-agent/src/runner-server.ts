@@ -34,7 +34,7 @@ type RunnerHarness = {
   abort(sessionId: string): Promise<boolean>;
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
-  askClaude?(token: string, request: string): Promise<CapsuleResult>; // yadm-secret-scan: ignore
+  askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
 };
 
 function authorized(request: IncomingMessage, token: string): boolean { // yadm-secret-scan: ignore
@@ -46,6 +46,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): http.Serve
     void route(request, response).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
       console.error("runner request failed", { message });
+      if (response.destroyed) return;
       if (!response.headersSent) json(response, message === "request_too_large" ? 413 : 500, { ok: false, error: "internal_error" });
       else response.end();
     });
@@ -75,8 +76,19 @@ export function createRunnerServer(pi: RunnerHarness, token: string): http.Serve
         json(response, 400, { status: "error", message: "Invalid Claude request." });
         return;
       }
-      const result = await pi.askClaude(taskToken, input.request);
-      json(response, result.status === "error" ? 502 : 200, result);
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      request.once("aborted", abort);
+      response.once("close", abort);
+      if (request.aborted || response.destroyed) controller.abort();
+      let result: CapsuleResult;
+      try {
+        result = await pi.askClaude(taskToken, input.request, controller.signal);
+      } finally {
+        request.off("aborted", abort);
+        response.off("close", abort);
+      }
+      if (!response.destroyed) json(response, result.status === "error" ? 502 : 200, result);
       return;
     }
     if (!authorized(request, token)) {

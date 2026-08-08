@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import { promisify } from "node:util";
-import { claudeArgs, needsAuth } from "./claude-request.mjs";
+import { claudeArgs } from "./claude-request.mjs";
 
 const execFileAsync = promisify(execFile);
 const host = process.env.HOST?.trim() || "0.0.0.0";
@@ -45,31 +45,55 @@ function authorized(request) {
   return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
 }
 
-async function claudeIsAuthenticated() {
+async function claudeIsAuthenticated(signal) {
   try {
-    await execFileAsync("claude", ["auth", "status"], { timeout: 15_000, maxBuffer: 128 * 1024 });
+    await execFileAsync("claude", ["auth", "status"], { timeout: 15_000, maxBuffer: 128 * 1024, signal });
     return true;
-  } catch {
+  } catch (error) {
+    if (signal.aborted) throw error;
     return false;
   }
 }
 
-async function askClaude(request) {
-  if (!(await claudeIsAuthenticated())) return { status: "needs_auth" };
+async function askClaude(request, signal) {
+  if (!(await claudeIsAuthenticated(signal))) {
+    return {
+      status: "error",
+      message: "Claude CLI authentication is unavailable. The engineer may need to sign in to Claude in the interactive workbench.",
+    };
+  }
   try {
-    const { stdout } = await execFileAsync("claude", claudeArgs(request), { timeout: claudeTimeoutMs, maxBuffer: maxOutputBytes });
+    const { stdout } = await execFileAsync("claude", claudeArgs(request), {
+      timeout: claudeTimeoutMs,
+      maxBuffer: maxOutputBytes,
+      signal,
+    });
     const output = stdout.trim();
-    if (needsAuth(output)) return { status: "needs_auth" };
     return output ? { status: "ok", answer: output } : { status: "error", message: "Claude returned no answer." };
-  } catch (error) {
-    const diagnostic = `${error?.stdout ?? ""}\n${error?.stderr ?? ""}`;
-    if (needsAuth(diagnostic)) return { status: "needs_auth" };
+  } catch {
+    if (signal.aborted) return { status: "error", message: "The Claude workbench request was cancelled." };
     return { status: "error", message: "The Claude workbench request failed." };
   }
 }
 
+function cancellation(request, response) {
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  request.once("aborted", abort);
+  response.once("close", abort);
+  if (request.aborted || response.destroyed) controller.abort();
+  return {
+    signal: controller.signal,
+    cleanup() {
+      request.off("aborted", abort);
+      response.off("close", abort);
+    },
+  };
+}
+
 const server = http.createServer((request, response) => {
   void route(request, response).catch((error) => {
+    if (response.destroyed) return;
     const status = error instanceof Error && error.message === "request_too_large" ? 413 : 500;
     json(response, status, { status: "error", message: status === 413 ? "Request too large." : "Capsule request failed." });
   });
@@ -83,18 +107,23 @@ async function route(request, response) {
     return;
   }
   if (method === "POST" && pathname === "/v1/ask") {
-    if (!authorized(request)) {
-      json(response, 401, { status: "error", message: "Unauthorized." });
+    const requestCancellation = cancellation(request, response);
+    try {
+      if (!authorized(request)) {
+        if (!response.destroyed) json(response, 401, { status: "error", message: "Unauthorized." });
+        return;
+      }
+      const input = await body(request);
+      if (typeof input?.request !== "string" || input.request.trim().length === 0 || input.request.length > 20_000) {
+        if (!response.destroyed) json(response, 400, { status: "error", message: "A request of 1-20,000 characters is required." });
+        return;
+      }
+      const result = await askClaude(input.request, requestCancellation.signal);
+      if (!response.destroyed) json(response, result.status === "error" ? 502 : 200, result);
       return;
+    } finally {
+      requestCancellation.cleanup();
     }
-    const input = await body(request);
-    if (typeof input?.request !== "string" || input.request.trim().length === 0 || input.request.length > 20_000) {
-      json(response, 400, { status: "error", message: "A request of 1-20,000 characters is required." });
-      return;
-    }
-    const result = await askClaude(input.request);
-    json(response, result.status === "error" ? 502 : 200, result);
-    return;
   }
   json(response, 404, { status: "error", message: "Not found." });
 }

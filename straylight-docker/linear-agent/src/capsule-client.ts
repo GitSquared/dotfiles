@@ -1,6 +1,5 @@
 export type CapsuleResult =
   | { status: "ok"; answer: string }
-  | { status: "needs_auth" }
   | { status: "error"; message: string };
 
 const MAX_RESULT_BYTES = 256 * 1024;
@@ -28,8 +27,10 @@ export class CapsuleClient {
     let payload: CapsuleResult;
     try { payload = JSON.parse(raw) as CapsuleResult; }
     catch { return { status: "error", message: `The Claude workbench returned invalid JSON (HTTP ${response.status}).` }; }
-    if (!response.ok && payload.status !== "needs_auth") return { status: "error", message: "The Claude workbench request failed." };
-    if (!payload || !["ok", "needs_auth", "error"].includes(payload.status)) return { status: "error", message: "The Claude workbench returned an invalid status." };
+    if (!payload || !["ok", "error"].includes(payload.status)) return { status: "error", message: "The Claude workbench returned an invalid status." };
+    if (payload.status === "ok" && typeof payload.answer !== "string") return { status: "error", message: "The Claude workbench returned an invalid answer." };
+    if (payload.status === "error" && typeof payload.message !== "string") return { status: "error", message: "The Claude workbench returned an invalid error." };
+    if (!response.ok && payload.status !== "error") return { status: "error", message: "The Claude workbench request failed." };
     return payload;
   }
 }

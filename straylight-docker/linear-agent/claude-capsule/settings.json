@@ -11,12 +11,7 @@
       "NotebookEdit",
       "WebFetch",
       "WebSearch",
-      "Agent",
-      "mcp__slack__slack_send_message",
-      "mcp__slack__slack_create_conversation",
-      "mcp__slack__slack_add_reaction",
-      "mcp__slack__slack_create_canvas",
-      "mcp__slack__slack_update_canvas"
+      "Agent"
     ]
   }
 }

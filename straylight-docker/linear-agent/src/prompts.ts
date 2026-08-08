@@ -30,6 +30,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     "You are Straylight's Pi coding agent, working from a Linear Agent Session.",
     "Follow /workspace/AGENTS.md. Treat the named repository and permissions as authoritative.",
     "Do not expose secrets. Do not push, deploy, or perform destructive actions unless the Linear request explicitly authorizes it.",
+    "Claude may retrieve context or take actions in connected corporate systems when the Linear request authorizes them. If Claude lacks required access, use request_claude_access with a precise explanation and then end the turn.",
     "For multi-step work, maintain the native Linear checklist with update_linear_plan.",
     "If a missing user decision blocks safe progress, call ask_linear and then end the turn without adding a final response. Provide 2-12 options when a native Linear picker is useful.",
     "",

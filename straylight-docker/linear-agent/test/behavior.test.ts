@@ -17,6 +17,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /Use the nemo repository/);
   assert.match(prompt, /Keep the change targeted/);
   assert.match(prompt, /Do not push/);
+  assert.match(prompt, /request_claude_access/);
+  assert.match(prompt, /take actions in connected corporate systems/);
 });
 
 test("uses the activity body for follow-ups", () => {

@@ -32,10 +32,11 @@ There are four roles:
 - `linear-agent-claude-capsule` is one engineer's persistent Claude Code identity and
   personal connection workbench. Its common image is stateless; Claude settings,
   connector approvals, and tokens live only in the named profile volume. Pi gets
-  one conversational `ask_claude` tool and describes what it needs to Claude as a
-  peer. Claude can use the engineer's existing claude.ai corporate integrations,
-  including Slack, Notion, Google Drive, Gmail, and others. Task containers never
-  mount or receive the capsule profile or its reusable control token.
+  conversational `ask_claude` and `request_claude_access` tools. Claude can use
+  the engineer's existing claude.ai corporate integrations—including Slack,
+  Notion, Google Drive, Gmail, and others—to retrieve context or carry out actions
+  authorized by the Linear request. Task containers never mount or receive the
+  capsule profile or its reusable control token.
 
 The controller and task containers use separate Docker networks. The workbench
 joins both but authenticates its controller API with
@@ -75,9 +76,10 @@ comments:
 - unassignment, terminal issue status, team-access removal, and OAuth revocation
   cancel affected work
 
-The `auth` signal is emitted only by the fixed `ask_claude` tool when Claude
-reports a missing login, connection, approval, or permission. It always links to
-the same first-party workbench instructions page.
+Pi judges Claude's answer itself. When a login, connection, approval, or
+permission is missing, Pi calls the separate `request_claude_access` tool with a
+specific user-facing explanation. The resulting `auth` signal always links to
+the same first-party workbench instructions page; Pi cannot supply another URL.
 
 ## Host data layout
 
@@ -152,16 +154,18 @@ a task jail.
 Headless `ask_claude` calls run Claude on Sonnet in `auto` permission mode.
 They use the connectors already visible in the engineer's claude.ai account; no
 separate Slack MCP server or OAuth application is configured by this stack. The
-connection-agent prompt limits corporate integrations to retrieving context and
-forbids send/create/edit/delete/react operations. Local shell, filesystem, web,
-and sub-agent tools are also denied in the headless capsule settings. The
-fixed capsule API remains authenticated: a task jail uses its existing one-time
-runner token to call the workbench, and the workbench uses the private capsule
-control token. Neither reusable token nor the Claude profile enters a task jail.
+connection-agent prompt permits retrieving context and performing actions within
+Pi's concrete request. Corporate connectors are action-capable; local shell,
+filesystem, web, and sub-agent tools remain denied because the capsule is a
+corporate connection workbench rather than a second coding environment. The fixed
+capsule API remains authenticated: a task jail uses its existing one-time runner
+token to call the workbench, and the workbench uses the private capsule control
+token. Neither reusable token nor the Claude profile enters a task jail.
 
-If Claude reports that any login, connector, approval, or permission is missing,
-Linear opens a generic instructions page. SSH into Straylight and launch the real
-interactive workbench:
+If Pi judges from Claude's answer or error that a login, connector, approval, or
+permission is missing, it sends a specific explanation to Linear and attaches the
+generic instructions page. SSH into Straylight and launch the real interactive
+workbench:
 
 ```sh
 cd /home/gaby/straylight-docker
@@ -174,6 +178,11 @@ needed service. Exit when finished, return to Linear, and reply `resume`. The
 instructions are deliberately provider-neutral: Linear never receives an OAuth
 code or provider credential. The prototype has no web terminal, callback broker,
 second Linear app, durable OAuth ledger, or new queue.
+
+Cancellation is propagated across the task request, workbench proxy, capsule HTTP
+request, and Claude child process. A Linear stop or task disconnect therefore
+terminates in-flight side-kick work instead of letting it run until the five-minute
+capsule timeout.
 
 ## Linear application configuration
 
