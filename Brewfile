@@ -179,10 +179,10 @@ cask "font-jetbrains-mono-nerd-font", args: { fontdir: "/Library/Fonts" }
 cask "gcloud-cli"
 # Terminal emulator that uses platform-native UI and GPU acceleration
 cask "ghostty"
-# Free and open-source image editor
-cask "gimp"
 # Open-source video transcoder
 cask "handbrake-app"
+# App to manage software development and track bugs
+cask "linear"
 # Adaptive brightness for external displays
 cask "lunar"
 # Untraceable cryptocurrency wallet
