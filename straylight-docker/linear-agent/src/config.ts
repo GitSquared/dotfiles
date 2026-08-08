@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 export type ControllerConfig = {
@@ -25,6 +26,8 @@ export type RunnerConfig = {
   progressDebounceMs: number;
   progressHeartbeatMs: number;
   authToken: string; // yadm-secret-scan: ignore
+  capsuleUrl: string;
+  capsuleAuthUrl: string;
 };
 
 export type WorkbenchConfig = {
@@ -45,11 +48,21 @@ export type WorkbenchConfig = {
   taskMemoryBytes: number;
   taskNanoCpus: number;
   taskPidsLimit: number;
+  capsuleUrl: string;
+  capsuleAuthUrl: string;
+  capsuleControlToken: string; // yadm-secret-scan: ignore
 };
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
   const value = env[name]?.trim();
   if (!value) throw new Error(`Required environment variable is missing: ${name}`);
+  return value;
+}
+
+function secretFile(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const filename = absolutePath(env, name, fallback);
+  const value = fs.readFileSync(filename, "utf8").trim();
+  if (value.length < 32) throw new Error(`${name} must contain at least 32 characters`);
   return value;
 }
 
@@ -118,6 +131,8 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
     progressDebounceMs: positiveInteger(env, "PI_PROGRESS_DEBOUNCE_MS", 3_000),
     progressHeartbeatMs: positiveInteger(env, "PI_PROGRESS_HEARTBEAT_MS", 300_000),
     authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
+    capsuleUrl: serviceUrl(env, "CAPSULE_URL", "http://linear-agent-claude-capsule:8790"),
+    capsuleAuthUrl: httpsUrl(env, "CAPSULE_AUTH_URL"),
   };
 }
 
@@ -127,8 +142,8 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     port: positiveInteger(env, "PORT", 8788),
     authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
     dockerSocket: absolutePath(env, "PI_DOCKER_SOCKET", "/var/run/docker.sock"),
-    taskImage: env.PI_TASK_IMAGE?.trim() || "straylight-linear-agent-runner:local",
-    taskNetwork: env.PI_TASK_NETWORK?.trim() || "straylight-linear-agent-tasks",
+    taskImage: env.PI_TASK_IMAGE?.trim() || "linear-agent-runner:local",
+    taskNetwork: env.PI_TASK_NETWORK?.trim() || "linear-agent-tasks",
     hostRoot: absolutePath(env, "PI_HOST_ROOT", "/home/gaby/straylight-docker/linear-agent"),
     dataDirectory: absolutePath(env, "PI_WORKBENCH_DATA_DIR", "/workbench/data"),
     workspaceRunsDirectory: absolutePath(env, "PI_WORKSPACE_RUNS_DIR", "/workbench/workspace-runs"),
@@ -140,6 +155,9 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     taskMemoryBytes: positiveInteger(env, "PI_TASK_MEMORY_BYTES", 4 * 1024 * 1024 * 1024),
     taskNanoCpus: positiveInteger(env, "PI_TASK_NANO_CPUS", 2_000_000_000),
     taskPidsLimit: positiveInteger(env, "PI_TASK_PIDS_LIMIT", 512),
+    capsuleUrl: serviceUrl(env, "CAPSULE_URL", "http://linear-agent-claude-capsule:8790"),
+    capsuleAuthUrl: httpsUrl(env, "CAPSULE_AUTH_URL"),
+    capsuleControlToken: secretFile(env, "CAPSULE_CONTROL_TOKEN_FILE", "/run/secrets/capsule-control-token"), // yadm-secret-scan: ignore
   };
 }
 
@@ -160,6 +178,6 @@ export function publicRunnerConfig(config: RunnerConfig) {
 }
 
 export function publicWorkbenchConfig(config: WorkbenchConfig) {
-  const { authToken: _authToken, ...safe } = config; // yadm-secret-scan: ignore
+  const { authToken: _authToken, capsuleControlToken: _capsuleControlToken, ...safe } = config; // yadm-secret-scan: ignore
   return safe;
 }

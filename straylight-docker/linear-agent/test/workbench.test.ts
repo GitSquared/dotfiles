@@ -9,8 +9,8 @@ function config(): WorkbenchConfig {
     port: 8788,
     authToken: "r".repeat(32), // yadm-secret-scan: ignore
     dockerSocket: "/var/run/docker.sock",
-    taskImage: "straylight-linear-agent-runner:local",
-    taskNetwork: "straylight-linear-agent-tasks",
+    taskImage: "linear-agent-runner:local",
+    taskNetwork: "linear-agent-tasks",
     hostRoot: "/srv/linear-agent",
     dataDirectory: "/workbench/data",
     workspaceRunsDirectory: "/workbench/workspace-runs",
@@ -22,6 +22,9 @@ function config(): WorkbenchConfig {
     taskMemoryBytes: 4 * 1024 * 1024 * 1024,
     taskNanoCpus: 2_000_000_000,
     taskPidsLimit: 512,
+    capsuleUrl: "http://linear-agent-claude-capsule:8790",
+    capsuleAuthUrl: "https://straylight.example.ts.net/linear/capsule/auth",
+    capsuleControlToken: "c".repeat(32), // yadm-secret-scan: ignore
   };
 }
 
@@ -44,11 +47,14 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.HostConfig.ReadonlyRootfs, true);
   assert.deepEqual(spec.HostConfig.CapDrop, ["ALL"]);
   assert.deepEqual(spec.HostConfig.SecurityOpt, ["no-new-privileges:true"]);
-  assert.equal(spec.HostConfig.NetworkMode, "straylight-linear-agent-tasks");
+  assert.equal(spec.HostConfig.NetworkMode, "linear-agent-tasks");
   assert.equal(spec.HostConfig.Memory, 4 * 1024 * 1024 * 1024);
   assert.ok(spec.HostConfig.Binds.some((bind) => bind.endsWith(":/repositories:ro")));
   assert.ok(spec.HostConfig.Binds.some((bind) => bind.endsWith(":/workspace")));
   assert.notDeepEqual(spec.HostConfig.Binds, other.HostConfig.Binds);
   assert.equal(spec.Env.some((value) => value.startsWith("LINEAR_")), false);
+  assert.equal(spec.Env.some((value) => value.startsWith("CAPSULE_CONTROL_")), false);
   assert.equal(spec.Env.some((value) => value === "PI_RUNNER_TOKEN=task-token"), true); // yadm-secret-scan: ignore
+  assert.equal(spec.Env.some((value) => value === "CAPSULE_URL=http://linear-agent-runner:8788"), true);
+  assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
 });

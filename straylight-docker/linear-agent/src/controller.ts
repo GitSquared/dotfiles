@@ -163,7 +163,6 @@ export class AgentController {
         });
       });
     }
-    await this.updatePlan(sessionId, initialPlan());
     const taskPayload: AgentTaskPayload = structuredClone(payload);
     try {
       const repositories = await this.runner.repositories();
@@ -176,18 +175,11 @@ export class AgentController {
         message: error instanceof Error ? error.message : String(error),
       });
     }
-    let customPlan = false;
-    let startedWork = false;
     const result = await this.runner.run(taskPayload, async (event) => {
       if (state.generation !== generation) return;
       if (event.type === "plan") {
-        customPlan = true;
         await this.updatePlan(sessionId, event.steps);
         return;
-      }
-      if (!startedWork && event.content.type === "action") {
-        startedWork = true;
-        if (!customPlan) await this.updatePlan(sessionId, workingPlan());
       }
       await this.linear.createActivity(
         sessionId,
@@ -201,7 +193,6 @@ export class AgentController {
     });
     if (state.generation !== generation) return;
     if (!result.awaitingInput) {
-      if (!customPlan) await this.updatePlan(sessionId, finishedPlan(result.ok));
       await this.finish(sessionId, result);
     }
     state.running = false;
@@ -247,40 +238,19 @@ export class AgentController {
       state.running = false;
       state.startedAt = undefined;
       state.pending = undefined;
-      cancellations.push(this.runner.abort(sessionId).then(() => undefined).catch((error: unknown) => {
-        console.warn("failed to abort invalidated Pi task", {
-          sessionId,
-          reason,
-          message: error instanceof Error ? error.message : String(error),
+      const cancellation = this.runner.abort(sessionId)
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          console.warn("failed to abort invalidated Pi task", {
+            sessionId,
+            reason,
+            message: error instanceof Error ? error.message : String(error),
+          });
         });
-      }));
+      cancellations.push(cancellation);
     }
     await Promise.all(cancellations);
   }
-}
-
-function initialPlan(): AgentPlanStep[] {
-  return [
-    { content: "Understand the request and workspace context", status: "inProgress" },
-    { content: "Carry out the requested work and checks", status: "pending" },
-    { content: "Report the outcome in Linear", status: "pending" },
-  ];
-}
-
-function workingPlan(): AgentPlanStep[] {
-  return [
-    { content: "Understand the request and workspace context", status: "completed" },
-    { content: "Carry out the requested work and checks", status: "inProgress" },
-    { content: "Report the outcome in Linear", status: "pending" },
-  ];
-}
-
-function finishedPlan(ok: boolean): AgentPlanStep[] {
-  return [
-    { content: "Understand the request and workspace context", status: "completed" },
-    { content: "Carry out the requested work and checks", status: ok ? "completed" : "canceled" },
-    { content: "Report the outcome in Linear", status: "completed" },
-  ];
 }
 
 export function githubPullRequestUrl(value: string): string | undefined {

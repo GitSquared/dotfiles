@@ -219,9 +219,9 @@ services:
     labels:
       - "wud.tag.include=^v\\d+\\.\\d+\\.\\d+$$"
       - "wud.compose.file=/wud/docker-compose.yml"
-  linear-agent:
-    container_name: linear-agent
-    image: straylight-linear-agent-controller:local
+  linear-agent-controller:
+    container_name: linear-agent-controller
+    image: linear-agent-controller:local
     build:
       context: ./linear-agent
       target: controller
@@ -247,7 +247,7 @@ services:
     volumes:
       - ./linear-agent/data:/app/state
     networks:
-      - linear_agent
+      - linear_agent_control
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=64m,mode=1777
@@ -269,15 +269,19 @@ services:
       retries: 8
       start_period: 20s
     labels:
+      - "dev.straylight.linear-agent.component=controller"
       - "wud.watch=false"
   linear-agent-runner:
     container_name: linear-agent-runner
-    image: straylight-linear-agent-runner:local
+    image: linear-agent-runner:local
     build:
       context: ./linear-agent
       target: workbench
     restart: unless-stopped
     init: true
+    depends_on:
+      linear-agent-claude-capsule:
+        condition: service_healthy
     group_add:
       - "${DOCKER_GID}"
     environment:
@@ -285,8 +289,8 @@ services:
       PORT: "8788"
       PI_RUNNER_TOKEN: "${LINEAR_AGENT_RUNNER_SECRET}"
       PI_DOCKER_SOCKET: /var/run/docker.sock
-      PI_TASK_IMAGE: straylight-linear-agent-runner:local
-      PI_TASK_NETWORK: straylight-linear-agent-tasks
+      PI_TASK_IMAGE: linear-agent-runner:local
+      PI_TASK_NETWORK: linear-agent-tasks
       PI_HOST_ROOT: "${LINEAR_AGENT_HOST_ROOT:-/home/gaby/straylight-docker/linear-agent}"
       PI_WORKBENCH_DATA_DIR: /workbench/data
       PI_WORKSPACE_RUNS_DIR: /workbench/workspace-runs
@@ -298,7 +302,11 @@ services:
       PI_TASK_MEMORY_BYTES: "4294967296"
       PI_TASK_NANO_CPUS: "2000000000"
       PI_TASK_PIDS_LIMIT: "512"
+      CAPSULE_URL: http://linear-agent-claude-capsule:8790
+      CAPSULE_AUTH_URL: "${LINEAR_AGENT_PUBLIC_URL}/linear/capsule/auth"
+      CAPSULE_CONTROL_TOKEN_FILE: /run/secrets/capsule-control-token # yadm-secret-scan: ignore
     volumes:
+      - ./linear-agent/data/capsule-control-token:/run/secrets/capsule-control-token:ro # yadm-secret-scan: ignore
       - /var/run/docker.sock:/var/run/docker.sock
       - ./linear-agent/data:/workbench/data
       - ./linear-agent/pi-config:/workbench/pi-config
@@ -307,7 +315,7 @@ services:
       - ./linear-agent/workspace/runs:/workbench/workspace-runs
       - ./linear-agent/workspace/AGENTS.md:/workbench/AGENTS.md:ro
     networks:
-      - linear_agent
+      - linear_agent_control
       - linear_agent_tasks
     read_only: true
     tmpfs:
@@ -330,6 +338,49 @@ services:
       retries: 8
       start_period: 20s
     labels:
+      - "dev.straylight.linear-agent.component=runner"
+      - "wud.watch=false"
+
+  linear-agent-claude-capsule:
+    container_name: linear-agent-claude-capsule
+    image: linear-agent-claude-capsule:local
+    build:
+      context: ./linear-agent/claude-capsule
+      args:
+        CLAUDE_CODE_VERSION: "2.1.226"
+    restart: unless-stopped
+    init: true
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8790"
+      CAPSULE_CONTROL_TOKEN_FILE: /run/secrets/capsule-control-token # yadm-secret-scan: ignore
+    volumes:
+      - linear_agent_claude_profile:/home/node
+      - ./linear-agent/data/capsule-control-token:/run/secrets/capsule-control-token:ro # yadm-secret-scan: ignore
+    networks:
+      - linear_agent_tasks
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m,mode=1777
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 256
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:8790/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 15s
+      timeout: 5s
+      retries: 8
+      start_period: 20s
+    labels:
+      - "dev.straylight.linear-agent.component=claude-capsule"
       - "wud.watch=false"
 
 networks:
@@ -337,8 +388,13 @@ networks:
     ipam:
       config:
         - subnet: 172.30.10.0/24
-  linear_agent:
+  linear_agent_control:
+    name: linear-agent-control
     driver: bridge
   linear_agent_tasks:
-    name: straylight-linear-agent-tasks
+    name: linear-agent-tasks
     driver: bridge
+
+volumes:
+  linear_agent_claude_profile:
+    name: "${LINEAR_AGENT_CLAUDE_PROFILE_VOLUME:-linear-agent-claude-profile}"

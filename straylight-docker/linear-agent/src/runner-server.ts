@@ -1,5 +1,6 @@
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
+import type { CapsuleResult } from "./capsule-client.js";
 import type { RepositoryCandidate } from "./types.js";
 
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -33,6 +34,7 @@ type RunnerHarness = {
   abort(sessionId: string): Promise<boolean>;
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
+  askClaude?(token: string, request: string): Promise<CapsuleResult>; // yadm-secret-scan: ignore
 };
 
 function authorized(request: IncomingMessage, token: string): boolean { // yadm-secret-scan: ignore
@@ -63,6 +65,18 @@ export function createRunnerServer(pi: RunnerHarness, token: string): http.Serve
           error: error instanceof Error ? error.message : String(error),
         });
       }
+      return;
+    }
+    if (method === "POST" && pathname === "/v1/ask") {
+      const authorization = request.headers.authorization;
+      const taskToken = typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
+      const input = await body<{ request?: string }>(request);
+      if (!pi.askClaude || typeof input.request !== "string") {
+        json(response, 400, { status: "error", message: "Invalid Claude request." });
+        return;
+      }
+      const result = await pi.askClaude(taskToken, input.request);
+      json(response, result.status === "error" ? 502 : 200, result);
       return;
     }
     if (!authorized(request, token)) {

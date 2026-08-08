@@ -4,11 +4,19 @@ This is Straylight's owned Linear-to-Pi bridge. It contains no source or build
 dependency on `hiasinho/linear-pi-agent`; that project was only a behavioral
 reference for the first OAuth and Agent Session loop.
 
+## Stack namespace
+
+Owned services, containers, images, and networks use the `linear-agent-*` namespace.
+The persistent per-engineer profile uses the `linear-agent-claude-profile`
+volume by default. Source lives under `/home/gaby/straylight-docker/linear-agent`, with
+the capsule at `linear-agent/claude-capsule`. The stable public route remains
+`/linear`; names do not alter Linear OAuth or webhook URLs.
+
 ## Architecture and trust boundary
 
-There are three roles:
+There are four roles:
 
-- `linear-agent` is the trusted controller. It owns Linear OAuth and webhook
+- `linear-agent-controller` is the trusted controller. It owns Linear OAuth and webhook
   secrets, accepts Funnel traffic, and is the only component that calls Linear.
   It has no Pi configuration, repository, Docker socket, or task workspace.
 - `linear-agent-runner` is a narrow workbench supervisor. It receives
@@ -21,6 +29,13 @@ There are three roles:
   It has no host port, Docker socket, SSH key, other task workspace, or
   `LINEAR_*` environment variable. The container is destroyed after each turn;
   the session workspace and history remain for native Linear follow-ups.
+- `linear-agent-claude-capsule` is one engineer's persistent Claude Code identity and
+  personal connection workbench. Its common image is stateless; Claude settings,
+  connector approvals, and tokens live only in the named profile volume. Pi gets
+  one conversational `ask_claude` tool and describes what it needs to Claude as a
+  peer. Claude can use the engineer's existing claude.ai corporate integrations,
+  including Slack, Notion, Google Drive, Gmail, and others. Task containers never
+  mount or receive the capsule profile or its reusable control token.
 
 The controller and task containers use separate Docker networks. The workbench
 joins both but authenticates its controller API with
@@ -46,7 +61,7 @@ comments:
 - immediate ephemeral thoughts so a new session is acknowledged within Linear's
   responsiveness window
 - native action cards for Pi tool calls and isolated-workspace preparation
-- evolving Agent Plans, with a safe fallback while the preview API changes
+- task-specific Agent Plans only when Pi emits one; otherwise the plan stays empty
 - native elicitation; Pi's `ask_linear` tool can include 2-12 options to render a
   Linear `select` signal while still accepting free-text replies
 - structured human `stop` signals, with generation invalidation and hard task
@@ -60,10 +75,9 @@ comments:
 - unassignment, terminal issue status, team-access removal, and OAuth revocation
   cancel affected work
 
-The `auth` signal is represented by the internal protocol but is deliberately
-not exposed as an arbitrary Pi tool. It needs a real trusted account-linking
-provider and URL allowlist first; otherwise prompt-injected work could render a
-convincing phishing button inside Linear.
+The `auth` signal is emitted only by the fixed `ask_claude` tool when Claude
+reports a missing login, connection, approval, or permission. It always links to
+the same first-party workbench instructions page.
 
 ## Host data layout
 
@@ -75,6 +89,9 @@ convincing phishing button inside Linear.
   Linear Agent Session.
 - `data/tasks/<session-hash>` contains the matching Pi history, Pi config, and a
   `session.json` mapping back to the Linear session and issue.
+- `${LINEAR_AGENT_CLAUDE_PROFILE_VOLUME:-linear-agent-claude-profile}` is the Docker
+  volume containing one engineer's Claude Code home. Use a different volume name
+  for each engineer when the prototype is expanded.
 
 Existing shared `data/pi-sessions/<session-id>.jsonl` histories are copied into
 the new per-session layout lazily on first use. Persistent task data is not
@@ -88,9 +105,6 @@ Keep the existing Linear values in `/home/gaby/straylight-docker/.env` and add:
 - `LINEAR_AGENT_RUNNER_SECRET`: a new independent random value containing at
   least 32 characters. Generate one with `openssl rand -hex 32` and paste only
   the output into `.env`.
-- `DOCKER_GID`: the numeric result of `getent group docker | cut -d: -f3` on
-  Straylight. This lets the non-root workbench reach the mounted Docker socket.
-
 Optional settings:
 
 - `LINEAR_AGENT_MAX_CONCURRENT_TASKS=3`
@@ -98,7 +112,9 @@ Optional settings:
   Compose checkout ever moves elsewhere
 
 Do not reuse the Linear client secret, webhook secret, or installation secret as
-the runner secret.
+the runner secret. Do not add `DOCKER_GID` to `.env`: bootstrap derives it from
+the live `/var/run/docker.sock`, exports it only for Compose, and stops safely
+when the socket is absent or inaccessible.
 
 ## Pi authentication
 
@@ -121,6 +137,43 @@ without printing it:
 test -s linear-agent/pi-config/auth.json
 test "$(stat -c '%a' linear-agent/pi-config/auth.json)" = 600
 ```
+
+## Connection capsule authentication
+
+No Claude or Slack credential is present in an image, environment variable,
+controller state, log, or task container. Claude and MCP credentials remain only
+in the persistent per-engineer capsule profile. The named volume mounts all of
+`/home/node`, so `.claude.json`, `.claude/`, connector approvals, and settings
+created during an interactive SSH session survive image rebuilds and container
+recreation. A separate generated 0600 token
+file authorizes the workbench-to-capsule control channel and is never mounted in
+a task jail.
+
+Headless `ask_claude` calls run Claude on Sonnet in `auto` permission mode.
+They use the connectors already visible in the engineer's claude.ai account; no
+separate Slack MCP server or OAuth application is configured by this stack. The
+connection-agent prompt limits corporate integrations to retrieving context and
+forbids send/create/edit/delete/react operations. Local shell, filesystem, web,
+and sub-agent tools are also denied in the headless capsule settings. The
+fixed capsule API remains authenticated: a task jail uses its existing one-time
+runner token to call the workbench, and the workbench uses the private capsule
+control token. Neither reusable token nor the Claude profile enters a task jail.
+
+If Claude reports that any login, connector, approval, or permission is missing,
+Linear opens a generic instructions page. SSH into Straylight and launch the real
+interactive workbench:
+
+```sh
+cd /home/gaby/straylight-docker
+docker compose run --rm --no-deps --entrypoint claude \
+  linear-agent-claude-capsule --permission-mode auto --model sonnet
+```
+
+Use Claude's normal interactive UI, including `/mcp`, to connect or approve the
+needed service. Exit when finished, return to Linear, and reply `resume`. The
+instructions are deliberately provider-neutral: Linear never receives an OAuth
+code or provider credential. The prototype has no web terminal, callback broker,
+second Linear app, durable OAuth ledger, or new queue.
 
 ## Linear application configuration
 
@@ -147,8 +200,8 @@ yadm pull
 yadm bootstrap
 ```
 
-Bootstrap validates the new secrets and Docker group, prepares the task state
-directories, builds both owned image targets, reconciles the Compose stack, and
+Bootstrap validates the new secrets, derives the live Docker socket group,
+prepares the task state directories, builds all owned image targets, reconciles the Compose stack, and
 retains the existing Tailscale Funnel mapping.
 
 ## Verify
@@ -157,7 +210,7 @@ At rest, the controller and workbench should be healthy and no task container
 should exist:
 
 ```sh
-docker compose ps linear-agent linear-agent-runner
+docker compose ps linear-agent-controller linear-agent-runner linear-agent-claude-capsule
 curl -fsS http://127.0.0.1:8787/healthz | jq
 docker ps --filter label=dev.straylight.linear-agent.task=true
 sudo tailscale funnel status
@@ -189,7 +242,7 @@ Useful Linear smoke tests:
 Logs:
 
 ```sh
-docker compose logs -f linear-agent linear-agent-runner
+docker compose logs -f linear-agent-controller linear-agent-runner linear-agent-claude-capsule
 ```
 
 ## Remaining security boundary

@@ -15,6 +15,17 @@ test("rejects an unknown runner event", () => {
   assert.throws(() => parseRunnerEvent('{"type":"surprise"}'), /invalid event/);
 });
 
+test("round-trips Pi task-specific plan updates", () => {
+  const event = {
+    type: "plan" as const,
+    steps: [
+      { content: "Inspect the Slack source thread", status: "inProgress" as const },
+      { content: "Report the relevant context", status: "pending" as const },
+    ],
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);
+});
+
 test("round-trips a native Linear select signal", () => {
   const event = {
     type: "activity" as const,
@@ -25,6 +36,19 @@ test("round-trips a native Linear select signal", () => {
         { label: "Nemo", value: "GitSquared/nemo" },
         { label: "Dotfiles", value: "GitSquared/dotfiles" },
       ],
+    },
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);
+});
+
+test("round-trips a trusted Linear auth signal", () => {
+  const event = {
+    type: "activity" as const,
+    content: { type: "elicitation" as const, body: "Link the connection capsule" },
+    signal: "auth" as const,
+    signalMetadata: {
+      url: "https://straylight.example.ts.net/linear/capsule/auth",
+      providerName: "Claude workbench",
     },
   };
   assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(event).trim()), event);

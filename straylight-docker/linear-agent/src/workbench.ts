@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { CapsuleClient } from "./capsule-client.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
@@ -17,6 +18,7 @@ type ActiveTask = {
   aborted: boolean;
   client: PiRunnerClient;
   containerId: string;
+  token: string; // yadm-secret-scan: ignore
 };
 type Waiter = { resolve: (acquired: boolean) => void };
 
@@ -50,7 +52,7 @@ export function taskContainerSpec(
   const hostRepositories = path.join(config.hostRoot, "workspace", "repos");
   return {
     Image: config.taskImage,
-    Cmd: ["node", "dist/runner-index.js"],
+    Cmd: ["node", "/app/dist/runner-index.js"],
     Env: [
       "HOST=0.0.0.0",
       "PORT=8788",
@@ -62,6 +64,8 @@ export function taskContainerSpec(
       "PI_PROGRESS_DEBOUNCE_MS=3000",
       "PI_PROGRESS_HEARTBEAT_MS=300000",
       "PI_TIMEOUT_MS=1800000",
+      "CAPSULE_URL=http://linear-agent-runner:8788",
+      `CAPSULE_AUTH_URL=${config.capsuleAuthUrl}`,
     ],
     User: "node",
     WorkingDir: "/workspace",
@@ -93,6 +97,7 @@ export function taskContainerSpec(
 
 export class WorkbenchHarness {
   private readonly engine: ContainerEngine;
+  private readonly capsule: CapsuleClient;
   private readonly active = new Map<string, ActiveTask>();
   private readonly starting = new Set<string>();
   private readonly cancelled = new Set<string>();
@@ -105,6 +110,7 @@ export class WorkbenchHarness {
     engine?: ContainerEngine,
   ) {
     this.engine = engine ?? new DockerEngine(config.dockerSocket);
+    this.capsule = new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
   }
 
   async initialize(): Promise<void> {
@@ -159,7 +165,7 @@ export class WorkbenchHarness {
       const name = taskName(sessionId);
       const containerId = await this.engine.create(name, taskContainerSpec(this.config, sessionId, token));
       const client = new PiRunnerClient(`http://${name}:8788`, token);
-      active = { aborted: false, client, containerId };
+      active = { aborted: false, client, containerId, token };
       this.starting.delete(sessionId);
       this.active.set(sessionId, active);
       if (this.cancelled.delete(sessionId)) {
@@ -214,6 +220,16 @@ export class WorkbenchHarness {
     await active.client.abort(sessionId).catch(() => false);
     await this.engine.stop(active.containerId).catch(() => undefined);
     return true;
+  }
+
+  async askClaude(token: string, request: string, signal?: AbortSignal) { // yadm-secret-scan: ignore
+    const allowed = [...this.active.values()].some((task) => {
+      const supplied = Buffer.from(token);
+      const expected = Buffer.from(task.token);
+      return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
+    });
+    if (!allowed) return { status: "error" as const, message: "Unauthorized." };
+    return this.capsule.ask(request, signal);
   }
 
   async repositories(): Promise<RepositoryCandidate[]> {

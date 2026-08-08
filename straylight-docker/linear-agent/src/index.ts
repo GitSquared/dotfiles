@@ -24,5 +24,5 @@ function stop(signal: string): void {
   });
 }
 
-process.once("SIGINT", () => stop("SIGINT"));
-process.once("SIGTERM", () => stop("SIGTERM"));
+process.once("SIGINT", () => { stop("SIGINT"); });
+process.once("SIGTERM", () => { stop("SIGTERM"); });

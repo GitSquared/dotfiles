@@ -6,6 +6,11 @@ import { createRunnerServer } from "../src/runner-server.js";
 
 test("streams structured events across the controller-runner boundary", async () => {
   const harness = {
+    async askClaude(taskCredential: string, request: string) {
+      return taskCredential === "one-time-task-token" && request === "Find the context"
+        ? { status: "ok" as const, answer: "Corporate context" }
+        : { status: "error" as const, message: "Unauthorized." };
+    },
     async run(_payload: unknown, send: (event: {
       type: "activity";
       content: { type: "action"; action: string; parameter: string };
@@ -30,6 +35,13 @@ test("streams structured events across the controller-runner boundary", async ()
     assert.equal(unauthorized.status, 401);
     const health = await fetch(`http://127.0.0.1:${address.port}/healthz`);
     assert.equal(health.status, 200);
+    const claude = await fetch(`http://127.0.0.1:${address.port}/v1/ask`, {
+      method: "POST",
+      headers: { authorization: "Bearer one-time-task-token", "content-type": "application/json" },
+      body: JSON.stringify({ request: "Find the context" }),
+    });
+    assert.equal(claude.status, 200);
+    assert.deepEqual(await claude.json(), { status: "ok", answer: "Corporate context" });
     const client = new PiRunnerClient(`http://127.0.0.1:${address.port}`, token);
     const events: unknown[] = [];
     const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });

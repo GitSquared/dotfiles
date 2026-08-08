@@ -97,6 +97,24 @@ export function createServer(config: ControllerConfig, linear: LinearClient, con
       return;
     }
 
+    if (method === "GET" && matches(url.pathname, "/capsule/auth")) {
+      text(response, 200, [
+        "Straylight Claude workbench access",
+        "",
+        "Linear's button only opens these instructions. It does not receive or complete authentication.",
+        "Use your normal SSH access to open the engineer's real interactive Claude CLI:",
+        "",
+        "  cd /home/gaby/straylight-docker",
+        "  docker compose run --rm --no-deps --entrypoint claude linear-agent-claude-capsule --permission-mode auto --model sonnet",
+        "",
+        "Inside Claude, use its normal interactive UI (including /mcp) to connect or approve whatever service is needed.",
+        "The complete /home/node profile is persistent, so Claude settings and connections survive rebuilds.",
+        "When finished, exit Claude, return to Linear, and reply: resume",
+        "",
+      ].join("\n"));
+      return;
+    }
+
     if (method === "GET" && matches(url.pathname, "/install")) {
       if (!authorizedInstall(config.installSecret, installCredential(request, url))) {
         text(response, 401, "Missing or invalid install secret.\n");
