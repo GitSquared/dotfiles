@@ -20,7 +20,9 @@ function config(): WorkbenchConfig {
     piConfigSource: "/workbench/pi-config",
     toolProfileDirectory: "/tool-profile",
     memoryDirectory: "/memory",
-    maxConcurrentTasks: 3,
+    guaranteedConcurrentTasks: 3,
+    maxWarmSessions: 3,
+    warmSessionTtlMs: 600_000,
     taskStartupTimeoutMs: 30_000,
     taskMemoryBytes: 4 * 1024 * 1024 * 1024,
     taskNanoCpus: 2_000_000_000,
@@ -71,7 +73,76 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/tool-profile:/tool-profile:ro"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/memory:/memory"), true);
   assert.equal(spec.Env.some((value) => value === "PI_MEMORY_DIR=/memory"), true);
+  assert.equal(spec.Env.some((value) => value === "PI_THEME=dark"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
+});
+
+test("reuses an idle warm task and withholds supervisor capabilities between turns", async () => {
+  let runs = 0;
+  let readinessChecks = 0;
+  const stopped: string[] = [];
+  const removed: string[] = [];
+  const removedNetworks: string[] = [];
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    pull: unused,
+    create: unused,
+    start: unused,
+    async stop(id) { stopped.push(id); },
+    async remove(id) { removed.push(id); },
+    listByLabel: unused,
+    inspect: unused,
+    logs: unused,
+    createNetwork: unused,
+    connectNetwork: unused,
+    async removeNetwork(id) { removedNetworks.push(id); },
+    listNetworksByLabel: unused,
+  };
+  const harness = new WorkbenchHarness(config(), engine);
+  const token = "warm-task-token"; // yadm-secret-scan: ignore
+  const active = {
+    aborted: false,
+    client: {
+      async repositories() { readinessChecks += 1; return []; },
+      async run() {
+        runs += 1;
+        return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 };
+      },
+    },
+    containerId: "warm-task",
+    idleTimer: undefined,
+    lastUsedAt: Date.now(),
+    networkId: "warm-network",
+    networkName: "warm-network",
+    running: false,
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token,
+  };
+  const internals = harness as unknown as {
+    active: Map<string, unknown>;
+    prepareSession: () => Promise<void>;
+    syncTaskAuth: () => Promise<void>;
+  };
+  internals.active.set("session", active);
+  internals.prepareSession = async () => {};
+  internals.syncTaskAuth = async () => {};
+
+  assert.deepEqual(await harness.askClaude(token, "idle request"), { status: "error", message: "Unauthorized." });
+  await assert.rejects(harness.manageService(token, { action: "status", service: "browser" }), /Unauthorized/);
+  const result = await harness.run({ agentSession: { id: "session" } }, async () => {});
+  assert.equal(result.ok, true);
+  assert.equal(readinessChecks, 1);
+  assert.equal(runs, 1);
+  assert.equal(internals.active.get("session"), active);
+  assert.equal(active.running, false);
+  assert.deepEqual(stopped, []);
+
+  assert.equal(await harness.abort("session"), true);
+  assert.deepEqual(stopped, ["warm-task"]);
+  assert.deepEqual(removed, ["warm-task"]);
+  assert.deepEqual(removedNetworks, ["warm-network"]);
 });
 
 test("decodes multiplexed Docker logs without exposing frame headers", () => {
@@ -111,8 +182,10 @@ test("does not create a late service after its task request is cancelled", async
     aborted: false,
     client: {},
     containerId: "task",
+    lastUsedAt: Date.now(),
     networkId: "network",
     networkName: "network",
+    running: true,
     sessionId: "session",
     sessionKey: "session-key",
     services: new Map(),
@@ -152,8 +225,10 @@ test("starts the prebuilt browser image without a registry pull or runtime npx i
     aborted: false,
     client: {},
     containerId: "task",
+    lastUsedAt: Date.now(),
     networkId: "network",
     networkName: "network",
+    running: true,
     sessionId: "session",
     sessionKey: "session-key",
     services: new Map(),

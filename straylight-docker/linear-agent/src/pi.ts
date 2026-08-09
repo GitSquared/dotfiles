@@ -622,7 +622,7 @@ export class PiHarness {
         promptGuidelines: [
           "Use PostgreSQL when the project needs a real development database. Prefer disposable storage; request persistent storage only when state must survive Linear turns.",
           "Use the browser service for frontend QA. Start the project server on 0.0.0.0 inside the task, connect the Playwright client to the returned WebSocket endpoint, and browse the app through the returned task host name.",
-          "After start, check status or logs before assuming the service is ready. Services are automatically removed when the active task ends.",
+          "After start, check status or logs before assuming the service is ready. Services remain available during the short warm-session lease and are removed on stop, expiry, eviction, or failure.",
         ],
         parameters: Type.Object({
           action: Type.Union([

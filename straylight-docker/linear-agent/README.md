@@ -56,9 +56,13 @@ that authenticate only their own short-lived runner API.
 
 Task containers run as a non-root user with a read-only root filesystem, all
 Linux capabilities dropped, privilege escalation disabled, bounded tmpfs, and
-CPU, memory, and process limits. The workbench caps concurrent task containers
-(three by default), queues excess sessions, removes orphaned task containers
-after a restart, and stops a task if the controller disconnects.
+CPU, memory, and process limits. Three turns can start immediately. When demand
+is higher, the workbench samples VM CPU and available RAM every ten seconds and
+opens one additional slot whenever their rolling ten-minute p75 remains below
+75% and 80% respectively. Sustained pressure closes spare slots gradually as
+turns finish. Excess sessions queue, with no arbitrary machine-size ceiling.
+The workbench removes orphaned resources after a restart and stops a task if the
+controller disconnects.
 
 The Docker socket is intentionally confined to the small workbench supervisor,
 but possession of that socket is still host-root-equivalent. Treat the
@@ -77,7 +81,7 @@ comments:
   public mutation for updating an existing Agent Activity in place
 - native action cards for Pi tool calls and isolated-workspace preparation
 - durable task-specific Agent Plans managed with list/add/update/remove/replace
-  verbs and reconstructed from Pi history across disposable containers
+  verbs and reconstructed from Pi history whenever a warm container expires
 - one generic `linear` collaboration tool for native input requests, blockers,
   review notes, private file/image uploads, arbitrary session URLs, native
   review Documents, and rich issue attachments; input
@@ -85,7 +89,7 @@ comments:
 - structured human `stop` signals, with generation invalidation and hard task
   container cancellation so no later action is published
 - active-turn follow-ups, queued follow-ups, and conversation history across
-  disposable containers
+  warm or freshly reconstructed containers
 - ranked repository context from Linear's repository-suggestions API
 - generic session URL attachment plus automatic pull-request discovery; GitHub
   PR URLs receive Linear's native enrichment without a PR-specific Pi tool
@@ -136,7 +140,9 @@ Keep the existing Linear values in `/home/gaby/straylight-docker/.env` and add:
   the output into `.env`.
 Optional settings:
 
-- `LINEAR_AGENT_MAX_CONCURRENT_TASKS=3`
+- `LINEAR_AGENT_GUARANTEED_CONCURRENT_TASKS=3`
+- `LINEAR_AGENT_MAX_WARM_SESSIONS=3`
+- `LINEAR_AGENT_WARM_SESSION_TTL_MS=600000`
 - `LINEAR_AGENT_HOST_ROOT=/home/gaby/straylight-docker/linear-agent` if the
   Compose checkout ever moves elsewhere
 
@@ -311,10 +317,13 @@ details rather than Docker identifiers. Project servers run in the task
 container and must bind to `0.0.0.0`; the browser reaches them through the
 private network host `task`. Sidecars have read-only roots, dropped capabilities,
 no privilege escalation, CPU/memory/PID limits, no workspace mounts, and no host
-ports. All sidecars and their private network are removed when the task ends.
+ports. Sidecars and their private network stay with a warm session for up to ten
+minutes, then are removed together. Stop, cancellation, crashes, and warm-pool
+eviction remove them immediately.
 The Playwright launcher and browser binaries survive in reusable image layers,
-while browser profiles, pages, and process state remain intentionally
-disposable. Only explicitly persistent PostgreSQL files remain.
+while browser profiles, pages, and process state survive follow-ups only while
+that warm lease remains alive. Only explicitly persistent PostgreSQL files
+survive its removal.
 
 The tracked capability slices and acceptance checks live in `ROADMAP.md`.
 
@@ -350,8 +359,8 @@ the existing Tailscale Funnel mapping.
 
 ## Verify
 
-At rest, the controller and workbench should be healthy and no task container
-should exist:
+After the ten-minute warm lease expires, the controller and workbench should be
+healthy and no task container should exist:
 
 ```sh
 docker compose ps linear-agent-controller linear-agent-runner linear-agent-claude-capsule
@@ -360,11 +369,11 @@ docker ps --filter label=dev.straylight.linear-agent.task=true
 sudo tailscale funnel status
 ```
 
-The health response should report `mode: disposable-session-jails`, zero active
-tasks, and the configured concurrency limit.
+The health response should report `mode: warm-session-jails`, zero active tasks,
+the warm-task count, and adaptive-concurrency p75/slot telemetry.
 
-Then delegate a small issue. During the run, this should show one disposable
-container with no published port:
+Then delegate a small issue. During the run and its warm lease, this should show
+one session container with no published port:
 
 ```sh
 docker ps --filter label=dev.straylight.linear-agent.task=true
@@ -377,8 +386,10 @@ Useful Linear smoke tests:
    session.
 2. Start a longer command and choose **Send stop request**. Confirm the session
    reports that it stopped and the task container disappears.
-3. Send a follow-up in the completed session. Confirm the prior Pi history and
-   private workspace are reused through a new disposable container.
+3. Send a follow-up within ten minutes. Confirm the same warm workspace,
+   development processes, browser, and Pi process are reused without a new
+   container; after ten minutes, confirm history and files reconstruct in a new
+   container.
 4. Put a Git repository with an `origin` under `workspace/repos`, delegate an
    issue naming it, and confirm Pi clones into its private workspace rather than
    editing the source.

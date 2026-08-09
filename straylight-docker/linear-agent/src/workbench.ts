@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CapsuleClient } from "./capsule-client.js";
+import { AdaptiveSlots } from "./capacity.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
@@ -25,8 +26,11 @@ type ActiveTask = {
   aborted: boolean;
   client: PiRunnerClient;
   containerId: string;
+  idleTimer: ReturnType<typeof setTimeout> | undefined;
+  lastUsedAt: number;
   networkId: string;
   networkName: string;
+  running: boolean;
   sessionId: string;
   sessionKey: string;
   services: Map<DevelopmentService, ActiveService>;
@@ -85,7 +89,7 @@ export function taskContainerSpec(
       "PI_WORKDIR=/workspace",
       "PI_SESSION_DIR=/app/state/pi-sessions",
       "PI_CODING_AGENT_DIR=/home/node/.pi/agent",
-      "PI_THEME=light",
+      "PI_THEME=dark",
       "PI_PROGRESS_DEBOUNCE_MS=3000",
       "PI_PROGRESS_HEARTBEAT_MS=300000",
       "PI_TIMEOUT_MS=1800000",
@@ -131,6 +135,7 @@ export function taskContainerSpec(
 export class WorkbenchHarness {
   private readonly engine: ContainerEngine;
   private readonly capsule: CapsuleClient;
+  private readonly capacity: AdaptiveSlots;
   private readonly active = new Map<string, ActiveTask>();
   private readonly starting = new Set<string>();
   private readonly cancelled = new Set<string>();
@@ -144,6 +149,11 @@ export class WorkbenchHarness {
   ) {
     this.engine = engine ?? new DockerEngine(config.dockerSocket);
     this.capsule = new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
+    this.capacity = new AdaptiveSlots(
+      config.guaranteedConcurrentTasks,
+      () => this.runningSlots + this.waiters.size,
+      () => this.drainQueue(),
+    );
   }
 
   async initialize(): Promise<void> {
@@ -164,6 +174,7 @@ export class WorkbenchHarness {
         sessionNetworks: networks.length,
       });
     }
+    await this.capacity.start();
   }
 
   async health(): Promise<Record<string, unknown>> {
@@ -173,75 +184,127 @@ export class WorkbenchHarness {
       this.engine.listNetworksByLabel(SESSION_NETWORK_LABEL),
     ]);
     return {
-      mode: "disposable-session-jails",
-      activeTasks: this.active.size,
+      mode: "warm-session-jails",
+      activeTasks: [...this.active.values()].filter((task) => task.running).length,
+      warmTasks: [...this.active.values()].filter((task) => !task.running).length,
       queuedTasks: this.waiters.size,
       taskContainers: containers.length,
       serviceContainers: services.length,
       sessionNetworks: networks.length,
-      maxConcurrentTasks: this.config.maxConcurrentTasks,
+      adaptiveConcurrency: this.capacity.status(),
+      maxWarmSessions: this.config.maxWarmSessions,
+      warmSessionTtlMs: this.config.warmSessionTtlMs,
     };
   }
 
   async run(payload: RunRequest["payload"], send: Sender): Promise<PiResult> {
     const sessionId = payload.agentSession?.id;
     if (!sessionId) throw new Error("agentSession.id is required");
-    if (this.active.has(sessionId) || this.waiters.has(sessionId)) throw new Error("this Agent Session already has an active task jail");
+    const warm = this.active.get(sessionId);
+    if (warm?.running || this.waiters.has(sessionId) || this.starting.has(sessionId)) {
+      throw new Error("this Agent Session already has an active task jail");
+    }
+    if (warm?.idleTimer) {
+      clearTimeout(warm.idleTimer);
+      warm.idleTimer = undefined;
+    }
     const startedAt = Date.now();
-    if (this.runningSlots >= this.config.maxConcurrentTasks) {
+    if (!this.capacity.available(this.runningSlots)) {
       await send({
         type: "activity",
         content: { type: "thought", body: "This task is queued for the next isolated workbench slot." },
         ephemeral: true,
       });
     }
-    if (!(await this.acquire(sessionId))) return stoppedResult(startedAt);
-    this.starting.add(sessionId);
+    if (!(await this.acquire(sessionId))) {
+      if (warm) await this.retainWarmTask(warm);
+      return stoppedResult(startedAt);
+    }
 
-    let active: ActiveTask | undefined;
-    let networkId: string | undefined;
+    let active = warm;
+    let completed = false;
     try {
-      await send({
-        type: "activity",
-        content: {
-          type: "action",
-          action: "Preparing isolated workspace",
-          parameter: payload.agentSession?.issue?.identifier ?? "Linear Agent Session",
-        },
-        ephemeral: true,
-      });
-      await this.prepareSession(sessionId, payload);
-      if (this.cancelled.delete(sessionId)) return stoppedResult(startedAt);
-      const token = crypto.randomBytes(32).toString("base64url"); // yadm-secret-scan: ignore
-      const name = taskName(sessionId);
-      const networkName = sessionNetworkName(sessionId);
-      networkId = await this.engine.createNetwork(networkName, {
-        "dev.straylight.linear-agent.session-network": "true",
-        "dev.straylight.linear-agent.session": sessionId,
-      });
-      const containerId = await this.engine.create(name, taskContainerSpec(this.config, sessionId, token));
-      await this.engine.connectNetwork(networkId, containerId, ["task"]);
-      const client = new PiRunnerClient(`http://${name}:8788`, token);
-      active = {
-        aborted: false,
-        client,
-        containerId,
-        networkId,
-        networkName,
-        sessionId,
-        sessionKey: sessionKey(sessionId),
-        services: new Map(),
-        token,
-      };
-      this.starting.delete(sessionId);
-      this.active.set(sessionId, active);
+      if (active) {
+        await send({
+          type: "activity",
+          content: {
+            type: "action",
+            action: "Resuming warm workspace",
+            parameter: payload.agentSession?.issue?.identifier ?? "Linear Agent Session",
+          },
+          ephemeral: true,
+        });
+        try {
+          await active.client.repositories();
+        } catch {
+          await this.disposeTask(active);
+          active = undefined;
+        }
+      }
+      if (!active) {
+        this.starting.add(sessionId);
+        await send({
+          type: "activity",
+          content: {
+            type: "action",
+            action: "Preparing isolated workspace",
+            parameter: payload.agentSession?.issue?.identifier ?? "Linear Agent Session",
+          },
+          ephemeral: true,
+        });
+        await this.prepareSession(sessionId, payload);
+        if (this.cancelled.delete(sessionId)) return stoppedResult(startedAt);
+        const token = crypto.randomBytes(32).toString("base64url"); // yadm-secret-scan: ignore
+        const name = taskName(sessionId);
+        const networkName = sessionNetworkName(sessionId);
+        const networkId = await this.engine.createNetwork(networkName, {
+          "dev.straylight.linear-agent.session-network": "true",
+          "dev.straylight.linear-agent.session": sessionId,
+        });
+        let createdContainerId: string | undefined;
+        try {
+          const containerId = await this.engine.create(name, taskContainerSpec(this.config, sessionId, token));
+          createdContainerId = containerId;
+          await this.engine.connectNetwork(networkId, containerId, ["task"]);
+          const client = new PiRunnerClient(`http://${name}:8788`, token);
+          active = {
+            aborted: false,
+            client,
+            containerId,
+            idleTimer: undefined,
+            lastUsedAt: Date.now(),
+            networkId,
+            networkName,
+            running: false,
+            sessionId,
+            sessionKey: sessionKey(sessionId),
+            services: new Map(),
+            token,
+          };
+          this.active.set(sessionId, active);
+          await this.engine.start(containerId);
+          await this.waitUntilReady(client, active);
+        } catch (error) {
+          if (active) await this.disposeTask(active);
+          else {
+            if (createdContainerId) await this.engine.remove(createdContainerId).catch(() => undefined);
+            await this.engine.removeNetwork(networkId).catch(() => undefined);
+          }
+          throw error;
+        } finally {
+          this.starting.delete(sessionId);
+        }
+      } else {
+        await this.prepareSession(sessionId, payload);
+      }
+      active.aborted = false;
+      active.running = true;
       if (this.cancelled.delete(sessionId)) {
         active.aborted = true;
         return stoppedResult(startedAt);
       }
-      await this.engine.start(containerId);
-      await this.waitUntilReady(client, active);
-      const result = await client.run(payload, send);
+      const result = await active.client.run(payload, send);
+      completed = !active.aborted;
       return active.aborted ? stoppedResult(startedAt) : result;
     } catch (error) {
       if (active?.aborted) return stoppedResult(startedAt);
@@ -249,25 +312,18 @@ export class WorkbenchHarness {
     } finally {
       this.starting.delete(sessionId);
       this.cancelled.delete(sessionId);
-      this.active.delete(sessionId);
       if (active) {
-        await this.cleanupServices(active);
-        await this.engine.stop(active.containerId).catch(() => undefined);
-        await this.engine.remove(active.containerId).catch(() => undefined);
-        await this.syncTaskAuth(sessionId).catch((error: unknown) => {
-          console.warn("failed to retain refreshed Pi authentication", {
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
+        active.running = false;
+        if (completed) await this.retainWarmTask(active);
+        else await this.disposeTask(active);
       }
-      if (networkId) await this.engine.removeNetwork(networkId).catch(() => undefined);
       this.release();
     }
   }
 
   async followUp(sessionId: string, prompt: string): Promise<boolean> {
     const active = this.active.get(sessionId);
-    return active && !active.aborted ? active.client.followUp(sessionId, prompt) : false;
+    return active?.running && !active.aborted ? active.client.followUp(sessionId, prompt) : false;
   }
 
   async abort(sessionId: string): Promise<boolean> {
@@ -277,12 +333,22 @@ export class WorkbenchHarness {
       const index = this.order.indexOf(sessionId);
       if (index >= 0) this.order.splice(index, 1);
       waiting.resolve(false);
+      const warm = this.active.get(sessionId);
+      if (warm && !warm.running) {
+        warm.aborted = true;
+        await this.disposeTask(warm);
+      }
       return true;
     }
     const active = this.active.get(sessionId);
     if (!active) {
       if (!this.starting.has(sessionId)) return false;
       this.cancelled.add(sessionId);
+      return true;
+    }
+    if (!active.running) {
+      active.aborted = true;
+      await this.disposeTask(active);
       return true;
     }
     active.aborted = true;
@@ -294,6 +360,7 @@ export class WorkbenchHarness {
 
   async askClaude(token: string, request: string, signal?: AbortSignal) { // yadm-secret-scan: ignore
     const allowed = [...this.active.values()].some((task) => {
+      if (!task.running || task.aborted) return false;
       const supplied = Buffer.from(token);
       const expected = Buffer.from(task.token);
       return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
@@ -304,7 +371,7 @@ export class WorkbenchHarness {
 
   async manageService(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult> { // yadm-secret-scan: ignore
     const active = this.taskForToken(token);
-    if (!active || active.aborted) throw new Error("Unauthorized task service request");
+    if (!active?.running || active.aborted) throw new Error("Unauthorized task service request");
     if (signal?.aborted) throw new Error("Development service request was cancelled");
     if (!(["postgres", "browser"] as string[]).includes(request.service)) throw new Error("Unknown development service");
     if (!(["start", "status", "logs", "stop"] as string[]).includes(request.action)) throw new Error("Unknown development service action");
@@ -355,6 +422,59 @@ export class WorkbenchHarness {
       if (supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected)) return task;
     }
     return undefined;
+  }
+
+  private async retainWarmTask(active: ActiveTask): Promise<void> {
+    if (this.active.get(active.sessionId) !== active || active.aborted) return;
+    active.running = false;
+    active.lastUsedAt = Date.now();
+    await this.syncTaskAuth(active.sessionId).catch((error: unknown) => {
+      console.warn("failed to retain refreshed Pi authentication", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+    active.idleTimer = setTimeout(() => {
+      if (this.active.get(active.sessionId) === active && !active.running && !this.waiters.has(active.sessionId)) {
+        void this.disposeTask(active);
+      }
+    }, this.config.warmSessionTtlMs);
+    active.idleTimer.unref?.();
+
+    const idle = [...this.active.values()]
+      .filter((task) => !task.running && !this.waiters.has(task.sessionId))
+      .sort((left, right) => left.lastUsedAt - right.lastUsedAt);
+    const excess = idle.slice(0, Math.max(0, idle.length - this.config.maxWarmSessions));
+    await Promise.all(excess.map((task) => this.disposeTask(task)));
+  }
+
+  private async disposeTask(active: ActiveTask): Promise<void> {
+    if (active.idleTimer) clearTimeout(active.idleTimer);
+    active.idleTimer = undefined;
+    if (this.active.get(active.sessionId) === active) this.active.delete(active.sessionId);
+    await this.cleanupServices(active);
+    await this.engine.stop(active.containerId).catch(() => undefined);
+    await this.engine.remove(active.containerId).catch(() => undefined);
+    await this.engine.removeNetwork(active.networkId).catch(() => undefined);
+    await this.syncTaskAuth(active.sessionId).catch((error: unknown) => {
+      console.warn("failed to retain refreshed Pi authentication", {
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    this.capacity.stop();
+    for (const [sessionId, waiter] of this.waiters) {
+      waiter.resolve(false);
+      this.waiters.delete(sessionId);
+    }
+    this.order.length = 0;
+    const tasks = [...this.active.values()];
+    await Promise.all(tasks.map(async (task) => {
+      task.aborted = true;
+      if (task.running) await task.client.abort(task.sessionId).catch(() => false);
+      await this.disposeTask(task);
+    }));
   }
 
   private async startService(
@@ -574,7 +694,7 @@ export class WorkbenchHarness {
   }
 
   private acquire(sessionId: string): Promise<boolean> {
-    if (this.runningSlots < this.config.maxConcurrentTasks) {
+    if (this.capacity.available(this.runningSlots)) {
       this.runningSlots += 1;
       return Promise.resolve(true);
     }
@@ -586,7 +706,12 @@ export class WorkbenchHarness {
 
   private release(): void {
     this.runningSlots = Math.max(0, this.runningSlots - 1);
+    this.drainQueue();
+  }
+
+  private drainQueue(): void {
     while (this.order.length) {
+      if (!this.capacity.available(this.runningSlots)) return;
       const sessionId = this.order.shift();
       if (!sessionId) return;
       const waiter = this.waiters.get(sessionId);

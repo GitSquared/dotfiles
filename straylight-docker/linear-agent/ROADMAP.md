@@ -159,19 +159,30 @@ Acceptance:
 Status: design proposed; model list and routing thresholds need the engineer's
 chosen providers and models before implementation.
 
-- Store a small explicit allowlist in the persistent Pi configuration. Each
-  entry names provider/model, cost class, context capability, and task classes;
-  no task may select an unlisted model.
-- Start with deterministic task signals (scope, ambiguity, security sensitivity,
-  repository size, and requested work type) so routing itself has no model cost.
-- Prefer the cheapest allowed model that satisfies the task class. Escalate one
-  tier after a failed check, repeated tool loop, context pressure, or explicit
-  uncertainty; never silently downgrade an active task.
-- Surface the selected model and any escalation as a short ephemeral Linear
-  activity, while keeping exact billing telemetry out of the prompt.
+- Store one small explicit allowlist in persistent Pi configuration. Each entry
+  names provider/model, relative cost class, supported reasoning levels,
+  capabilities, and eligible task classes. Query Pi's authenticated model
+  runtime at startup and reject unavailable or unlisted choices.
+- Classify each turn deterministically as quick, standard, or deep from scope,
+  mutation risk, ambiguity, repository breadth, and requested work type. The
+  router itself must not spend a model call.
+- Choose the cheapest eligible model and reasoning level before each turn. Pi's
+  SDK supports changing both on an idle session, so a warm conversation can use
+  a cheap model for a narrow follow-up without losing its history.
+- Escalate one tier after a failed check-and-repair cycle, repeated tool loop,
+  context pressure, or explicit uncertainty. Never silently downgrade during a
+  turn, and never select outside the engineer-owned allowlist.
+- Let subagents choose a cheaper eligible model within the parent turn's cost
+  ceiling. Review or security helpers may match the parent, but exceeding its
+  ceiling requires a surfaced escalation.
+- Surface the selection and escalation reason as short ephemeral Linear
+  activities. Record per-turn model, reasoning level, elapsed time, token usage,
+  retries, and outcome so cost efficiency means successful task cost rather
+  than cheapest individual inference.
 
-Open decision: choose the initial allowed model table and whether subagents may
-route independently within the same ceiling or must inherit the main model.
+Open decision: choose the initial allowed model table. Use relative cost classes
+in policy; keep volatile provider prices in optional telemetry metadata rather
+than hard-coding them into prompts.
 
 ## Slice 7 — Bun-native control layer
 
@@ -191,6 +202,76 @@ Node filesystem calls remain where atomic rename, POSIX modes, recursive copies,
 or directory-entry metadata are required. The image retains Node for upstream Pi
 executables and qmd's native SQLite installation, but all three Straylight entry
 points execute with Bun.
+
+## Slice 8 — warm sessions and adaptive concurrency
+
+Status: implemented and locally verified; deployed latency and capacity
+telemetry remain acceptance checks.
+
+- Retain up to three completed session workbenches for ten minutes so follow-up
+  questions reuse the Pi process, filesystem, project servers, browser, and
+  development database instead of rebuilding the container graph.
+- Disable Claude and development-service supervisor capabilities while a warm
+  task is idle. Stop, cancellation, crash, LRU eviction, expiry, or supervisor
+  shutdown removes the complete session graph.
+- Guarantee three immediately available active turns. Under additional demand,
+  sample VM CPU and available RAM every ten seconds; open one extra slot when
+  their rolling ten-minute p75 is below 75% and 80%, and close spare slots
+  gradually under sustained pressure. This deliberately has no hardware-size
+  magic number or fixed upper ceiling.
+- Report active, queued, and warm tasks plus the current adaptive slot count and
+  p75 resource readings in workbench health.
+
+Acceptance:
+
+1. Complete a turn and follow up within ten minutes; confirm the task container
+   id and running browser/project process are unchanged.
+2. Follow up after expiry; confirm a new container reconstructs Pi history and
+   workspace state.
+3. Stop both an active and idle-warm session; confirm every matching task,
+   sidecar, and private network disappears.
+4. Queue more than three simultaneous turns on a quiet VM; confirm capacity
+   grows one slot per healthy sample, then stops growing when CPU or RAM p75
+   crosses its target.
+
+## Slice 9 — measured context optimization
+
+Status: evaluated; run an RTK-only pilot before adding either package globally.
+
+- RTK has a native Pi `tool_call` adapter and transparently compacts common Git,
+  GitHub CLI, test, Playwright, search, and file-command output. Pin it in the
+  image behind a feature flag, retain an explicit raw-output escape hatch, and
+  compare total input tokens, repeat commands, missed diagnostics, and task
+  success on representative runs.
+- Do not install context-mode alongside RTK initially. It now has full Pi hooks,
+  but adds eleven MCP tools, its own FTS5 store and session continuity layer,
+  arbitrary-code execution surfaces, and mandatory routing. Those overlap the
+  existing qmd memory, web tools, sandbox, and warm Pi sessions.
+- Revisit context-mode only if telemetry shows large non-shell payloads or
+  compaction remain a material cost after RTK. If trialled, disable its upgrade,
+  hosted insight, and duplicate memory surfaces; pin the package and test its
+  hook interaction with cancellation, Linear tools, and task-local extensions.
+
+## Slice 10 — Linear as a durable control plane
+
+Status: proposed; prioritize restart recovery before broadening mutations.
+
+- Persist the controller's session registry and reconstruct pending/running
+  state from Agent Activities after a controller restart. Webhook deduplication,
+  follow-ups, plan state, and stop must remain correct across process loss.
+- Extend the existing `linear` tool with a small `manage` surface using resource
+  nouns and generic verbs. Candidate resources are issues, properties,
+  relationships, subissues, projects, and documents; do not expose raw GraphQL
+  or add one tool per mutation.
+- Pass user-supplied issue files and images into Pi as bounded multimodal input,
+  with private-file download and content-type validation in the controller.
+- Deliberately route useful Inbox notifications such as direct issue/comment
+  mentions, new comments, and reactions. Avoid treating every issue comment as
+  a new instruction; only explicit agent interactions should resume work.
+- Add lightweight acknowledgement reactions only if they improve responsiveness
+  without duplicating Agent Activities.
+- Keep automatic queue delegation in Linear Triage Rules rather than building a
+  second polling queue inside Straylight.
 
 ## Later hardening
 
