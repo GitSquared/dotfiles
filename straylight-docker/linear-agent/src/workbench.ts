@@ -95,6 +95,7 @@ export function taskContainerSpec(
       `CAPSULE_AUTH_URL=${config.capsuleAuthUrl}`,
       `TOOL_AUTH_URL=${config.toolAuthUrl}`,
       "WORKBENCH_URL=http://linear-agent-runner:8788",
+      `PI_MEMORY_DIR=${config.memoryDirectory}`,
       "GH_CONFIG_DIR=/tool-profile/gh",
       "GIT_CONFIG_GLOBAL=/tool-profile/gitconfig",
       "GIT_TERMINAL_PROMPT=0",
@@ -114,6 +115,7 @@ export function taskContainerSpec(
         `${hostWorkspace}:/workspace`,
         `${hostRepositories}:/repositories:ro`,
         `${path.join(config.hostRoot, "tool-profile")}:/tool-profile:ro`,
+        `${path.join(config.hostRoot, "memory")}:${config.memoryDirectory}`,
       ],
       CapDrop: ["ALL"],
       Init: true,
@@ -378,7 +380,7 @@ export class WorkbenchHarness {
     }
     if (service === "browser" && persistent) throw new Error("The browser service is always disposable");
     const image = service === "postgres" ? this.config.postgresImage : this.config.browserImage;
-    await this.engine.pull(image);
+    if (service === "postgres" || image !== "linear-agent-browser:local") await this.engine.pull(image);
     assertActive();
     const created = service === "postgres"
       ? await this.createPostgresService(active, persistent)
@@ -478,13 +480,16 @@ export class WorkbenchHarness {
     const containerId = await this.engine.create(name, {
       Image: this.config.browserImage,
       Cmd: [
-        "/bin/sh",
-        "-lc",
-        `npx -y playwright@${this.config.browserVersion} run-server --port 3000 --host 0.0.0.0`,
+        "node",
+        "/opt/straylight-playwright/node_modules/playwright/cli.js",
+        "run-server",
+        "--port",
+        "3000",
+        "--host",
+        "0.0.0.0",
       ],
       Env: [
         "HOME=/home/pwuser",
-        "npm_config_cache=/run/playwright/npm-cache",
         "PLAYWRIGHT_BROWSERS_PATH=/ms-playwright",
       ],
       User: "pwuser",
@@ -510,10 +515,6 @@ export class WorkbenchHarness {
         Tmpfs: {
           "/tmp": "rw,nosuid,nodev,size=1073741824,mode=1777",
           "/home/pwuser/.cache": "rw,nosuid,nodev,size=536870912,uid=1001,gid=1001,mode=0700",
-          // Docker mounts tmpfs with noexec unless explicitly overridden. npx
-          // installs the pinned Playwright launcher here, so keep execution
-          // confined to this small service-only mount instead of all of /tmp.
-          "/run/playwright": "rw,exec,nosuid,nodev,size=268435456,uid=1001,gid=1001,mode=0700",
         },
       },
     });

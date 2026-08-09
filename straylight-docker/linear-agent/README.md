@@ -72,6 +72,9 @@ comments:
 
 - immediate ephemeral thoughts so a new session is acknowledged within Linear's
   responsiveness window
+- replacement-style live streaming of Pi's user-facing prose through ephemeral
+  thoughts, followed by one durable final response; Linear currently exposes no
+  public mutation for updating an existing Agent Activity in place
 - native action cards for Pi tool calls and isolated-workspace preparation
 - durable task-specific Agent Plans managed with list/add/update/remove/replace
   verbs and reconstructed from Pi history across disposable containers
@@ -102,6 +105,9 @@ Pi cannot supply another URL.
 - `pi-config/` is Pi's persistent global profile. `auth.json` is the master
   Codex-subscription credential; global instructions and settings placed here
   are copied privately into every task.
+- `memory/` is the shared persistent Markdown notebook. Pi can write concise
+  non-secret notes directly and search them with the generic qmd-backed `memory`
+  tool across otherwise isolated Agent Sessions.
 - `workspace/repos/<name>` contains local repository sources. They are mounted
   read-only and should have an `origin` remote so Linear can rank them.
 - `workspace/runs/<session-hash>` is the persistent private workspace for one
@@ -229,9 +235,11 @@ capsule timeout.
 
 ## Developer-tool authentication
 
-The runner image contains Node.js 24 LTS, Bun, Git, GitHub CLI, build tools,
+The runner image contains Node.js 24 LTS, Bun, Git, GitHub CLI, qmd, build tools,
 Python, curl, jq, ripgrep, and fd. Pi is online and explicitly receives writable
-filesystem and shell tools inside its bounded task jail.
+filesystem and shell tools inside its bounded task jail. The source is checked
+with TypeScript 7; a separately reviewable Bun-native runtime rewrite is tracked
+in `ROADMAP.md`.
 
 GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
 
@@ -267,21 +275,40 @@ interactive browser curator. An optional `exaApiKey` may be placed in
 `tool-profile/web-search.json` if anonymous rate limits become material; the
 workbench copies it privately into each task's Pi configuration.
 
+## Persistent memory and task-local extensions
+
+The host-owned `linear-agent/memory/` folder is mounted read-write at `/memory`
+in every task. Pi writes ordinary Markdown and searches it with qmd BM25. The
+index is local to that folder and persistent; this basic mode requires no API
+credential, embedding model, or semantic-model download. Notes are context, not
+authority: Pi is instructed to verify drift-prone facts and never store secrets,
+authentication codes, or raw private transcripts.
+
+Pi loads the normal global extension directories plus the pinned web extension.
+It may create task-local extensions under `/workspace/.pi/extensions` and call
+`reload_resources`. Reload is deferred until the current model turn has ended,
+is capped at three times per run, and reports extension diagnostics back to Pi.
+Those extensions persist only with the matching session workspace; installing a
+global extension for future sessions remains an explicit SSH/admin action.
+
 ## Development services
 
 Pi's generic `service` tool supports `start`, `status`, `logs`, and `stop` for:
 
 - PostgreSQL 17.10, disposable by default or retained under the session's
   `.services/postgres` workspace directory when `persistent` is explicitly set
-- a Playwright 1.62 remote browser server for headless frontend QA
+- a Playwright 1.62 remote browser server for headless frontend QA, launched
+  from the prebuilt `linear-agent-browser:local` image without runtime `npx`
 
 Docker stays entirely behind the trusted workbench. The tool returns connection
 details rather than Docker identifiers. Project servers run in the task
 container and must bind to `0.0.0.0`; the browser reaches them through the
 private network host `task`. Sidecars have read-only roots, dropped capabilities,
 no privilege escalation, CPU/memory/PID limits, no workspace mounts, and no host
-ports. All sidecars and their private network are removed when the task ends;
-only explicitly persistent PostgreSQL files remain.
+ports. All sidecars and their private network are removed when the task ends.
+The Playwright launcher and browser binaries survive in reusable image layers,
+while browser profiles, pages, and process state remain intentionally
+disposable. Only explicitly persistent PostgreSQL files remain.
 
 The tracked capability slices and acceptance checks live in `ROADMAP.md`.
 
@@ -311,8 +338,9 @@ yadm bootstrap
 ```
 
 Bootstrap validates the new secrets, derives the live Docker socket group,
-prepares the task state directories, builds all owned image targets, reconciles the Compose stack, and
-retains the existing Tailscale Funnel mapping.
+prepares task state and memory directories, builds the owned controller, runner,
+Claude capsule, and Playwright images, reconciles the Compose stack, and retains
+the existing Tailscale Funnel mapping.
 
 ## Verify
 

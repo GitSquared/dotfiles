@@ -1,5 +1,5 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
-import { progressText } from "./redaction.js";
+import { finalText, progressText } from "./redaction.js";
 import type { RunnerEvent } from "./runner-protocol.js";
 
 type ProgressSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
@@ -12,6 +12,18 @@ function firstString(value: unknown): string | undefined {
     if (found) return found;
   }
   return undefined;
+}
+
+function assistantText(message: unknown): string {
+  if (!message || typeof message !== "object" || (message as { role?: unknown }).role !== "assistant") return "";
+  const content = (message as { content?: unknown }).content;
+  if (typeof content === "string") return content.trim();
+  if (!Array.isArray(content)) return "";
+  return content.flatMap((part) => {
+    if (!part || typeof part !== "object" || (part as { type?: unknown }).type !== "text") return [];
+    const text = (part as { text?: unknown }).text;
+    return typeof text === "string" ? [text] : [];
+  }).join("\n").trim();
 }
 
 function toolTarget(name: string, args: unknown): string | undefined {
@@ -61,6 +73,11 @@ export class ProgressReporter {
       case "agent_start":
         this.report({ type: "activity", content: { type: "thought", body: "Pi is starting the coding session." }, ephemeral: true });
         break;
+      case "message_update": {
+        const body = assistantText(event.message);
+        if (body) this.report({ type: "activity", content: { type: "thought", body: finalText(body) }, ephemeral: true });
+        break;
+      }
       case "tool_execution_start": {
         if (event.toolName === "linear" || event.toolName === "request_access" || event.toolName === "manage_plan") break;
         const target = toolTarget(event.toolName, event.args);

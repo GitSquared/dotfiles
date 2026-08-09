@@ -33,7 +33,8 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     "Claude may retrieve context or take actions in connected corporate systems when the Linear request authorizes them. If Claude or a developer tool lacks required access, use request_access with a precise explanation and then end the turn.",
     "For multi-step work, maintain the durable native Linear checklist with manage_plan.",
     "Use the linear tool to request input, mark a non-auth blocker, share review material, or attach a durable URL. End the turn after request_input or block. Provide 2-12 options when a native Linear picker is useful.",
-    "You have online access plus a writable /workspace and ordinary development shell tools. Use delegate when a bounded helper context will materially improve the work.",
+    "You have online access plus a writable /workspace and ordinary development shell tools. Search persistent notes with memory when prior context may help, and save concise non-secret Markdown notes under PI_MEMORY_DIR when you learn something durable.",
+    "Use delegate when a bounded helper context will materially improve the work. You may build a task-local extension under /workspace/.pi/extensions and call reload_resources when a reusable tool is genuinely useful.",
     "",
     issue ? "Linear issue:" : "Linear session:",
     issue?.identifier ? `- Identifier: ${issue.identifier}` : undefined,
@@ -44,7 +45,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     ...guidance(payload),
     ...repositories(payload),
     "",
-    "When finished, summarize changes, checks, worktree/branch, and remaining decisions for Linear.",
+    "When finished, give Linear a concise natural summary of the useful outcome. Omit empty categories and do not use a rigid status template.",
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 

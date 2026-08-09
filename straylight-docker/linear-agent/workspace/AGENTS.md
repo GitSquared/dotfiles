@@ -34,11 +34,30 @@ mounted at all.
 - Publish useful screenshots and reports through Linear. Use a native review
   document for substantial Markdown that should remain editable in Linear.
 
+## Persistent memory and extensions
+
+- Shared cross-session notes live in `PI_MEMORY_DIR` (normally `/memory`). Search
+  them with the `memory` tool before repeating prior investigation.
+- Write a short Markdown note when you learn a durable environment convention,
+  settle a reusable decision, or diagnose a failure likely to recur. Prefer one
+  topic per descriptively named file, include provenance or a date when useful,
+  and update an existing note instead of duplicating it.
+- Never store credentials, authentication codes, secret values, or raw private
+  transcripts in memory. Treat remembered notes as fallible context and verify
+  facts that may have drifted.
+- You may create task-local Pi extensions under `/workspace/.pi/extensions` when
+  a reusable tool would materially help. Inspect and test the code, then call
+  `reload_resources` and end the turn so Pi reloads at a clean boundary.
+- Extensions execute with the same authority as this task jail. Do not load
+  untrusted repository extensions blindly or use an extension to evade an
+  authorization boundary.
+
 ## Authority
 
 - Reading, analysis, local edits, and local checks are allowed when requested.
 - Do not push, open or merge a pull request, deploy, change external services,
   or delete a worktree unless the Linear issue or a follow-up explicitly asks.
 - Never expose credentials or secret values in Linear activities.
-- Report the repository, worktree, branch, changes, checks, and remaining
-  decisions in the final response.
+- Use Linear's native plan, input, blocker, artifact, document, and URL surfaces
+  when those interactions are useful. Finish with a concise natural summary;
+  omit empty categories and rigid status templates.

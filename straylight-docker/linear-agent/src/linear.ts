@@ -34,7 +34,29 @@ type TokenResponse = { // yadm-secret-scan: ignore
   scope?: string | string[];
   error_description?: string;
 };
-type GraphqlResponse<T> = { data?: T; errors?: Array<{ message?: string }> };
+type GraphqlError = {
+  message?: string;
+  extensions?: {
+    code?: string;
+    userPresentableMessage?: string;
+    validationErrors?: Array<{ constraints?: Record<string, string> }>;
+  };
+};
+type GraphqlResponse<T> = { data?: T; errors?: GraphqlError[] };
+
+export function documentCreateInput(issueId: string, id: string, title: string, content: string) {
+  return { id, issueId, title, content };
+}
+
+export function graphqlErrorMessage(error: GraphqlError | undefined, status: number): string {
+  if (!error) return `HTTP ${status}`;
+  const details = [
+    error.extensions?.userPresentableMessage,
+    ...(error.extensions?.validationErrors ?? []).flatMap((entry) => Object.values(entry.constraints ?? {})),
+  ].filter((value): value is string => Boolean(value?.trim()));
+  const message = error.message?.trim() || `HTTP ${status}`;
+  return details.length ? `${message}: ${details.join("; ").slice(0, 1_000)}` : message;
+}
 
 export class LinearClient {
   private readonly states: JsonStore<StateFile>;
@@ -250,7 +272,7 @@ export class LinearClient {
       `mutation CreateReviewDocument($input: DocumentCreateInput!) {
         documentCreate(input: $input) { success document { id title url } }
       }`,
-      { input: { id, issueId, title, content, icon: "📝" } },
+      { input: documentCreateInput(issueId, id, title, content) },
     );
     if (!data.documentCreate.success) throw new Error("Linear rejected document creation");
     return data.documentCreate.document;
@@ -313,7 +335,7 @@ export class LinearClient {
     });
     const payload = await response.json() as GraphqlResponse<T>;
     if (!response.ok || payload.errors?.length) {
-      throw new Error(`Linear GraphQL request failed: ${payload.errors?.[0]?.message ?? `HTTP ${response.status}`}`);
+      throw new Error(`Linear GraphQL request failed: ${graphqlErrorMessage(payload.errors?.[0], response.status)}`);
     }
     if (!payload.data) throw new Error("Linear GraphQL response contained no data");
     return payload.data;

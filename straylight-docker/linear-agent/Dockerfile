@@ -16,6 +16,18 @@ RUN npm run check \
 
 FROM oven/bun:1 AS bun
 
+FROM oven/bun:1 AS qmd
+
+WORKDIR /opt/qmd
+
+COPY qmd-package.json package.json
+COPY qmd-bun.lock bun.lock
+
+RUN bun install --frozen-lockfile --production --ignore-scripts \
+    && bun audit --production \
+    && mkdir -p /opt/qmd/bin \
+    && ln -s /opt/qmd/node_modules/@tobilu/qmd/bin/qmd /opt/qmd/bin/qmd
+
 FROM node:24-trixie-slim AS runtime-base
 
 RUN apt-get update \
@@ -61,12 +73,18 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+COPY --from=qmd --chown=root:root /opt/qmd /opt/qmd
+
+RUN cd /opt/qmd/node_modules/better-sqlite3 \
+    && npm run install \
+    && chown -R node:node /opt/qmd
 
 USER node
 
 ENV PI_CODING_AGENT_DIR=/home/node/.pi/agent \
     PI_SKIP_VERSION_CHECK=1 \
     PI_TELEMETRY=0 \
+    PATH=/opt/qmd/bin:$PATH \
     XDG_CACHE_HOME=/tmp/cache \
     npm_config_cache=/tmp/npm-cache \
     BUN_INSTALL_CACHE_DIR=/tmp/bun-cache

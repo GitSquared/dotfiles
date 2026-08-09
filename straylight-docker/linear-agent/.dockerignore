@@ -3,6 +3,8 @@
 !Dockerfile
 !package.json
 !package-lock.json
+!qmd-package.json
+!qmd-bun.lock
 !tsconfig.json
 !src/**
 !test/**

@@ -20,6 +20,9 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /request_access/);
   assert.match(prompt, /manage_plan/);
   assert.match(prompt, /take actions in connected corporate systems/);
+  assert.match(prompt, /persistent notes with memory/);
+  assert.match(prompt, /reload_resources/);
+  assert.doesNotMatch(prompt, /worktree\/branch/);
 });
 
 test("uses the activity body for follow-ups", () => {

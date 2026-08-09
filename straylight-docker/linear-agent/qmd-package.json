@@ -1,0 +1,9 @@
+{
+  "private": true,
+  "dependencies": {
+    "@tobilu/qmd": "2.5.3"
+  },
+  "overrides": {
+    "@hono/node-server": "2.1.0"
+  }
+}

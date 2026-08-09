@@ -28,6 +28,7 @@
 !/straylight-docker/linear-agent/
 !/straylight-docker/linear-agent/**
 /straylight-docker/linear-agent/data/
+/straylight-docker/linear-agent/memory/
 /straylight-docker/linear-agent/dist/
 /straylight-docker/linear-agent/node_modules/
 /straylight-docker/linear-agent/pi-config/*

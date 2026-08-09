@@ -307,8 +307,9 @@ services:
       PI_TASK_NANO_CPUS: "2000000000"
       PI_TASK_PIDS_LIMIT: "512"
       PI_POSTGRES_IMAGE: "postgres:17.10-bookworm"
-      PI_BROWSER_IMAGE: "mcr.microsoft.com/playwright:v1.62.0-noble"
+      PI_BROWSER_IMAGE: "linear-agent-browser:local"
       PI_BROWSER_VERSION: "1.62.0"
+      PI_MEMORY_DIR: /memory
       PI_SERVICE_MEMORY_BYTES: "2147483648"
       PI_SERVICE_NANO_CPUS: "1000000000"
       PI_SERVICE_PIDS_LIMIT: "256"
@@ -323,6 +324,7 @@ services:
       - ./linear-agent/pi-config:/workbench/pi-config
       - ./linear-agent/pi-config:/home/node/.pi/agent
       - ./linear-agent/tool-profile:/tool-profile
+      - ./linear-agent/memory:/memory
       - ./linear-agent/workspace/repos:/repositories:ro
       - ./linear-agent/workspace/runs:/workbench/workspace-runs
       - ./linear-agent/workspace/AGENTS.md:/workbench/AGENTS.md:ro

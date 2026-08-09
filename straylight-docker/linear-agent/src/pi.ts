@@ -3,7 +3,8 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -25,14 +26,75 @@ import type { AgentTaskPayload } from "./types.js";
 
 type ManagedSession = {
   session: AgentSession;
+  resourceLoader: DefaultResourceLoader;
   unsubscribe: () => void;
   reporter: { current: ProgressReporter | undefined };
-  runState: { current: { send: RunnerSender; awaitingInput: boolean } | undefined };
+  runState: { current: { send: RunnerSender; awaitingInput: boolean; reloadRequested: boolean; reloadCount: number } | undefined };
 };
 
 type RunnerSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 
 const require = createRequire(import.meta.url);
+const execFileAsync = promisify(execFile);
+
+async function acquireMemoryLock(memoryDirectory: string): Promise<() => Promise<void>> {
+  const lockDirectory = path.join(memoryDirectory, ".qmd.lock");
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    try {
+      await fs.mkdir(lockDirectory, { mode: 0o700 });
+      return () => fs.rm(lockDirectory, { recursive: true, force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const stat = await fs.stat(lockDirectory).catch(() => undefined);
+      if (stat && Date.now() - stat.mtimeMs > 5 * 60_000) {
+        await fs.rm(lockDirectory, { recursive: true, force: true });
+        continue;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw new Error("Persistent memory search is busy; retry shortly");
+}
+
+async function qmdSearch(memoryDirectory: string, query: string, limit: number): Promise<string> {
+  await fs.mkdir(memoryDirectory, { recursive: true, mode: 0o700 });
+  const release = await acquireMemoryLock(memoryDirectory);
+  try {
+    const projectConfig = path.join(memoryDirectory, ".qmd", "index.yml");
+    try {
+      await fs.access(projectConfig);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await execFileAsync("qmd", ["init"], { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 });
+    }
+    try {
+      await execFileAsync("qmd", ["collection", "show", "memory"], {
+        cwd: memoryDirectory,
+        timeout: 30_000,
+        maxBuffer: 1_000_000,
+      });
+    } catch {
+      await execFileAsync("qmd", ["collection", "add", ".", "--name", "memory"], {
+        cwd: memoryDirectory,
+        timeout: 30_000,
+        maxBuffer: 1_000_000,
+      });
+    }
+    await execFileAsync("qmd", ["update"], { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 });
+    const { stdout } = await execFileAsync(
+      "qmd",
+      ["search", query, "--collection", "memory", "--format", "json", "-n", String(limit)],
+      { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 },
+    );
+    const results = JSON.parse(stdout) as unknown;
+    if (!Array.isArray(results)) throw new Error("qmd returned an unexpected search result");
+    if (!results.length) return "No matching persistent notes found.";
+    return JSON.stringify(results.slice(0, limit), null, 2).slice(0, 50_000);
+  } finally {
+    await release();
+  }
+}
 
 function webAccessExtensionPath(): string {
   return path.join(path.dirname(require.resolve("pi-web-access/package.json")), "index.ts");
@@ -227,7 +289,7 @@ export class PiHarness {
     const reporter = new ProgressReporter(send, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
     const managed = await this.session(sessionId);
     managed.reporter.current = reporter;
-    const runState = { send, awaitingInput: false };
+    const runState = { send, awaitingInput: false, reloadRequested: false, reloadCount: 0 };
     managed.runState.current = runState;
     let output = "";
     let timedOut = false;
@@ -241,7 +303,7 @@ export class PiHarness {
       reporter.start();
       const prompt = payload.action === "prompted" ? followUpPrompt(payload) : initialPrompt(payload);
       await Promise.race([
-        managed.session.prompt(prompt),
+        this.promptWithReload(managed, prompt, runState),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
             timedOut = true;
@@ -292,6 +354,29 @@ export class PiHarness {
     return true;
   }
 
+  private async promptWithReload(
+    managed: ManagedSession,
+    initial: string,
+    runState: NonNullable<ManagedSession["runState"]["current"]>,
+  ): Promise<void> {
+    let prompt = initial;
+    while (true) {
+      await managed.session.prompt(prompt);
+      if (!runState.reloadRequested) return;
+      if (runState.reloadCount >= 3) throw new Error("Extension reload limit reached for this Pi run");
+      runState.reloadRequested = false;
+      runState.reloadCount += 1;
+      await managed.session.reload();
+      managed.session.setActiveToolsByName(managed.session.getAllTools().map((tool) => tool.name));
+      const errors = managed.resourceLoader.getExtensions().errors;
+      const diagnostics = errors.length
+        ? `\n\nExtension diagnostics:\n${errors.map((error) => `- ${error.path}: ${error.error}`).join("\n").slice(0, 10_000)}`
+        : "";
+      if (runState.awaitingInput) return;
+      prompt = `Resources reloaded at a clean turn boundary. Continue the task with the refreshed tools and instructions.${diagnostics}`;
+    }
+  }
+
   private async session(sessionId: string): Promise<ManagedSession> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -305,7 +390,6 @@ export class PiHarness {
       cwd: this.config.piWorkdir,
       agentDir: this.config.piConfigDirectory,
       additionalExtensionPaths: [webAccessExtensionPath()],
-      noExtensions: true,
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({
@@ -313,16 +397,12 @@ export class PiHarness {
       agentDir: this.config.piConfigDirectory,
       sessionManager: manager,
       resourceLoader,
-      tools: [
-        "read", "bash", "edit", "write", "grep", "find", "ls",
-        "web_search", "source_check", "fetch_content", "get_search_content",
-        "ask_claude", "request_access", "linear", "service", "manage_plan", "delegate",
-      ],
       customTools: this.linearTools(manager, runState, reporter),
     });
     const unsubscribe = session.subscribe((event) => reporter.current?.handle(event));
     await session.bindExtensions({});
-    const managed = { session, unsubscribe, reporter, runState };
+    session.setActiveToolsByName(session.getAllTools().map((tool) => tool.name));
+    const managed = { session, resourceLoader, unsubscribe, reporter, runState };
     this.sessions.set(sessionId, managed);
     return managed;
   }
@@ -337,8 +417,49 @@ export class PiHarness {
     const capsuleAuthUrl = this.config.capsuleAuthUrl;
     const toolAuthUrl = this.config.toolAuthUrl;
     const piWorkdir = this.config.piWorkdir;
+    const memoryDirectory = this.config.memoryDirectory;
     let plan = planFromSession(manager);
     return [
+      defineTool({
+        name: "memory",
+        label: "Search persistent memory",
+        description: "Search the engineer's shared persistent Markdown notes with qmd BM25 full-text search. Notes live in PI_MEMORY_DIR and survive task containers and Linear sessions.",
+        promptSnippet: "Search durable cross-session Markdown notes before repeating prior investigation",
+        promptGuidelines: [
+          "Search memory when prior decisions, environment conventions, recurring failures, or earlier discoveries may help.",
+          "Treat notes as fallible context, not authority. Verify drift-prone facts against the live repository or current service.",
+          "Write concise Markdown notes directly under PI_MEMORY_DIR when a durable decision or reusable discovery should survive this session. Never store credentials or secret values.",
+        ],
+        parameters: Type.Object({
+          query: Type.String({ minLength: 1, maxLength: 1_000 }),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+        }),
+        async execute(_toolCallId, params) {
+          const results = await qmdSearch(memoryDirectory, params.query, params.limit ?? 5);
+          return { content: [{ type: "text", text: results }], details: {} };
+        },
+      }),
+      defineTool({
+        name: "reload_resources",
+        label: "Reload Pi resources",
+        description: "Request a clean-boundary reload after changing extensions, skills, prompts, themes, or AGENTS instructions in the task workspace.",
+        promptSnippet: "Reload newly created or updated Pi resources at the end of the current turn",
+        promptGuidelines: [
+          "Use only after writing or updating a Pi resource. Finish the current turn immediately after requesting reload.",
+          "New project extensions belong under /workspace/.pi/extensions and execute with this task jail's existing permissions.",
+          "Inspect and test extension code before loading it. Do not install or copy untrusted repository extensions blindly.",
+        ],
+        parameters: Type.Object({}),
+        async execute() {
+          const current = runState.current;
+          if (!current) throw new Error("No active Linear run");
+          current.reloadRequested = true;
+          return {
+            content: [{ type: "text", text: "Resource reload scheduled for the clean boundary after this turn. End the turn now; Pi will reload and continue automatically." }],
+            details: {},
+          };
+        },
+      }),
       defineTool({
         name: "ask_claude",
         label: "Ask Claude",

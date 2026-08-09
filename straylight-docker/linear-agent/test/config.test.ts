@@ -46,6 +46,7 @@ test("loads isolated runner defaults without Linear configuration", () => {
   });
   assert.equal(config.port, 8788);
   assert.equal(config.piWorkdir, "/workspace");
+  assert.equal(config.memoryDirectory, "/memory");
   assert.equal(config.piTimeoutMs, 1_800_000);
   assert.equal(config.capsuleUrl, "http://linear-agent-claude-capsule:8790");
   assert.equal(config.workbenchUrl, "http://linear-agent-runner:8788");

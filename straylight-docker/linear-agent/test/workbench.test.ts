@@ -19,13 +19,14 @@ function config(): WorkbenchConfig {
     workspaceInstructions: "/workbench/AGENTS.md",
     piConfigSource: "/workbench/pi-config",
     toolProfileDirectory: "/tool-profile",
+    memoryDirectory: "/memory",
     maxConcurrentTasks: 3,
     taskStartupTimeoutMs: 30_000,
     taskMemoryBytes: 4 * 1024 * 1024 * 1024,
     taskNanoCpus: 2_000_000_000,
     taskPidsLimit: 512,
     postgresImage: "postgres:17.10-bookworm",
-    browserImage: "mcr.microsoft.com/playwright:v1.62.0-noble",
+    browserImage: "linear-agent-browser:local",
     browserVersion: "1.62.0",
     serviceMemoryBytes: 2 * 1024 * 1024 * 1024,
     serviceNanoCpus: 1_000_000_000,
@@ -68,6 +69,8 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.Env.some((value) => value === "WORKBENCH_URL=http://linear-agent-runner:8788"), true);
   assert.equal(spec.Env.some((value) => value === "GH_CONFIG_DIR=/tool-profile/gh"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/tool-profile:/tool-profile:ro"), true);
+  assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/memory:/memory"), true);
+  assert.equal(spec.Env.some((value) => value === "PI_MEMORY_DIR=/memory"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
 });
 
@@ -123,4 +126,43 @@ test("does not create a late service after its task request is cancelled", async
   finishPull();
   await assert.rejects(request, /cancelled/);
   assert.equal(creates, 0);
+});
+
+test("starts the prebuilt browser image without a registry pull or runtime npx install", async () => {
+  let pulls = 0;
+  let created: Parameters<ContainerEngine["create"]>[1] | undefined;
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    async pull() { pulls += 1; },
+    async create(_name, spec) { created = spec; return "browser-container"; },
+    async start() {},
+    stop: unused,
+    remove: unused,
+    listByLabel: unused,
+    inspect: unused,
+    logs: unused,
+    createNetwork: unused,
+    connectNetwork: unused,
+    removeNetwork: unused,
+    listNetworksByLabel: unused,
+  };
+  const harness = new WorkbenchHarness(config(), engine);
+  const token = "one-time-browser-token"; // yadm-secret-scan: ignore
+  (harness as unknown as { active: Map<string, unknown> }).active.set("session", {
+    aborted: false,
+    client: {},
+    containerId: "task",
+    networkId: "network",
+    networkName: "network",
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token,
+  });
+  await harness.manageService(token, { action: "start", service: "browser" });
+  assert.equal(pulls, 0);
+  assert.equal(created?.Image, "linear-agent-browser:local");
+  assert.deepEqual(created?.Cmd.slice(0, 2), ["node", "/opt/straylight-playwright/node_modules/playwright/cli.js"]);
+  assert.equal(created?.Cmd.includes("npx"), false);
+  assert.equal(Object.keys(created?.HostConfig.Tmpfs ?? {}).includes("/run/playwright"), false);
 });

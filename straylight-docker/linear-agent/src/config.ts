@@ -21,6 +21,7 @@ export type RunnerConfig = {
   piWorkdir: string;
   piSessionDirectory: string;
   piConfigDirectory: string;
+  memoryDirectory: string;
   piTheme: string;
   piTimeoutMs: number;
   progressDebounceMs: number;
@@ -46,6 +47,7 @@ export type WorkbenchConfig = {
   workspaceInstructions: string;
   piConfigSource: string;
   toolProfileDirectory: string;
+  memoryDirectory: string;
   maxConcurrentTasks: number;
   taskStartupTimeoutMs: number;
   taskMemoryBytes: number;
@@ -136,6 +138,7 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
     piWorkdir: env.PI_WORKDIR?.trim() || "/workspace",
     piSessionDirectory: env.PI_SESSION_DIR?.trim() || "/app/state/pi-sessions",
     piConfigDirectory: env.PI_CODING_AGENT_DIR?.trim() || "/home/node/.pi/agent",
+    memoryDirectory: absolutePath(env, "PI_MEMORY_DIR", "/memory"),
     piTheme: env.PI_THEME?.trim() || "light",
     piTimeoutMs: positiveInteger(env, "PI_TIMEOUT_MS", 1_800_000),
     progressDebounceMs: positiveInteger(env, "PI_PROGRESS_DEBOUNCE_MS", 3_000),
@@ -163,13 +166,14 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     workspaceInstructions: absolutePath(env, "PI_WORKSPACE_INSTRUCTIONS", "/workbench/AGENTS.md"),
     piConfigSource: absolutePath(env, "PI_CONFIG_SOURCE", "/workbench/pi-config"),
     toolProfileDirectory: absolutePath(env, "PI_TOOL_PROFILE_DIR", "/tool-profile"),
+    memoryDirectory: absolutePath(env, "PI_MEMORY_DIR", "/memory"),
     maxConcurrentTasks: positiveInteger(env, "PI_MAX_CONCURRENT_TASKS", 3),
     taskStartupTimeoutMs: positiveInteger(env, "PI_TASK_STARTUP_TIMEOUT_MS", 30_000),
     taskMemoryBytes: positiveInteger(env, "PI_TASK_MEMORY_BYTES", 4 * 1024 * 1024 * 1024),
     taskNanoCpus: positiveInteger(env, "PI_TASK_NANO_CPUS", 2_000_000_000),
     taskPidsLimit: positiveInteger(env, "PI_TASK_PIDS_LIMIT", 512),
     postgresImage: env.PI_POSTGRES_IMAGE?.trim() || "postgres:17.10-bookworm",
-    browserImage: env.PI_BROWSER_IMAGE?.trim() || "mcr.microsoft.com/playwright:v1.62.0-noble",
+    browserImage: env.PI_BROWSER_IMAGE?.trim() || "linear-agent-browser:local",
     browserVersion: env.PI_BROWSER_VERSION?.trim() || "1.62.0",
     serviceMemoryBytes: positiveInteger(env, "PI_SERVICE_MEMORY_BYTES", 2 * 1024 * 1024 * 1024),
     serviceNanoCpus: positiveInteger(env, "PI_SERVICE_NANO_CPUS", 1_000_000_000),

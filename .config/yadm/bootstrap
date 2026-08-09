@@ -341,6 +341,7 @@ prepare_linear_agent() {
     "$LINEAR_AGENT_DIR/data" \
     "$LINEAR_AGENT_DIR/data/tasks" \
     "$LINEAR_AGENT_DIR/pi-config" \
+    "$LINEAR_AGENT_DIR/memory" \
     "$LINEAR_AGENT_DIR/tool-profile" \
     "$LINEAR_AGENT_DIR/tool-profile/gh"
   local tool_gitconfig="$LINEAR_AGENT_DIR/tool-profile/gitconfig"
@@ -389,6 +390,7 @@ reconcile_services() {
   local -a missing=()
 
   run sudo systemctl enable --now backup-config.timer backup-storage.timer
+  run docker build --tag linear-agent-browser:local "$LINEAR_AGENT_DIR/browser"
   run docker compose --project-directory "$COMPOSE_DIR" build linear-agent-controller linear-agent-runner linear-agent-claude-capsule
   run docker compose --project-directory "$COMPOSE_DIR" up -d --remove-orphans
 
