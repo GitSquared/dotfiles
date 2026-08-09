@@ -361,6 +361,10 @@ Implementation notes:
 - The controller resolves a Document mention's source comment through Linear,
   includes the root thread and at most 80 KB of current Markdown, and lets Pi
   continue with the mention body if that supporting lookup fails.
+- Because Linear delivers Document-comment mentions as Inbox notifications, the
+  controller explicitly promotes the notification to an Agent Session on the
+  root thread and preserves the mentioned child comment as the authoritative
+  source. Ordinary Document comments remain context-only.
 - Re-entry remains a compact behavioral contract over native lifecycle, plan,
   and one optional work-record Document. It is intentionally not a mandatory
   comment template or a second persisted state model.

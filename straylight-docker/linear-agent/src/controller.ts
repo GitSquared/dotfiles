@@ -61,6 +61,8 @@ export class AgentController {
   private recoveredSessions = 0;
   private lastRecovery: { at: string; restored: number; resumed: number; skipped: number; errors: number } | undefined;
   private readonly inputStats = { downloaded: 0, skipped: 0, bytes: 0 };
+  private readonly notificationSources = new Map<string, string>();
+  private readonly notificationThreadSources = new Map<string, string>();
   private readonly notificationCounts: Record<NotificationDisposition, number> = {
     agentSessionOwned: 0,
     contextOnly: 0,
@@ -310,6 +312,12 @@ export class AgentController {
       console.warn("ignored Agent Session event without an id");
       return;
     }
+    const notificationRoot = session.comment?.id;
+    const notificationSource = this.notificationSources.get(sessionId)
+      ?? (notificationRoot ? this.notificationThreadSources.get(notificationRoot) : undefined);
+    if (notificationSource && !session.sourceCommentId) session.sourceCommentId = notificationSource;
+    if (notificationSource) this.notificationSources.delete(sessionId);
+    if (notificationRoot) this.notificationThreadSources.delete(notificationRoot);
     const state = this.states.get(sessionId) ?? {
       running: false,
       awaitingInput: false,
@@ -387,9 +395,37 @@ export class AgentController {
       console.info("Linear reaction notification observed as acknowledgement", { action, issueId });
       return;
     }
-    if (["documentMention", "documentCommentMention"].includes(action)) {
+    if (action === "documentCommentMention") {
+      const commentId = payload.notification?.commentId ?? payload.notification?.comment?.id;
+      const rootCommentId = payload.notification?.parentCommentId
+        ?? payload.notification?.parentComment?.id
+        ?? commentId;
+      if (!commentId || !rootCommentId) {
+        this.recordNotification(action, "unknown");
+        console.warn("Linear Document comment mention did not include a comment id", { documentId });
+        return;
+      }
+      this.notificationThreadSources.set(rootCommentId, commentId);
+      let session: { id: string };
+      try {
+        session = await this.linear.createAgentSessionOnComment(rootCommentId);
+      } catch (error) {
+        this.notificationThreadSources.delete(rootCommentId);
+        throw error;
+      }
+      if (this.notificationThreadSources.has(rootCommentId)) this.notificationSources.set(session.id, commentId);
       this.recordNotification(action, "agentSessionOwned");
-      console.info("Linear document mention observed; AgentSessionEvent owns the instruction", { action, documentId });
+      console.info("Linear Document comment mention promoted to an Agent Session", {
+        documentId,
+        commentId,
+        rootCommentId,
+        agentSessionId: session.id,
+      });
+      return;
+    }
+    if (action === "documentMention") {
+      this.recordNotification(action, "contextOnly");
+      console.info("Linear Document-body mention has no comment thread to anchor an Agent Session", { documentId });
       return;
     }
     if (["documentEmojiReaction", "documentCommentReaction"].includes(action)) {
@@ -520,10 +556,11 @@ export class AgentController {
     const commentId = payload.agentSession?.sourceCommentId ?? payload.agentSession?.comment?.id;
     if (commentId) {
       try {
-        const review = await this.linear.documentReviewContext(commentId);
-        if (review) taskPayload.linearDocumentReview = review;
+        const context = await this.linear.commentContext(commentId);
+        taskPayload.linearSourceComment = context.comment;
+        if (context.documentReview) taskPayload.linearDocumentReview = context.documentReview;
       } catch (error) {
-        console.warn("Document review context unavailable; Pi will continue with the mention body", {
+        console.warn("Source comment context unavailable; Pi will continue with the webhook payload", {
           commentId,
           message: error instanceof Error ? error.message : String(error),
         });

@@ -14,6 +14,7 @@ import type {
   AgentActivitySignalMetadata,
   AgentPlanStep,
   AgentSessionWebhook,
+  LinearCommentContext,
   LinearDocumentReview,
   RepositoryCandidate,
   RepositorySuggestion,
@@ -72,7 +73,7 @@ const DOCUMENT_FIELDS = `
 `;
 
 const COMMENT_FIELDS = `
-  id body quotedText parentId createdAt updatedAt resolvedAt resolvingCommentId
+  id body quotedText parentId documentContentId createdAt updatedAt resolvedAt resolvingCommentId
   user { id name }
 `;
 
@@ -503,10 +504,11 @@ export class LinearClient {
     return data.agentSession;
   }
 
-  async documentReviewContext(commentId: string): Promise<LinearDocumentReview | undefined> {
+  async commentContext(commentId: string): Promise<LinearCommentContext> {
     type CommentNode = {
       id: string;
       body: string;
+      documentContentId?: string | null;
       quotedText?: string | null;
       parentId?: string | null;
       resolvedAt?: string | null;
@@ -544,24 +546,23 @@ export class LinearClient {
       { id: commentId },
     );
     const comment = data.comment;
-    if (!comment) return undefined;
+    if (!comment) throw new Error(`Linear comment ${commentId} was not found`);
+    const sourceComment = {
+      id: comment.id,
+      body: comment.body.slice(0, 8_000),
+      ...(comment.documentContentId === undefined ? {} : { documentContentId: comment.documentContentId }),
+      ...(comment.quotedText === undefined ? {} : { quotedText: comment.quotedText?.slice(0, 4_000) ?? null }),
+      ...(comment.parentId === undefined ? {} : { parentId: comment.parentId }),
+    };
     const root = comment.parent ?? comment;
     const documentContent = root.documentContent ?? comment.documentContent;
     const document = documentContent?.document;
-    if (!document) return undefined;
+    if (!document) return { comment: sourceComment };
     const thread = [root, ...(root.children?.nodes ?? [])];
     const uniqueThread = [...new Map(thread.map((entry) => [entry.id, entry])).values()];
-    return {
-      document: {
-        ...document,
-        content: (documentContent?.content ?? "").slice(0, 80_000),
-      },
-      comment: {
-        id: comment.id,
-        body: comment.body.slice(0, 8_000),
-        ...(comment.quotedText === undefined ? {} : { quotedText: comment.quotedText?.slice(0, 4_000) ?? null }),
-        ...(comment.parentId === undefined ? {} : { parentId: comment.parentId }),
-      },
+    const documentReview: LinearDocumentReview = {
+      document: { ...document, content: (documentContent?.content ?? "").slice(0, 80_000) },
+      comment: sourceComment,
       thread: uniqueThread.map((entry) => ({
         id: entry.id,
         body: entry.body.slice(0, 8_000),
@@ -571,6 +572,21 @@ export class LinearClient {
         ...(entry.user === undefined ? {} : { user: entry.user }),
       })),
     };
+    return { comment: sourceComment, documentReview };
+  }
+
+  async createAgentSessionOnComment(commentId: string): Promise<{ id: string }> {
+    const data = await this.graphql<{
+      agentSessionCreateOnComment: { success: boolean; agentSession?: { id: string } | null };
+    }>(
+      `mutation CreateAgentSessionOnDocumentComment($input: AgentSessionCreateOnComment!) {
+        agentSessionCreateOnComment(input: $input) { success agentSession { id } }
+      }`,
+      { input: { commentId } },
+    );
+    const session = data.agentSessionCreateOnComment.agentSession;
+    if (!data.agentSessionCreateOnComment.success || !session) throw new Error("Linear rejected Agent Session creation for the Document comment");
+    return session;
   }
 
   async downloadInputs(payload: AgentSessionWebhook): Promise<LinearInputDownload> {

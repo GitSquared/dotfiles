@@ -55,6 +55,16 @@ export type AppUserNotificationWebhook = {
   webhookTimestamp?: number;
   notification?: {
     documentId?: string;
+    commentId?: string;
+    parentCommentId?: string;
+    comment?: {
+      id?: string;
+      body?: string;
+      documentContentId?: string | null;
+      parentId?: string | null;
+      quotedText?: string | null;
+    } | null;
+    parentComment?: { id?: string } | null;
     issueId?: string;
     issue?: LinearIssue;
     type?: string;
@@ -132,8 +142,22 @@ export type LinearDocumentReview = {
   }>;
 };
 
+export type LinearSourceComment = {
+  id: string;
+  body: string;
+  documentContentId?: string | null;
+  parentId?: string | null;
+  quotedText?: string | null;
+};
+
+export type LinearCommentContext = {
+  comment: LinearSourceComment;
+  documentReview?: LinearDocumentReview;
+};
+
 export type AgentTaskPayload = AgentSessionWebhook & {
   linearInputs?: LinearInputFile[];
+  linearSourceComment?: LinearSourceComment;
   linearDocumentReview?: LinearDocumentReview;
   workbench?: {
     repositories?: RepositoryCandidate[];

@@ -51,9 +51,40 @@ test("makes a mention comment authoritative over an older issue instruction", ()
   assert.match(prompt, /Do not let an older issue description override the current request/);
 
   const classifier = modelSelectionPrompt(payload);
-  assert.ok(classifier.indexOf("generate a bitmap duck") < classifier.indexOf("Report the current working directory"));
+  assert.match(classifier, /generate a bitmap duck/);
   assert.match(classifier, /Current request \(authoritative\)/);
-  assert.match(classifier, /Supporting issue description/);
+  assert.doesNotMatch(classifier, /Report the current working directory/);
+});
+
+test("classifies a resolved source comment instead of the stale thread root", () => {
+  const payload = {
+    action: "created",
+    agentSession: {
+      id: "session",
+      comment: { id: "root", body: "Comment the working directory and name, then stop." },
+      issue: { identifier: "GAB-5", title: "Agent QA" },
+    },
+    linearSourceComment: {
+      id: "source",
+      body: "@straylight handle the review comments on the attached document.",
+      parentId: "root",
+    },
+  };
+  assert.equal(currentLinearRequest(payload), "@straylight handle the review comments on the attached document.");
+  assert.match(modelSelectionPrompt(payload), /handle the review comments/);
+  assert.doesNotMatch(modelSelectionPrompt(payload), /working directory/);
+});
+
+test("classifies a follow-up prompt instead of the session's original source comment", () => {
+  const payload = {
+    action: "prompted",
+    agentActivity: { content: { body: "Now publish the reviewed document." } },
+    agentSession: { id: "session", issue: { identifier: "GAB-5", title: "Agent QA" } },
+    linearSourceComment: { id: "source", body: "First inspect the document comments." },
+  };
+  assert.equal(currentLinearRequest(payload), "Now publish the reviewed document.");
+  assert.match(modelSelectionPrompt(payload), /Now publish the reviewed document/);
+  assert.doesNotMatch(modelSelectionPrompt(payload), /First inspect/);
 });
 
 test("includes bounded Document review context after the authoritative mention", () => {

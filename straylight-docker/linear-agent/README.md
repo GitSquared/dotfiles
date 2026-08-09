@@ -116,10 +116,10 @@ comments:
   authoritative Agent Session event, ordinary new comments remain context-only,
   reactions are acknowledgements, and only unassignment or a confirmed terminal
   status cancels affected work
-- direct Document-comment mentions carry the source thread, selected text, and
-  bounded current Document Markdown into Pi as supporting review context; the
-  mention itself remains the authoritative request, while unmentioned Document
-  edits and comments stay context-only
+- direct Document-comment mention notifications are promoted to an Agent Session
+  anchored on that comment thread, then carry the exact source comment, selected
+  text, thread, and bounded current Document Markdown into Pi; unmentioned
+  Document edits and comments stay context-only
 - compact re-entry guidance keeps native issue lifecycle and plan state primary,
   updates one issue-backed work-record Document only when richer orientation is
   useful, and avoids checkpoint spam or a rigid final-comment template
@@ -217,6 +217,11 @@ initial policy uses `openai-codex/gpt-5.6-luna:low`,
 `openai-codex/gpt-5.6-sol:high`, with Terra as the fallback. Pi can move only to
 the next stronger allowlisted entry via `escalate_intelligence`; it cannot pick
 an unlisted provider or model.
+
+For comment-created sessions, the controller resolves `sourceCommentId` before
+classification. The classifier receives only that current directive (plus the
+issue identifier), not an older root comment or issue description; Pi still
+receives the broader thread and issue material as supporting execution context.
 
 To inspect the models visible to the persistent Pi profile:
 

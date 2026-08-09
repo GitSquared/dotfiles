@@ -49,9 +49,9 @@ test("adds the matching Document and review thread to a comment mention", async 
   const linear = {
     async createActivity() {},
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
-    async documentReviewContext(commentId: string) {
+    async commentContext(commentId: string) {
       assert.equal(commentId, "source-comment-1");
-      return review;
+      return { comment: review.comment, documentReview: review };
     },
     async repositorySuggestions() { return []; },
   } as unknown as LinearClient;

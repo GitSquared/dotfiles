@@ -8,7 +8,11 @@ export function currentLinearRequest(payload: PromptPayload): string | undefined
   const documentMention = "linearDocumentReview" in payload
     ? payload.linearDocumentReview?.comment.body.trim()
     : undefined;
-  return documentMention
+  const sourceComment = "linearSourceComment" in payload
+    ? payload.linearSourceComment?.body.trim()
+    : undefined;
+  return sourceComment
+    || documentMention
     || payload.agentSession?.comment?.body?.trim()
     || activity
     || payload.promptContext?.trim()
@@ -24,9 +28,9 @@ export function modelSelectionPrompt(payload: PromptPayload): string {
   return [
     request ? `Current request (authoritative):\n${request}` : undefined,
     issue?.identifier ? `Issue: ${issue.identifier}` : undefined,
-    issue?.title && issue.title.trim() !== request ? `Title: ${issue.title}` : undefined,
-    issue?.description && issue.description.trim() !== request ? `Supporting issue description:\n${issue.description}` : undefined,
-    context && context !== request ? `Supporting session context:\n${context}` : undefined,
+    !request && issue?.title ? `Title: ${issue.title}` : undefined,
+    !request && issue?.description ? `Issue description:\n${issue.description}` : undefined,
+    !request && context ? `Session context:\n${context}` : undefined,
   ].filter((value): value is string => Boolean(value)).join("\n\n");
 }
 
