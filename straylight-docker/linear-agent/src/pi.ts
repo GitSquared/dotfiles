@@ -2,9 +2,6 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
-import { execFile, spawn } from "node:child_process";
-import { promisify } from "node:util";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -21,6 +18,7 @@ import { ProgressReporter } from "./progress.js";
 import { followUpPrompt, initialPrompt } from "./prompts.js";
 import { finalText, redact } from "./redaction.js";
 import type { PiResult, RunnerEvent } from "./runner-protocol.js";
+import { captureCommand, runCommand } from "./runtime.js";
 import { ServiceClient } from "./service-client.js";
 import type { AgentTaskPayload } from "./types.js";
 
@@ -35,7 +33,6 @@ type ManagedSession = {
 type RunnerSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 
 const require = createRequire(import.meta.url);
-const execFileAsync = promisify(execFile);
 
 async function acquireMemoryLock(memoryDirectory: string): Promise<() => Promise<void>> {
   const lockDirectory = path.join(memoryDirectory, ".qmd.lock");
@@ -66,23 +63,23 @@ async function qmdSearch(memoryDirectory: string, query: string, limit: number):
       await fs.access(projectConfig);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      await execFileAsync("qmd", ["init"], { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 });
+      await runCommand("qmd", ["init"], { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 });
     }
     try {
-      await execFileAsync("qmd", ["collection", "show", "memory"], {
+      await runCommand("qmd", ["collection", "show", "memory"], {
         cwd: memoryDirectory,
         timeout: 30_000,
         maxBuffer: 1_000_000,
       });
     } catch {
-      await execFileAsync("qmd", ["collection", "add", ".", "--name", "memory"], {
+      await runCommand("qmd", ["collection", "add", ".", "--name", "memory"], {
         cwd: memoryDirectory,
         timeout: 30_000,
         maxBuffer: 1_000_000,
       });
     }
-    await execFileAsync("qmd", ["update"], { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 });
-    const { stdout } = await execFileAsync(
+    await runCommand("qmd", ["update"], { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 });
+    const { stdout } = await runCommand(
       "qmd",
       ["search", query, "--collection", "memory", "--format", "json", "-n", String(limit)],
       { cwd: memoryDirectory, timeout: 30_000, maxBuffer: 1_000_000 },
@@ -217,58 +214,26 @@ async function runSubagent(
   if (thinking) args.push("--thinking", thinking);
   args.push(`Delegated ${role} task:\n${task}`);
 
-  return new Promise<string>((resolve, reject) => {
-    const child = spawn("/app/node_modules/.bin/pi", args, {
-      cwd,
-      env: process.env,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    let output = "";
-    const parseLines = () => {
-      const lines = stdout.split("\n");
-      stdout = lines.pop() ?? "";
-      for (const line of lines) {
-        try {
-          const event = JSON.parse(line) as { type?: string; message?: unknown };
-          if (event.type === "message_end" && event.message) {
-            output = messageText(event.message).trim() || output;
-          }
-        } catch {
-          // JSON mode can still include harmless startup diagnostics.
-        }
-      }
-    };
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-      parseLines();
-    });
-    child.stderr.on("data", (chunk) => {
-      if (stderr.length < 20_000) stderr += String(chunk);
-    });
-    let killTimer: NodeJS.Timeout | undefined;
-    const abort = () => {
-      child.kill("SIGTERM");
-      killTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
-      killTimer.unref();
-    };
-    if (signal?.aborted) abort();
-    else signal?.addEventListener("abort", abort, { once: true });
-    child.once("error", reject);
-    child.once("close", (code) => {
-      signal?.removeEventListener("abort", abort);
-      if (killTimer) clearTimeout(killTimer);
-      if (stdout.trim()) {
-        stdout += "\n";
-        parseLines();
-      }
-      if (signal?.aborted) return reject(new Error("Subagent was aborted"));
-      if (code !== 0) return reject(new Error(`Subagent exited ${code}: ${stderr.trim() || "no diagnostic"}`));
-      resolve((output || stderr.trim() || "Subagent completed without a textual result.").slice(0, 50_000));
-    });
+  const result = await captureCommand("/app/node_modules/.bin/pi", args, {
+    cwd,
+    env: process.env,
+    ...(signal ? { signal } : {}),
+    maxBuffer: 1_000_000,
   });
+  if (signal?.aborted) throw new Error("Subagent was aborted");
+  if (result.exitCode !== 0) {
+    throw new Error(`Subagent exited ${result.exitCode}: ${result.stderr.trim() || "no diagnostic"}`);
+  }
+  let output = "";
+  for (const line of result.stdout.split("\n")) {
+    try {
+      const event = JSON.parse(line) as { type?: string; message?: unknown };
+      if (event.type === "message_end" && event.message) output = messageText(event.message).trim() || output;
+    } catch {
+      // JSON mode can still include harmless startup diagnostics.
+    }
+  }
+  return (output || result.stderr.trim() || "Subagent completed without a textual result.").slice(0, 50_000);
 }
 
 export class PiHarness {

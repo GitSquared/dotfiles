@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import { githubPullRequestUrl, isStopRequest } from "../src/controller.js";
 import { followUpPrompt, initialPrompt } from "../src/prompts.js";
 import { finalText, progressText, redact } from "../src/redaction.js";

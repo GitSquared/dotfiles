@@ -1,32 +1,25 @@
-import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
 import type { CapsuleResult } from "./capsule-client.js";
 import type { ServiceRequest, ServiceResult } from "./service-client.js";
 import type { RepositoryCandidate } from "./types.js";
 
-const MAX_BODY_BYTES = 1024 * 1024;
+export const RUNNER_MAX_BODY_BYTES = 1024 * 1024;
 
-async function body<T>(request: IncomingMessage): Promise<T> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-    size += buffer.length;
-    if (size > MAX_BODY_BYTES) throw new Error("request_too_large");
-    chunks.push(buffer);
-  }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
+const responseHeaders = {
+  "cache-control": "no-store",
+  "x-content-type-options": "nosniff",
+};
+
+async function body<T>(request: Request): Promise<T> {
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > RUNNER_MAX_BODY_BYTES) throw new Error("request_too_large");
+  const raw = await request.arrayBuffer();
+  if (raw.byteLength > RUNNER_MAX_BODY_BYTES) throw new Error("request_too_large");
+  return JSON.parse(new TextDecoder().decode(raw)) as T;
 }
 
-function json(response: ServerResponse, status: number, value: unknown): void {
-  const output = `${JSON.stringify(value)}\n`;
-  response.writeHead(status, {
-    "cache-control": "no-store",
-    "content-length": Buffer.byteLength(output),
-    "content-type": "application/json; charset=utf-8",
-    "x-content-type-options": "nosniff",
-  });
-  response.end(output);
+function json(status: number, value: unknown): Response {
+  return Response.json(value, { status, headers: responseHeaders });
 }
 
 type RunnerHarness = {
@@ -39,131 +32,116 @@ type RunnerHarness = {
   manageService?(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult>; // yadm-secret-scan: ignore
 };
 
-function authorized(request: IncomingMessage, token: string): boolean { // yadm-secret-scan: ignore
-  return request.headers.authorization === `Bearer ${token}`;
+function authorized(request: Request, token: string): boolean { // yadm-secret-scan: ignore
+  return request.headers.get("authorization") === `Bearer ${token}`;
 }
 
-export function createRunnerServer(pi: RunnerHarness, token: string): http.Server { // yadm-secret-scan: ignore
-  return http.createServer((request, response) => {
-    void route(request, response).catch((error: unknown) => {
+function bearer(request: Request): string {
+  const authorization = request.headers.get("authorization");
+  return authorization?.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
+}
+
+export function createRunnerServer(pi: RunnerHarness, token: string): (request: Request) => Promise<Response> { // yadm-secret-scan: ignore
+  return async (request) => {
+    try {
+      return await route(request);
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("runner request failed", { message });
-      if (response.destroyed) return;
-      if (!response.headersSent) json(response, message === "request_too_large" ? 413 : 500, { ok: false, error: "internal_error" });
-      else response.end();
-    });
-  });
+      return json(message === "request_too_large" ? 413 : 500, { ok: false, error: "internal_error" });
+    }
+  };
 
-  async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const method = request.method ?? "GET";
-    const pathname = new URL(request.url ?? "/", "http://runner.internal").pathname;
+  async function route(request: Request): Promise<Response> {
+    const method = request.method;
+    const pathname = new URL(request.url).pathname;
+
     if (method === "GET" && pathname === "/healthz") {
       try {
         const details = await pi.health?.() ?? {};
-        json(response, 200, { ok: true, service: "straylight-pi-runner", ...details });
+        return json(200, { ok: true, service: "straylight-pi-runner", ...details });
       } catch (error) {
-        json(response, 503, {
+        return json(503, {
           ok: false,
           service: "straylight-pi-runner",
           error: error instanceof Error ? error.message : String(error),
         });
       }
-      return;
     }
+
     if (method === "POST" && pathname === "/v1/ask") {
-      const authorization = request.headers.authorization;
-      const taskToken = typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
       const input = await body<{ request?: string }>(request);
       if (!pi.askClaude || typeof input.request !== "string") {
-        json(response, 400, { status: "error", message: "Invalid Claude request." });
-        return;
+        return json(400, { status: "error", message: "Invalid Claude request." });
       }
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      request.once("aborted", abort);
-      response.once("close", abort);
-      if (request.aborted || response.destroyed) controller.abort();
-      let result: CapsuleResult;
-      try {
-        result = await pi.askClaude(taskToken, input.request, controller.signal);
-      } finally {
-        request.off("aborted", abort);
-        response.off("close", abort);
-      }
-      if (!response.destroyed) json(response, result.status === "error" ? 502 : 200, result);
-      return;
+      const result = await pi.askClaude(bearer(request), input.request, request.signal);
+      return json(result.status === "error" ? 502 : 200, result);
     }
+
     if (method === "POST" && pathname === "/v1/services") {
-      const authorization = request.headers.authorization;
-      const taskToken = typeof authorization === "string" && authorization.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
       const input = await body<ServiceRequest>(request);
       if (!pi.manageService || !input || typeof input !== "object") {
-        json(response, 400, { ok: false, message: "Invalid development service request." });
-        return;
+        return json(400, { ok: false, message: "Invalid development service request." });
       }
-      const controller = new AbortController();
-      const abort = () => controller.abort();
-      request.once("aborted", abort);
-      response.once("close", abort);
-      if (request.aborted || response.destroyed) controller.abort();
       try {
-        try {
-          const result = await pi.manageService(taskToken, input, controller.signal);
-          if (!response.destroyed) json(response, 200, result);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          const status = message.startsWith("Unauthorized") ? 401 : 502;
-          if (!response.destroyed) json(response, status, { ok: false, message });
-        }
-      } finally {
-        request.off("aborted", abort);
-        response.off("close", abort);
+        return json(200, await pi.manageService(bearer(request), input, request.signal));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });
       }
-      return;
     }
-    if (!authorized(request, token)) {
-      json(response, 401, { ok: false, error: "unauthorized" });
-      return;
-    }
+
+    if (!authorized(request, token)) return json(401, { ok: false, error: "unauthorized" });
+
     if (method === "GET" && pathname === "/repositories") {
-      json(response, 200, { ok: true, repositories: await pi.repositories?.() ?? [] });
-      return;
+      return json(200, { ok: true, repositories: await pi.repositories?.() ?? [] });
     }
+
     if (method === "POST" && pathname === "/run") {
       const input = await body<RunRequest>(request);
       const sessionId = input.payload.agentSession?.id;
-      if (!sessionId) {
-        json(response, 400, { ok: false, error: "missing_agent_session_id" });
-        return;
-      }
-      response.writeHead(200, {
-        "cache-control": "no-store",
-        "content-type": "application/x-ndjson; charset=utf-8",
-        "x-content-type-options": "nosniff",
-      });
-      let completed = false;
-      response.once("close", () => {
-        if (!completed) void pi.abort(sessionId).catch(() => undefined);
-      });
-      const result = await pi.run(input.payload, async (event) => {
-        if (!response.write(encodeRunnerEvent(event))) await new Promise<void>((resolve) => response.once("drain", resolve));
-      });
-      completed = true;
-      response.end(encodeRunnerEvent({ type: "result", result }));
-      return;
+      if (!sessionId) return json(400, { ok: false, error: "missing_agent_session_id" });
+      return streamRun(pi, sessionId, input.payload);
     }
+
     if (method === "POST" && pathname === "/follow-up") {
       const input = await body<SessionRequest>(request);
       const accepted = input.sessionId && input.prompt ? await pi.followUp(input.sessionId, input.prompt) : false;
-      json(response, 200, { ok: true, accepted });
-      return;
+      return json(200, { ok: true, accepted });
     }
+
     if (method === "POST" && pathname === "/abort") {
       const input = await body<SessionRequest>(request);
       const accepted = input.sessionId ? await pi.abort(input.sessionId) : false;
-      json(response, 200, { ok: true, accepted });
-      return;
+      return json(200, { ok: true, accepted });
     }
-    json(response, 404, { ok: false, error: "not_found" });
+
+    return json(404, { ok: false, error: "not_found" });
   }
+}
+
+function streamRun(pi: RunnerHarness, sessionId: string, payload: RunRequest["payload"]): Response {
+  const encoder = new TextEncoder();
+  let completed = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      void pi.run(payload, async (event) => {
+        controller.enqueue(encoder.encode(encodeRunnerEvent(event)));
+      }).then((result) => {
+        completed = true;
+        controller.enqueue(encoder.encode(encodeRunnerEvent({ type: "result", result })));
+        controller.close();
+      }).catch((error: unknown) => controller.error(error));
+    },
+    async cancel() {
+      if (!completed) await pi.abort(sessionId).catch(() => undefined);
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      ...responseHeaders,
+      "content-type": "application/x-ndjson; charset=utf-8",
+    },
+  });
 }

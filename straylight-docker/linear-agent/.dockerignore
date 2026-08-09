@@ -2,7 +2,7 @@
 !.dockerignore
 !Dockerfile
 !package.json
-!package-lock.json
+!bun.lock
 !qmd-package.json
 !qmd-bun.lock
 !tsconfig.json

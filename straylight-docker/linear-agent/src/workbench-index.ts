@@ -5,21 +5,18 @@ import { WorkbenchHarness } from "./workbench.js";
 const config = loadWorkbenchConfig(process.env);
 const workbench = new WorkbenchHarness(config);
 await workbench.initialize();
-const server = createRunnerServer(workbench, config.authToken);
-
-server.listen(config.port, config.host, () => {
-  console.log("Straylight disposable Pi workbench listening", publicWorkbenchConfig(config));
+const server = Bun.serve({
+  hostname: config.host,
+  port: config.port,
+  maxRequestBodySize: 1024 * 1024,
+  fetch: createRunnerServer(workbench, config.authToken),
 });
+console.log("Straylight disposable Pi workbench listening", publicWorkbenchConfig(config));
 
-function stop(signal: string): void {
+async function stop(signal: string): Promise<void> {
   console.log("Stopping Straylight Pi workbench", { signal });
-  server.close((error) => {
-    if (error) {
-      console.error("Pi workbench shutdown failed", { message: error.message });
-      process.exitCode = 1;
-    }
-  });
+  await server.stop();
 }
 
-process.once("SIGINT", () => stop("SIGINT"));
-process.once("SIGTERM", () => stop("SIGTERM"));
+process.once("SIGINT", () => { void stop("SIGINT"); });
+process.once("SIGTERM", () => { void stop("SIGTERM"); });

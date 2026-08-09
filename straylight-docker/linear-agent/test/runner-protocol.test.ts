@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import { encodeRunnerEvent, parseRunnerEvent } from "../src/runner-protocol.js";
 
 test("round-trips structured runner activity", () => {

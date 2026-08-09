@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import type { AddressInfo } from "node:net";
-import test from "node:test";
+import { test } from "bun:test";
 import { CapsuleClient } from "../src/capsule-client.js";
 import { PiRunnerClient } from "../src/runner-client.js";
 import { createRunnerServer } from "../src/runner-server.js";
@@ -30,31 +29,31 @@ test("streams structured events across the controller-runner boundary", async ()
     async abort(_sessionId: string) { return true; },
   };
   const token = "runner-test-token"; // yadm-secret-scan: ignore
-  const server = createRunnerServer(harness, token);
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, token),
   });
+  const baseUrl = server.url.origin;
 
   try {
-    const address = server.address() as AddressInfo;
-    const unauthorized = await fetch(`http://127.0.0.1:${address.port}/repositories`);
+    const unauthorized = await fetch(`${baseUrl}/repositories`);
     assert.equal(unauthorized.status, 401);
-    const health = await fetch(`http://127.0.0.1:${address.port}/healthz`);
+    const health = await fetch(`${baseUrl}/healthz`);
     assert.equal(health.status, 200);
-    const claude = await fetch(`http://127.0.0.1:${address.port}/v1/ask`, {
+    const claude = await fetch(`${baseUrl}/v1/ask`, {
       method: "POST",
       headers: { authorization: "Bearer one-time-task-token", "content-type": "application/json" },
       body: JSON.stringify({ request: "Find the context" }),
     });
     assert.equal(claude.status, 200);
     assert.deepEqual(await claude.json(), { status: "ok", answer: "Corporate context" });
-    const rejectedClaude = await new CapsuleClient(`http://127.0.0.1:${address.port}`, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
+    const rejectedClaude = await new CapsuleClient(baseUrl, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
     assert.deepEqual(rejectedClaude, { status: "error", message: "Unauthorized." });
-    const service = await new ServiceClient(`http://127.0.0.1:${address.port}`, "one-time-task-token").manage({ action: "start", service: "postgres" }); // yadm-secret-scan: ignore
+    const service = await new ServiceClient(baseUrl, "one-time-task-token").manage({ action: "start", service: "postgres" }); // yadm-secret-scan: ignore
     assert.equal(service.status, "starting");
     assert.deepEqual(service.connection, { host: "postgres", port: 5432 });
-    const client = new PiRunnerClient(`http://127.0.0.1:${address.port}`, token);
+    const client = new PiRunnerClient(baseUrl, token);
     const events: unknown[] = [];
     const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });
     assert.deepEqual(events, [{
@@ -66,7 +65,7 @@ test("streams structured events across the controller-runner boundary", async ()
     assert.equal(await client.followUp("session", "Continue"), true);
     assert.equal(await client.abort("session"), true);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await server.stop(true);
   }
 });
 
@@ -91,16 +90,16 @@ test("propagates a disconnected Claude request to the workbench abort signal", a
     async followUp() { return false; },
     async abort() { return false; },
   };
-  const server = createRunnerServer(harness, "runner-test-token"); // yadm-secret-scan: ignore
-  await new Promise<void>((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, "runner-test-token"), // yadm-secret-scan: ignore
   });
+  const baseUrl = server.url.origin;
 
   try {
-    const address = server.address() as AddressInfo;
     const controller = new AbortController();
-    const pending = fetch(`http://127.0.0.1:${address.port}/v1/ask`, {
+    const pending = fetch(`${baseUrl}/v1/ask`, {
       method: "POST",
       headers: { authorization: "Bearer one-time-task-token", "content-type": "application/json" },
       body: JSON.stringify({ request: "Keep working" }),
@@ -114,6 +113,6 @@ test("propagates a disconnected Claude request to the workbench abort signal", a
       new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("abort signal was not propagated")), 1_000)),
     ]);
   } finally {
-    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    await server.stop(true);
   }
 });

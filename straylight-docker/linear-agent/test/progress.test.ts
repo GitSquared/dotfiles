@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import { ProgressReporter } from "../src/progress.js";
 import type { RunnerEvent } from "../src/runner-protocol.js";
 

@@ -1,18 +1,24 @@
-FROM node:24-trixie-slim AS build
+FROM oven/bun:1 AS dependencies
 
 WORKDIR /source
 
-COPY package.json package-lock.json ./
-RUN npm install --global npm@12.0.2 \
-    && npm ci
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile --production
+
+FROM oven/bun:1 AS build
+
+WORKDIR /source
+
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
 COPY tsconfig.json ./
 COPY src ./src
 COPY test ./test
 
-RUN npm run check \
-    && npm audit --omit=dev --audit-level=high \
-    && npm prune --omit=dev
+RUN bun run check \
+    && bun run build \
+    && bun audit --production
 
 FROM oven/bun:1 AS bun
 
@@ -28,7 +34,7 @@ RUN bun install --frozen-lockfile --production --ignore-scripts \
     && mkdir -p /opt/qmd/bin \
     && ln -s /opt/qmd/node_modules/@tobilu/qmd/bin/qmd /opt/qmd/bin/qmd
 
-FROM node:24-trixie-slim AS runtime-base
+FROM node:24-trixie-slim AS runtime-system
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates \
@@ -36,25 +42,7 @@ RUN apt-get update \
     && chown -R node:node /app \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build --chown=node:node /source/package.json /source/package-lock.json /app/
-COPY --from=build --chown=node:node /source/node_modules /app/node_modules
-COPY --from=build --chown=node:node /source/dist/src /app/dist
-
-WORKDIR /app
-USER node
-
-ENV NODE_ENV=production \
-    HOME=/home/node
-
-FROM runtime-base AS controller
-
-EXPOSE 8787
-
-CMD ["node", "dist/index.js"]
-
-FROM runtime-base AS runner-base
-
-USER root
+FROM runtime-system AS runner-system
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -72,16 +60,45 @@ RUN apt-get update \
     && chown -R node:node /app/state /home/node /workspace \
     && rm -rf /var/lib/apt/lists/*
 
+FROM runtime-system AS runtime-base
+
+COPY --from=dependencies --chown=node:node /source/package.json /source/bun.lock /app/
+COPY --from=dependencies --chown=node:node /source/node_modules /app/node_modules
+COPY --from=build --chown=node:node /source/dist/src /app/dist
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+
+WORKDIR /app
+USER node
+
+ENV NODE_ENV=production \
+    HOME=/home/node
+
+FROM runtime-base AS controller
+
+EXPOSE 8787
+
+CMD ["bun", "dist/index.js"]
+
+FROM runner-system AS runner-base
+
 COPY --from=qmd --chown=root:root /opt/qmd /opt/qmd
 
 RUN cd /opt/qmd/node_modules/better-sqlite3 \
     && npm run install \
     && chown -R node:node /opt/qmd
 
+COPY --from=dependencies --chown=node:node /source/package.json /source/bun.lock /app/
+COPY --from=dependencies --chown=node:node /source/node_modules /app/node_modules
+COPY --from=build --chown=node:node /source/dist/src /app/dist
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+
+WORKDIR /app
+
 USER node
 
-ENV PI_CODING_AGENT_DIR=/home/node/.pi/agent \
+ENV NODE_ENV=production \
+    HOME=/home/node \
+    PI_CODING_AGENT_DIR=/home/node/.pi/agent \
     PI_SKIP_VERSION_CHECK=1 \
     PI_TELEMETRY=0 \
     PATH=/opt/qmd/bin:$PATH \
@@ -91,12 +108,12 @@ ENV PI_CODING_AGENT_DIR=/home/node/.pi/agent \
 
 EXPOSE 8788
 
-CMD ["node", "dist/runner-index.js"]
+CMD ["bun", "dist/runner-index.js"]
 
 FROM runner-base AS runner
 
-CMD ["node", "dist/runner-index.js"]
+CMD ["bun", "dist/runner-index.js"]
 
 FROM runner-base AS workbench
 
-CMD ["node", "dist/workbench-index.js"]
+CMD ["bun", "dist/workbench-index.js"]

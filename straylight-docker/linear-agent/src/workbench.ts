@@ -1,17 +1,15 @@
 import crypto from "node:crypto";
-import { execFile } from "node:child_process";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import { CapsuleClient } from "./capsule-client.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
 import { PiRunnerClient } from "./runner-client.js";
+import { runCommand } from "./runtime.js";
 import type { DevelopmentService, ServiceRequest, ServiceResult } from "./service-client.js";
 import type { RepositoryCandidate } from "./types.js";
 
-const execFileAsync = promisify(execFile);
 const TASK_LABEL = "dev.straylight.linear-agent.task=true";
 const SERVICE_LABEL = "dev.straylight.linear-agent.service=true";
 const SESSION_NETWORK_LABEL = "dev.straylight.linear-agent.session-network=true";
@@ -79,7 +77,7 @@ export function taskContainerSpec(
   const hostRepositories = path.join(config.hostRoot, "workspace", "repos");
   return {
     Image: config.taskImage,
-    Cmd: ["node", "/app/dist/runner-index.js"],
+    Cmd: ["bun", "/app/dist/runner-index.js"],
     Env: [
       "HOST=0.0.0.0",
       "PORT=8788",
@@ -338,7 +336,10 @@ export class WorkbenchHarness {
     const candidates = await Promise.all(entries.filter((entry) => entry.isDirectory()).slice(0, 100).map(async (entry) => {
       const repositoryPath = path.join(this.config.repositoryDirectory, entry.name);
       try {
-        const { stdout } = await execFileAsync("git", ["-C", repositoryPath, "config", "--get", "remote.origin.url"], { timeout: 5_000 });
+        const { stdout } = await runCommand("git", ["-C", repositoryPath, "config", "--get", "remote.origin.url"], {
+          timeout: 5_000,
+          maxBuffer: 1_000_000,
+        });
         return parseRepositoryRemote(stdout.trim(), `/repositories/${entry.name}`);
       } catch {
         return undefined;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import { validClaudeRequest } from "../src/capsule-client.js";
 
 test("accepts only bounded non-empty Claude requests", () => {

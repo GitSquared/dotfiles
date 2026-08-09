@@ -235,11 +235,17 @@ capsule timeout.
 
 ## Developer-tool authentication
 
-The runner image contains Node.js 24 LTS, Bun, Git, GitHub CLI, qmd, build tools,
-Python, curl, jq, ripgrep, and fd. Pi is online and explicitly receives writable
-filesystem and shell tools inside its bounded task jail. The source is checked
-with TypeScript 7; a separately reviewable Bun-native runtime rewrite is tracked
-in `ROADMAP.md`.
+The controller, workbench supervisor, and task runner execute on Bun 1.3. Bun
+owns their HTTP servers, streaming responses, request cancellation, dependency
+lock, tests, and captured subprocesses. The runner image also retains Node.js 24
+as a compatibility layer for upstream Pi executables and qmd's native SQLite
+module; Docker Engine calls retain `node:http` because they use a Unix socket,
+and permission-sensitive filesystem operations retain Node's POSIX APIs.
+
+The image also contains Git, GitHub CLI, qmd, build tools, Python, curl, jq,
+ripgrep, and fd. Pi is online and explicitly receives writable filesystem and
+shell tools inside its bounded task jail. TypeScript 7 checks the source, while
+`bun test` exercises the TypeScript tests directly.
 
 GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
 

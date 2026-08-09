@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import test from "node:test";
+import { test } from "bun:test";
 import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "../src/signature.js";
 
 test("accepts a valid Linear HMAC", () => {

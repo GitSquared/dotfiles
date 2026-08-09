@@ -22,7 +22,8 @@ deployed Linear verification.
   the Claude workbench or the persistent developer-tool workbench.
 - Make Pi explicitly online and explicitly enable its sandboxed read, write,
   search, and shell tools.
-- Move the runtime to Node.js 24 LTS, retain Bun, and add GitHub CLI.
+- Move the control runtime to Bun, retain Node.js 24 as a Pi/qmd compatibility
+  layer, and add GitHub CLI.
 - Persist GitHub CLI and Git credential-helper state in `/tool-profile`, mounted
   read-only into task jails without exposing the Docker socket or Linear credentials.
 - Add bounded `delegate` verbs for explore, plan, review, and implementation
@@ -174,7 +175,7 @@ route independently within the same ceiling or must inherit the main model.
 
 ## Slice 7 — Bun-native control layer
 
-Status: queued immediately after Slice 5 is committed.
+Status: implemented and locally verified in the Linux runner image.
 
 - Move the controller, workbench supervisor, task runner server, subprocesses,
   and tests to Bun and native Bun APIs where the required semantics are proven.
@@ -182,6 +183,14 @@ Status: queued immediately after Slice 5 is committed.
   operations that Bun cannot yet replace safely.
 - Keep protocol payloads and Linear UX unchanged so the runtime migration is a
   separately reviewable slice.
+
+Implemented boundary: `Bun.serve`, Web `Request`/`Response` streams, request
+cancellation, `Bun.spawn`, `bun.lock`, `bun install`, and `bun test` own the
+control path. `node:http` remains only for Docker Engine's Unix-socket API;
+Node filesystem calls remain where atomic rename, POSIX modes, recursive copies,
+or directory-entry metadata are required. The image retains Node for upstream Pi
+executables and qmd's native SQLite installation, but all three Straylight entry
+points execute with Bun.
 
 ## Later hardening
 

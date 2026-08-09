@@ -8,21 +8,18 @@ const config = loadControllerConfig(process.env);
 const linear = new LinearClient(config);
 const runner = new PiRunnerClient(config.runnerUrl, config.runnerToken);
 const controller = new AgentController(linear, runner);
-const server = createServer(config, linear, controller);
-
-server.listen(config.port, config.host, () => {
-  console.log("Straylight Linear controller listening", publicControllerConfig(config));
+const server = Bun.serve({
+  hostname: config.host,
+  port: config.port,
+  maxRequestBodySize: 1024 * 1024,
+  fetch: createServer(config, linear, controller),
 });
+console.log("Straylight Linear controller listening", publicControllerConfig(config));
 
-function stop(signal: string): void {
+async function stop(signal: string): Promise<void> {
   console.log("Stopping Straylight Linear agent", { signal });
-  server.close((error) => {
-    if (error) {
-      console.error("HTTP server shutdown failed", { message: error.message });
-      process.exitCode = 1;
-    }
-  });
+  await server.stop();
 }
 
-process.once("SIGINT", () => { stop("SIGINT"); });
-process.once("SIGTERM", () => { stop("SIGTERM"); });
+process.once("SIGINT", () => { void stop("SIGINT"); });
+process.once("SIGTERM", () => { void stop("SIGTERM"); });

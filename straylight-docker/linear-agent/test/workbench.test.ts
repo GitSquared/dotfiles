@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "bun:test";
 import type { WorkbenchConfig } from "../src/config.js";
 import { decodeDockerStream, type ContainerEngine } from "../src/docker-engine.js";
 import { parseRepositoryRemote, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
