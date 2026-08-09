@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import https from "node:https";
 import path from "node:path";
 import type { ControllerConfig } from "./config.js";
 import type {
@@ -151,41 +150,12 @@ export function graphqlErrorMessage(error: GraphqlError | undefined, status: num
   return details.length ? `${message}: ${details.join("; ").slice(0, 1_000)}` : message;
 }
 
-async function nodeHttpsUpload(input: string | URL | Request, init?: RequestInit): Promise<Response> {
-  const target = new URL(input instanceof Request ? input.url : input);
-  if (target.protocol !== "https:") throw new Error("Linear returned a non-HTTPS upload capability URL");
-  const rawBody = init?.body;
-  if (!(rawBody instanceof ArrayBuffer) && !ArrayBuffer.isView(rawBody)) throw new Error("Linear upload body is invalid");
-  const body = rawBody instanceof ArrayBuffer
-    ? Buffer.from(rawBody)
-    : Buffer.from(rawBody.buffer, rawBody.byteOffset, rawBody.byteLength);
-  const headers = Object.fromEntries(new Headers(init?.headers).entries());
-  if (!("content-length" in headers)) headers["content-length"] = String(body.byteLength);
-  if (!("connection" in headers)) headers.connection = "close";
-  return new Promise((resolve, reject) => {
-    const request = https.request(target, {
-      method: init?.method ?? "PUT",
-      headers,
-      agent: false,
-      ...(init?.signal ? { signal: init.signal } : {}),
-    }, (response) => {
-      response.resume();
-      response.once("end", () => {
-        const status = response.statusCode ?? 500;
-        resolve(new Response(null, { status }));
-      });
-    });
-    request.once("error", reject);
-    request.end(body);
-  });
-}
-
 export async function putPreparedLinearUpload(
   capability: LinearUploadCapability,
   contentType: string,
   contents: Uint8Array,
   signal?: AbortSignal,
-  fetchImpl: FetchLike = nodeHttpsUpload,
+  fetchImpl: FetchLike = fetch,
   sleep: (milliseconds: number) => Promise<void> = (milliseconds) => Bun.sleep(milliseconds),
 ): Promise<string> {
   const assetUrl = new URL(capability.assetUrl);

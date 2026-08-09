@@ -54,7 +54,6 @@ RUN apt-get update \
       git \
       gh \
       jq \
-      librsvg2-bin \
       openssh-client \
       python3 \
       ripgrep \

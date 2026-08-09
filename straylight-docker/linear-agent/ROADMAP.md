@@ -277,9 +277,9 @@ bitmap upload, and rich attachment acceptance remain.
 - For a newly created mention session, make `agentSession.comment.body` the
   authoritative request for both model selection and Pi; retain the issue body
   and formatted prompt context as supporting material only.
-- Give the workbench a deterministic SVG-to-PNG path, and keep the private
-  storage PUT on a retrying Node HTTPS hop so Bun socket churn cannot discard a
-  generated bitmap.
+- Keep the private storage PUT on bounded, retrying Bun fetch; use the
+  controller's hop-specific errors to establish the failing boundary before
+  introducing another transport.
 - Add lightweight acknowledgement reactions only if they improve responsiveness
   without duplicating Agent Activities.
 - Keep automatic queue delegation in Linear Triage Rules rather than building a

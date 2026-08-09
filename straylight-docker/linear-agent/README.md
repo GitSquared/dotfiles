@@ -302,10 +302,9 @@ module; Docker Engine calls retain `node:http` because they use a Unix socket,
 and permission-sensitive filesystem operations retain Node's POSIX APIs.
 
 The image also contains Git, GitHub CLI, qmd, RTK 0.45.0, build tools, Python,
-curl, jq, ripgrep, fd, and `rsvg-convert` for turning simple original SVGs into
-PNG bitmaps. Pi is online and explicitly receives writable filesystem and shell
-tools inside its bounded task jail. TypeScript 7 checks the source, while
-`bun test` exercises the TypeScript tests directly.
+curl, jq, ripgrep, and fd. Pi is online and explicitly receives writable
+filesystem and shell tools inside its bounded task jail. TypeScript 7 checks the
+source, while `bun test` exercises the TypeScript tests directly.
 
 GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
 
@@ -475,8 +474,6 @@ Useful Linear smoke tests:
     issue's documents, read and update it by id, then upload a small image and
     embed the returned private asset URL in that document. Finally publish a rich
     preview or pull-request attachment to the issue.
-    Also create a simple SVG, rasterize it to PNG with `rsvg-convert`, and share
-    the PNG to cover the complete bitmap path.
 12. Ask Pi to create a small issue, update one property, attach it as a subissue,
     add and remove a relationship, and create/update a test project. Confirm each
     result returns a native Linear id and URL where applicable.

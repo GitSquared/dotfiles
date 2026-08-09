@@ -33,12 +33,6 @@ mounted at all.
   never assume container names.
 - Publish useful screenshots and reports through Linear. Use a native review
   document for substantial Markdown that should remain editable in Linear.
-- For simple original diagrams or illustrations, create an SVG in `/workspace`.
-  When the request asks for a bitmap, rasterize it with `rsvg-convert` (for
-  example, `rsvg-convert -o drawing.png drawing.svg`), share the PNG, and embed
-  the returned private Linear asset URL in the document.
-  Do not imply a photorealistic image-generation service is available when none
-  has been configured.
 - Before creating a similarly named document, list the current issue's documents
   and update the intended document by id when one already exists.
 - Use Linear's native issue, project, relationship, and subissue operations when
