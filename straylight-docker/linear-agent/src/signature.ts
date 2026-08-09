@@ -1,9 +1,4 @@
 import crypto from "node:crypto";
-import path from "node:path";
-import { JsonStore } from "./storage.js";
-
-type DeliveryRecord = { key: string; receivedAt: number };
-type DeliveryState = { version: 1; deliveries: DeliveryRecord[] };
 
 function deliveryKey(body: Buffer): string {
   return crypto.createHash("sha256").update(body).digest("hex");
@@ -44,36 +39,5 @@ export class DeliveryDeduper {
       this.deliveries.delete(oldest);
     }
     return true;
-  }
-}
-
-export class PersistentDeliveryDeduper {
-  private readonly store: JsonStore<DeliveryState>;
-
-  constructor(
-    stateDirectory: string,
-    private readonly retentionMs = 10 * 60_000,
-    private readonly maximumEntries = 2_048,
-  ) {
-    this.store = new JsonStore(path.join(stateDirectory, "webhook-deliveries.json"), {
-      version: 1,
-      deliveries: [],
-    });
-  }
-
-  accept(body: Buffer, now = Date.now()): Promise<boolean> {
-    const key = deliveryKey(body);
-    return this.store.update((state) => {
-      const cutoff = now - this.retentionMs;
-      state.deliveries = state.deliveries
-        .filter((record) => record.receivedAt >= cutoff && /^[a-f\d]{64}$/i.test(record.key))
-        .slice(-this.maximumEntries);
-      if (state.deliveries.some((record) => record.key === key)) return false;
-      state.deliveries.push({ key, receivedAt: now });
-      if (state.deliveries.length > this.maximumEntries) {
-        state.deliveries.splice(0, state.deliveries.length - this.maximumEntries);
-      }
-      return true;
-    });
   }
 }

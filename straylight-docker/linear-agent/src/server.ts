@@ -70,8 +70,12 @@ export function createServer(
   config: ControllerConfig,
   linear: LinearClient,
   controller: AgentController,
-  deduper: { accept(body: Buffer, now?: number): boolean | Promise<boolean> } = new DeliveryDeduper(),
+  inbox?: {
+    enqueue(body: Buffer, payload: LinearWebhook, now?: number): Promise<boolean>;
+    status?(): Promise<Record<string, unknown>>;
+  },
 ): (request: Request) => Promise<Response> {
+  const deduper = new DeliveryDeduper();
   return async (request) => {
     try {
       return await route(request);
@@ -88,7 +92,12 @@ export function createServer(
 
     if (method === "GET" && url.pathname === "/healthz") {
       try {
-        return json(200, { ok: true, service: "straylight-linear-agent", ...await controller.health() });
+        return json(200, {
+          ok: true,
+          service: "straylight-linear-agent",
+          ...await controller.health(),
+          ...(inbox?.status ? { webhookInbox: await inbox.status() } : {}),
+        });
       } catch (error) {
         return json(503, {
           ok: false,
@@ -191,36 +200,30 @@ export function createServer(
         return json(400, { ok: false, error: "invalid_json" });
       }
       if (!freshWebhookTimestamp(payload.webhookTimestamp)) return json(401, { ok: false, error: "stale_webhook" });
-      const fresh = await deduper.accept(rawBody);
       const acceptedTypes = new Set(["AgentSessionEvent", "AppUserNotification", "PermissionChange", "OAuthApp"]);
-      const accepted = fresh && Boolean(payload.type && acceptedTypes.has(payload.type));
-      if (accepted) setTimeout(() => dispatchWebhook(payload), 0);
+      const supported = Boolean(payload.type && acceptedTypes.has(payload.type));
+      const fresh = supported ? await (inbox?.enqueue(rawBody, payload) ?? Promise.resolve(deduper.accept(rawBody))) : true;
+      const accepted = supported && fresh;
+      if (accepted && !inbox) setTimeout(() => { void dispatchLinearWebhook(controller, payload); }, 0);
       return json(200, { ok: true, accepted, duplicate: !fresh });
     }
 
     return json(404, { ok: false, error: "not_found" });
   }
 
-  function dispatchWebhook(payload: LinearWebhook): void {
-    let handling: Promise<void>;
-    switch (payload.type) {
-      case "AgentSessionEvent":
-        handling = controller.handle(payload as AgentSessionWebhook);
-        break;
-      case "AppUserNotification":
-        handling = controller.handleNotification(payload as AppUserNotificationWebhook);
-        break;
-      case "PermissionChange":
-        handling = controller.handlePermissionChange(payload as PermissionChangeWebhook);
-        break;
-      case "OAuthApp":
-        handling = payload.action === "revoked" ? controller.handleRevocation() : Promise.resolve();
-        break;
-      default:
-        handling = Promise.resolve();
-    }
-    void handling.catch((error: unknown) => {
-      console.error("Linear webhook handler failed", { message: error instanceof Error ? error.message : String(error) });
-    });
+}
+
+export function dispatchLinearWebhook(controller: AgentController, payload: LinearWebhook): Promise<void> {
+  switch (payload.type) {
+    case "AgentSessionEvent":
+      return controller.handle(payload as AgentSessionWebhook);
+    case "AppUserNotification":
+      return controller.handleNotification(payload as AppUserNotificationWebhook);
+    case "PermissionChange":
+      return controller.handlePermissionChange(payload as PermissionChangeWebhook);
+    case "OAuthApp":
+      return payload.action === "revoked" ? controller.handleRevocation() : Promise.resolve();
+    default:
+      return Promise.resolve();
   }
 }

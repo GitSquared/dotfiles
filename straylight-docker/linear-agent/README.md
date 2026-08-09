@@ -135,9 +135,10 @@ Pi cannot supply another URL.
 - `data/tasks/<session-hash>` contains the matching Pi history, Pi config, and a
   `session.json` mapping back to the Linear session and issue.
 - `state/controller-sessions.json` retains only active, queued, or
-  awaiting-input controller sessions; `state/webhook-deliveries.json` retains a
-  bounded ten-minute delivery ledger so retries remain idempotent across a
-  controller restart. Both files are atomically replaced with mode `0600`.
+  awaiting-input controller sessions; `state/webhook-inbox.json` durably queues
+  accepted webhook payloads before acknowledgement, retries failed handling,
+  replays pending work after restart, and retains a bounded ten-minute completed
+  ledger for deduplication. Both files are atomically replaced with mode `0600`.
 - `${LINEAR_AGENT_CLAUDE_PROFILE_VOLUME:-linear-agent-claude-profile}` is the Docker
   volume containing one engineer's Claude Code home. Use a different volume name
   for each engineer when the prototype is expanded.
@@ -425,7 +426,8 @@ sudo tailscale funnel status
 The health response reports controller session counts, whether native plans are
 still enabled, notification dispositions, and the last registry recovery result
 (`restored`, `resumed`, `skipped`, and `errors`), plus accepted/skipped inbound
-file counts and bytes. Its workbench snapshot includes
+file counts and bytes. `webhookInbox` reports pending/completed deliveries,
+retry attempts, the next retry, and the latest safe failure. Its workbench snapshot includes
 `mode: warm-session-jails`, active/warm/queued tasks, actual task/service/network
 counts, the rolling ten-minute p75 CPU/RAM sample and adaptive slot count,
 warm-session limits, the public model policy, and the installed RTK version.
