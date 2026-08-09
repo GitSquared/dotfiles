@@ -41,6 +41,11 @@ function elapsed(ms: number): string {
   return `${minutes}m ${seconds % 60}s`;
 }
 
+function requiredIssueId(issueId: string | undefined, action: string): string {
+  if (!issueId) throw new Error(`${action} requires an issue-backed Agent Session`);
+  return issueId;
+}
+
 export function isStopRequest(payload: AgentSessionWebhook): boolean {
   if (payload.agentActivity?.signal === "stop") return true;
   const action = payload.action?.toLowerCase();
@@ -263,11 +268,15 @@ export class AgentController {
       const mirrored = await this.updatePlan(sessionId, request.steps);
       return { ok: true, action: request.action, data: { mirrored } };
     }
-    if (!state.issueId) throw new Error("Linear publications require an issue-backed Agent Session");
     if (request.publication.kind === "document") {
       const document = request.publication.update
         ? await this.linear.updateDocument(request.publication.id, request.publication.title, request.publication.body)
-        : await this.linear.createDocument(state.issueId, request.publication.id, request.publication.title, request.publication.body);
+        : await this.linear.createDocument(
+          requiredIssueId(state.issueId, "Creating a Linear Document"),
+          request.publication.id,
+          request.publication.title,
+          request.publication.body,
+        );
       await this.linear.addExternalUrl(sessionId, { label: document.title, url: document.url });
       await this.linear.createActivity(sessionId, {
         type: "thought",
@@ -275,6 +284,7 @@ export class AgentController {
       });
       return { ok: true, action: request.action, data: document };
     }
+    if (!state.issueId) throw new Error("Linear issue attachments require an issue-backed Agent Session");
     const attachment = await this.linear.createIssueAttachment(state.issueId, {
       title: request.publication.title,
       url: request.publication.url,
@@ -507,6 +517,18 @@ export class AgentController {
     const taskPayload: AgentTaskPayload = structuredClone(payload);
     const inputs = await this.prepareLinearInputs(sessionId, payload);
     if (inputs.length) taskPayload.linearInputs = inputs;
+    const commentId = payload.agentSession?.sourceCommentId ?? payload.agentSession?.comment?.id;
+    if (commentId) {
+      try {
+        const review = await this.linear.documentReviewContext(commentId);
+        if (review) taskPayload.linearDocumentReview = review;
+      } catch (error) {
+        console.warn("Document review context unavailable; Pi will continue with the mention body", {
+          commentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     try {
       const repositories = await this.runner.repositories();
       const suggestions = state.issueId && repositories.length

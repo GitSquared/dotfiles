@@ -56,6 +56,30 @@ test("makes a mention comment authoritative over an older issue instruction", ()
   assert.match(classifier, /Supporting issue description/);
 });
 
+test("includes bounded Document review context after the authoritative mention", () => {
+  const prompt = initialPrompt({
+    action: "created",
+    agentSession: {
+      id: "session",
+      comment: { id: "comment-2", body: "@straylight apply this review." },
+      issue: { identifier: "GAB-12", title: "Review the setup document" },
+    },
+    linearDocumentReview: {
+      document: { id: "doc-1", title: "Setup", url: "https://linear.app/document/doc-1", content: "# Setup\n\nOld wording." },
+      comment: { id: "comment-2", body: "@straylight apply this review.", quotedText: "Old wording." },
+      thread: [
+        { id: "comment-1", body: "Please make this concrete.", quotedText: "Old wording.", user: { id: "user-1", name: "Gaby" } },
+        { id: "comment-2", body: "@straylight apply this review.", parentId: "comment-1", user: { id: "user-1", name: "Gaby" } },
+      ],
+    },
+  });
+  assert.ok(prompt.indexOf("@straylight apply this review") < prompt.indexOf("Current Document Markdown"));
+  assert.match(prompt, /Document review context/);
+  assert.match(prompt, /Comment comment-1 by Gaby \[open\]/);
+  assert.match(prompt, /Selected text for the current request: Old wording/);
+  assert.match(prompt, /# Setup/);
+});
+
 test("recognizes explicit stop requests", () => {
   assert.equal(isStopRequest({ agentActivity: { signal: "stop", content: { body: "Please wrap up" } } }), true);
   assert.equal(isStopRequest({ action: "canceled" }), true);

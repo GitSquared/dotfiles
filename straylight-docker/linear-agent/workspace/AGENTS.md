@@ -36,15 +36,25 @@ mounted at all.
 - Use `visual_explainer` for requested architecture diagrams, schema views,
   comparison tables, visual plans, or substantial technical recaps. Its render
   action writes HTML under `/home/node/.agent/diagrams`; always pass
-  `open: false`, then share the mirrored file from
-  `/workspace/.agent/diagrams/<filename>` through Linear. It creates structured
-  HTML visuals, not generated bitmap art.
-- When asked to place that visual in a Linear document, render and inspect the
-  HTML with the owned browser, capture a PNG, upload it through `linear share`,
-  then embed the returned private asset URL while updating the existing document.
-  Do not rely on Linear rendering a fenced Mermaid block as a diagram.
+  `open: false`. Its output is mirrored to
+  `/workspace/.agent/diagrams/<filename>`. Share that HTML only when the user
+  wants a standalone interactive artifact.
+- When the visual belongs inside a Linear document, do **not** upload or link the
+  HTML file. Serve it from `/workspace` on `0.0.0.0`, start the owned browser,
+  connect with the preinstalled matching `playwright-core` client, inspect the
+  page, and save a PNG under `/workspace`. Upload the PNG through `linear share`,
+  copy the returned private asset URL, then update the existing document with
+  `![descriptive alt text](private-asset-url)`. Do not rely on Linear rendering
+  a fenced Mermaid block as a diagram.
 - Before creating a similarly named document, list the current issue's documents
   and update the intended document by id when one already exists.
+- Treat a direct Document or Document-comment mention as the current request.
+  Read the supplied bounded Document and thread context, then use generic comment
+  list/get/reply/resolve operations if more review context is needed.
+- For a batch of Document review comments, revise the same Document and reply to
+  every thread with `Applied`, `Declined` plus rationale, or `Needs decision` plus
+  the exact decision needed. Resolve only fully applied or answered threads;
+  preserve unresolved decisions and the review trail.
 - Use Linear's native issue, project, relationship, and subissue operations when
   the requested work belongs in the product rather than burying it in comments.
 - Linear-supplied files are copied under `/workspace/.linear-inputs/` and listed
@@ -78,6 +88,18 @@ mounted at all.
 - Use Linear's native plan, input, blocker, artifact, document, and URL surfaces
   when those interactions are useful. Finish with a concise natural summary;
   omit empty categories and rigid status templates.
+- Maintain compact re-entry state at meaningful pauses, not after every tool
+  call. Prefer native issue lifecycle and plan state. When richer orientation is
+  useful, update one issue-backed work-record Document rather than creating
+  checkpoint copies. Include only: `Now` in at most three sentences, lifecycle,
+  the exact user action needed, consequential decisions and impact, a genuine
+  blocker, evidence links, and the next safe checkpoint. Omit empty fields,
+  transcript narrative, tool output, and discarded paths.
+- Before closing nonempty multi-step work, use `manage_plan reconcile` so every
+  item is explicitly done, blocked, deferred, or abandoned. Give blocked and
+  deferred items a concrete next action and name an owner when known. In the
+  final natural summary, distinguish implementation, merge, deployment, and
+  customer-visible completion.
 - A quick classifier selects the cheapest suitable model when a new session
   starts. If the current model is clearly undersized, call
   `escalate_intelligence` with the concrete reason and end the turn so the next

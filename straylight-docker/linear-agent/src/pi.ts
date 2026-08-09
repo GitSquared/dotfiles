@@ -122,7 +122,49 @@ type PlanItem = {
   status: "pending" | "inProgress" | "completed" | "canceled";
 };
 
-type PlanDetails = { items: PlanItem[]; nextId: number };
+export type PlanDetails = { items: PlanItem[]; nextId: number };
+
+export type PlanDisposition = {
+  id: number;
+  disposition: "done" | "blocked" | "deferred" | "abandoned";
+  note: string;
+  owner?: string;
+  nextAction?: string;
+};
+
+export function reconcilePlan(plan: PlanDetails, dispositions: PlanDisposition[]): PlanDetails {
+  const byId = new Map<number, PlanDisposition>();
+  for (const disposition of dispositions) {
+    if (byId.has(disposition.id)) throw new Error(`Plan item ${disposition.id} has more than one closure disposition`);
+    byId.set(disposition.id, disposition);
+  }
+  const knownIds = new Set(plan.items.map((item) => item.id));
+  const unknown = dispositions.find((disposition) => !knownIds.has(disposition.id));
+  if (unknown) throw new Error(`Plan item ${unknown.id} does not exist`);
+  const missing = plan.items.filter((item) => !byId.has(item.id)).map((item) => item.id);
+  if (missing.length) throw new Error(`Closure must disposition every plan item; missing: ${missing.join(", ")}`);
+
+  return {
+    nextId: plan.nextId,
+    items: plan.items.map((item) => {
+      const closure = byId.get(item.id);
+      if (!closure) throw new Error(`Closure disposition missing for plan item ${item.id}`);
+      if (["blocked", "deferred"].includes(closure.disposition) && !closure.nextAction?.trim()) {
+        throw new Error(`${closure.disposition} plan item ${item.id} requires nextAction`);
+      }
+      const suffix = [
+        `${closure.disposition.charAt(0).toUpperCase()}${closure.disposition.slice(1)}: ${finalText(closure.note).slice(0, 140)}`,
+        closure.owner?.trim() ? `Owner: ${finalText(closure.owner).slice(0, 60)}` : undefined,
+        closure.nextAction?.trim() ? `Next: ${finalText(closure.nextAction).slice(0, 120)}` : undefined,
+      ].filter(Boolean).join("; ");
+      return {
+        ...item,
+        content: `${item.content.slice(0, 160)} — ${suffix}`.slice(0, 500),
+        status: closure.disposition === "done" ? "completed" as const : "canceled" as const,
+      };
+    }),
+  };
+}
 
 const SUBAGENT_ROLES = {
   explore: {
@@ -750,14 +792,15 @@ export class PiHarness {
       defineTool({
         name: "linear",
         label: "Collaborate in Linear",
-        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share or publish review material, attach a URL, or manage issues, properties, documents, relationships, subissues, and projects.",
+        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share or publish review material, attach a URL, or manage issues, properties, Documents, review comments, relationships, subissues, and projects.",
         promptSnippet: "Request input, mark blocking, share review material, attach a URL, publish, or manage Linear work",
         promptGuidelines: [
           "Use request_input only when work cannot proceed without a user decision, and end the turn afterward.",
           "Use block when work cannot continue because of a non-authentication blocker. For missing access use request_access instead.",
           "Use share for useful review notes, screenshots, reports, or other files from /workspace. File shares return their private Linear asset URL; embed that URL in a later publish call when the file belongs inside a document. Use attach for any durable external URL, including pull requests.",
-          "Use publish for substantial Markdown review documents or rich issue attachments. To revise an existing document in a new session, manage document list/get first, then publish with its id, title, and complete replacement body.",
-          "Use manage for native issue, project, document, relationship, and subissue work. Document list defaults to the current issue; document get returns its Markdown content. Omit id to target the current issue where supported. Use delete only when the user explicitly requested removal; it moves issues, projects, and documents to Linear's trash.",
+          "Use publish for substantial Markdown review documents or rich issue attachments. To revise an existing Document in a new session, manage document list/get first, then publish with its id, title, and complete replacement body.",
+          "Use manage for native issue, project, Document, review-comment, relationship, and subissue work. Document list defaults to the current issue; document get returns its Markdown content. Omit id to target the current issue where supported. Use delete only when the user explicitly requested removal; it moves issues, projects, and Documents to Linear's trash.",
+          "For Document review, list comments with resource comment, operation list, and parentId set to the Document id. Get a thread by comment id; reply with operation reply and fields.body. Reply with an applied, declined, or needs-decision disposition before resolving. Resolve only a fully applied or answered thread, and pass the reply id as relatedId when available so Linear records the resolving reply.",
         ],
         parameters: Type.Object({
           action: Type.Union([
@@ -784,6 +827,7 @@ export class PiHarness {
             Type.Literal("issue"),
             Type.Literal("project"),
             Type.Literal("document"),
+            Type.Literal("comment"),
             Type.Literal("relation"),
             Type.Literal("subissue"),
           ])),
@@ -795,6 +839,9 @@ export class PiHarness {
             Type.Literal("list"),
             Type.Literal("link"),
             Type.Literal("unlink"),
+            Type.Literal("reply"),
+            Type.Literal("resolve"),
+            Type.Literal("unresolve"),
           ])),
           parentId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           relatedId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
@@ -964,9 +1011,13 @@ export class PiHarness {
       defineTool({
         name: "manage_plan",
         label: "Manage plan",
-        description: "Build and maintain a durable task list that is mirrored to the native Linear Agent Plan UI.",
-        promptSnippet: "List, replace, add, update, or remove durable task-plan items",
-        promptGuidelines: ["For multi-step work, create a plan early and keep statuses current as work progresses."],
+        description: "Build, maintain, and explicitly close a durable task list that is mirrored to the native Linear Agent Plan UI.",
+        promptSnippet: "List, replace, add, update, remove, or reconcile durable task-plan items",
+        promptGuidelines: [
+          "For multi-step work, create a plan early and keep statuses current as work progresses.",
+          "Before the final response, reconcile every item in a nonempty plan. Mark each done, blocked, deferred, or abandoned with a concise reason. Blocked and deferred items require a concrete nextAction; name an owner when one is known.",
+          "In the final natural summary, distinguish implementation from merge, deployment, and customer-visible completion. Do not call the overall task done merely because implementation finished.",
+        ],
         parameters: Type.Object({
           action: Type.Union([
             Type.Literal("list"),
@@ -974,6 +1025,7 @@ export class PiHarness {
             Type.Literal("add"),
             Type.Literal("update"),
             Type.Literal("remove"),
+            Type.Literal("reconcile"),
           ]),
           steps: Type.Optional(Type.Array(Type.Object({
             content: Type.String({ minLength: 1, maxLength: 500 }),
@@ -992,6 +1044,18 @@ export class PiHarness {
             Type.Literal("completed"),
             Type.Literal("canceled"),
           ])),
+          dispositions: Type.Optional(Type.Array(Type.Object({
+            id: Type.Integer({ minimum: 1 }),
+            disposition: Type.Union([
+              Type.Literal("done"),
+              Type.Literal("blocked"),
+              Type.Literal("deferred"),
+              Type.Literal("abandoned"),
+            ]),
+            note: Type.String({ minLength: 1, maxLength: 500 }),
+            owner: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+            nextAction: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+          }), { maxItems: 20 })),
         }),
         async execute(_toolCallId, params) {
           const current = runState.current;
@@ -1002,7 +1066,10 @@ export class PiHarness {
               : "Plan is empty.";
             return { content: [{ type: "text", text }], details: structuredClone(plan) };
           }
-          if (params.action === "replace") {
+          if (params.action === "reconcile") {
+            if (!params.dispositions) throw new Error("reconcile requires dispositions");
+            plan = reconcilePlan(plan, params.dispositions);
+          } else if (params.action === "replace") {
             if (!params.steps) throw new Error("replace requires steps");
             plan = {
               items: params.steps.map((step, index) => ({

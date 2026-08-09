@@ -1,9 +1,15 @@
 import type { AgentSessionWebhook, AgentTaskPayload } from "./types.js";
 
-export function currentLinearRequest(payload: AgentSessionWebhook): string | undefined {
+type PromptPayload = AgentSessionWebhook | AgentTaskPayload;
+
+export function currentLinearRequest(payload: PromptPayload): string | undefined {
   const activity = payload.agentActivity?.content?.body?.trim();
   if (payload.action === "prompted" && activity) return activity;
-  return payload.agentSession?.comment?.body?.trim()
+  const documentMention = "linearDocumentReview" in payload
+    ? payload.linearDocumentReview?.comment.body.trim()
+    : undefined;
+  return documentMention
+    || payload.agentSession?.comment?.body?.trim()
     || activity
     || payload.promptContext?.trim()
     || payload.agentSession?.promptContext?.trim()
@@ -11,7 +17,7 @@ export function currentLinearRequest(payload: AgentSessionWebhook): string | und
     || payload.agentSession?.issue?.title?.trim();
 }
 
-export function modelSelectionPrompt(payload: AgentSessionWebhook): string {
+export function modelSelectionPrompt(payload: PromptPayload): string {
   const issue = payload.agentSession?.issue;
   const request = currentLinearRequest(payload);
   const context = payload.promptContext?.trim() || payload.agentSession?.promptContext?.trim();
@@ -47,6 +53,28 @@ function repositories(payload: AgentTaskPayload): string[] {
   ];
 }
 
+function documentReview(payload: AgentTaskPayload): string[] {
+  const review = payload.linearDocumentReview;
+  if (!review) return [];
+  const thread = review.thread.map((comment) => [
+    `- Comment ${comment.id}${comment.user?.name ? ` by ${comment.user.name}` : ""}${comment.resolvedAt ? " [resolved]" : " [open]"}:`,
+    comment.quotedText ? `  Quoted text: ${comment.quotedText}` : undefined,
+    `  ${comment.body}`,
+  ].filter(Boolean).join("\n"));
+  return [
+    "",
+    "Document review context:",
+    `- Document: ${review.document.title} (${review.document.id})`,
+    `- URL: ${review.document.url}`,
+    review.comment.quotedText ? `- Selected text for the current request: ${review.comment.quotedText}` : undefined,
+    "- Current review thread:",
+    ...thread,
+    "",
+    "Current Document Markdown:",
+    review.document.content,
+  ].filter((line): line is string => Boolean(line));
+}
+
 export function initialPrompt(payload: AgentTaskPayload): string {
   const issue = payload.agentSession?.issue;
   const request = currentLinearRequest(payload);
@@ -56,8 +84,8 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     "Follow /workspace/AGENTS.md. Treat the named repository and permissions as authoritative.",
     "Do not expose secrets. Do not push, deploy, or perform destructive actions unless the Linear request explicitly authorizes it.",
     "Claude may retrieve context or take actions in connected corporate systems when the Linear request authorizes them. If Claude or a developer tool lacks required access, use request_access with a precise explanation and then end the turn.",
-    "For multi-step work, maintain the durable native Linear checklist with manage_plan.",
-    "Use the linear tool to request input, mark a non-auth blocker, share review material, attach a durable URL, publish review material, or manage native issues, properties, relationships, subissues, and projects. End the turn after request_input or block. Provide 2-12 options when a native Linear picker is useful.",
+    "For multi-step work, maintain the durable native Linear checklist with manage_plan. Before closing a nonempty plan, reconcile every item with an explicit done, blocked, deferred, or abandoned disposition.",
+    "Use the linear tool to request input, mark a non-auth blocker, share review material, attach a durable URL, publish review material, or manage native issues, properties, Documents, review comments, relationships, subissues, and projects. End the turn after request_input or block. Provide 2-12 options when a native Linear picker is useful.",
     "The working model was selected from model-policy.json for this request. If the work proves materially harder, more ambiguous, more coupled, or higher-risk than the current model can handle, call escalate_intelligence with the concrete reason and end that turn; Pi will move one tier up and continue automatically.",
     "You have online access plus a writable /workspace and ordinary development shell tools. Search persistent notes with memory when prior context may help, and save concise non-secret Markdown notes under PI_MEMORY_DIR when you learn something durable.",
     "Use delegate when a bounded helper context will materially improve the work. You may build a task-local extension under /workspace/.pi/extensions and call reload_resources when a reusable tool is genuinely useful.",
@@ -71,6 +99,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     issue?.url ? `- URL: ${issue.url}` : undefined,
     issue?.description ? `- Description:\n${issue.description}` : undefined,
     context && context !== request ? `\nSupporting Linear context:\n${context}` : undefined,
+    ...documentReview(payload),
     ...guidance(payload),
     ...repositories(payload),
     "",
@@ -78,8 +107,13 @@ export function initialPrompt(payload: AgentTaskPayload): string {
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
-export function followUpPrompt(payload: AgentSessionWebhook): string {
+export function followUpPrompt(payload: AgentTaskPayload): string {
   const body = currentLinearRequest(payload)
     || "Continue from the existing Linear session and report useful status.";
-  return `Linear follow-up:\n${body}\n\nContinue from the existing Pi session.`;
+  return [
+    `Linear follow-up (authoritative):\n${body}`,
+    ...documentReview(payload),
+    "",
+    "Continue from the existing Pi session.",
+  ].join("\n");
 }

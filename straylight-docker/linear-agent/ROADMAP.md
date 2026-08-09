@@ -319,9 +319,9 @@ Acceptance:
 
 ## Slice 12 — compact re-entry, closure, and Document review
 
-Status: planned. Build on native Linear issue, Agent Session, plan, and Document
-surfaces; do not introduce a second task-card database or a rigid final-comment
-template.
+Status: implemented locally; deployed acceptance pending. This builds on native
+Linear issue, Agent Session, plan, and Document surfaces without introducing a
+second task-card database or a rigid final-comment template.
 
 - Maintain one compact re-entry projection at meaningful checkpoints. It should
   cover `Now` (at most three sentences), lifecycle status, the exact thing Gaby
@@ -347,6 +347,23 @@ template.
 - Let Pi disposition a batch of review comments, revise the existing Document,
   and report which comments were applied, declined with rationale, or still need
   a decision. Keep the reviewed Document and its comment trail as evidence.
+
+Implementation notes:
+
+- `manage_plan reconcile` requires one explicit terminal disposition for every
+  current plan item. Linear's native plan has only completed/canceled terminal
+  states, so blocked/deferred/abandoned entries use canceled natively while the
+  visible item text preserves the exact disposition, rationale, owner, and next
+  action.
+- The generic `linear manage` surface now supports Document comment list, get,
+  create with anchored quoted text, reply, update, resolve, unresolve, and
+  delete. No review-specific one-off tool was added.
+- The controller resolves a Document mention's source comment through Linear,
+  includes the root thread and at most 80 KB of current Markdown, and lets Pi
+  continue with the mention body if that supporting lookup fails.
+- Re-entry remains a compact behavioral contract over native lifecycle, plan,
+  and one optional work-record Document. It is intentionally not a mandatory
+  comment template or a second persisted state model.
 
 Acceptance:
 

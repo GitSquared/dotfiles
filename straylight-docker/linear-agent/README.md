@@ -83,11 +83,14 @@ comments:
   public mutation for updating an existing Agent Activity in place
 - native action cards for Pi tool calls and isolated-workspace preparation
 - durable task-specific Agent Plans managed with list/add/update/remove/replace
-  verbs and reconstructed from Pi history whenever a warm container expires
+  verbs, plus an explicit closure reconciliation that dispositions every item
+  before completion; plans are reconstructed from Pi history whenever a warm
+  container expires
 - one generic `linear` collaboration tool for native input requests, blockers,
   review notes, private file/image uploads, arbitrary session URLs, native
-  review Documents (including discovery, reading, and updates across sessions),
-  rich issue attachments, issue properties, relationships, subissues, and projects; input
+  review Documents (including discovery, reading, updates, inline-comment
+  discovery, thread replies, resolution, and reopening across sessions), rich
+  issue attachments, issue properties, relationships, subissues, and projects; input
   requests can include 2-12 options while still accepting free-text replies
 - every semantic Linear action uses an acknowledged controller broker, so Pi
   reports success only after Linear accepts it; only disposable live progress
@@ -113,6 +116,13 @@ comments:
   authoritative Agent Session event, ordinary new comments remain context-only,
   reactions are acknowledgements, and only unassignment or a confirmed terminal
   status cancels affected work
+- direct Document-comment mentions carry the source thread, selected text, and
+  bounded current Document Markdown into Pi as supporting review context; the
+  mention itself remains the authoritative request, while unmentioned Document
+  edits and comments stay context-only
+- compact re-entry guidance keeps native issue lifecycle and plan state primary,
+  updates one issue-backed work-record Document only when richer orientation is
+  useful, and avoids checkpoint spam or a rigid final-comment template
 - a durable controller registry and webhook-delivery ledger under `state/`;
   after restart, Linear's current session status and latest durable Agent
   Activity decide whether interrupted work resumes, remains awaiting input, or
@@ -395,7 +405,8 @@ ports. Sidecars and their private network stay with a warm session for up to ten
 minutes, then are removed together. Stop, cancellation, crashes, and warm-pool
 eviction remove them immediately.
 The Playwright launcher and browser binaries survive in reusable image layers,
-while browser profiles, pages, and process state survive follow-ups only while
+and the runner pins the matching `playwright-core` client so tasks do not install
+it on demand. Browser profiles, pages, and process state survive follow-ups only while
 that warm lease remains alive. Only explicitly persistent PostgreSQL files
 survive its removal.
 
@@ -511,6 +522,16 @@ Useful Linear smoke tests:
     only under the matching session's `.linear-inputs` directory. Try an
     oversized or unsupported file and confirm it is skipped without failing the
     run or sending Linear authorization to another host.
+18. Start a multi-step plan, leave implementation complete but deployment
+    pending, and ask Pi to close the turn. Confirm every plan item displays an
+    explicit disposition, the deployment item names its owner and next action,
+    and the final response does not claim customer-visible completion.
+19. Add several inline comments to an existing Document and mention Straylight
+    in one thread. Confirm the mention is the current request, Pi receives the
+    selected text plus bounded Document/thread context, revises the same
+    Document id, replies `Applied`, `Declined`, or `Needs decision` to each
+    reviewed thread, and resolves only the fully answered ones. Then add an
+    unmentioned comment and confirm it remains context-only.
 
 Logs:
 

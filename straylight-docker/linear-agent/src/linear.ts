@@ -14,6 +14,7 @@ import type {
   AgentActivitySignalMetadata,
   AgentPlanStep,
   AgentSessionWebhook,
+  LinearDocumentReview,
   RepositoryCandidate,
   RepositorySuggestion,
 } from "./types.js";
@@ -42,6 +43,8 @@ const PROJECT_UPDATE_FIELDS = new Set([
   "name", "priority", "startDate", "statusId", "targetDate", "teamIds", "trashed",
 ]);
 const DOCUMENT_UPDATE_FIELDS = new Set(["content", "title"]);
+const COMMENT_CREATE_FIELDS = new Set(["body", "quotedText"]);
+const COMMENT_UPDATE_FIELDS = new Set(["body", "quotedText"]);
 
 const ISSUE_FIELDS = `
   id identifier title description url priority priorityLabel dueDate
@@ -62,10 +65,15 @@ const PROJECT_FIELDS = `
 `;
 
 const DOCUMENT_FIELDS = `
-  id title content url createdAt updatedAt
+  id title content url documentContentId createdAt updatedAt
   creator { id name }
   issue { id identifier title url }
   project { id name url }
+`;
+
+const COMMENT_FIELDS = `
+  id body quotedText parentId createdAt updatedAt resolvedAt resolvingCommentId
+  user { id name }
 `;
 
 function managedFields(value: Record<string, unknown> | undefined, allowed: Set<string>, label: string): Record<string, unknown> {
@@ -453,6 +461,7 @@ export class LinearClient {
     if (request.resource === "issue") data = await this.manageIssue(request, context);
     else if (request.resource === "project") data = await this.manageProject(request);
     else if (request.resource === "document") data = await this.manageDocument(request, context);
+    else if (request.resource === "comment") data = await this.manageComment(request);
     else if (request.resource === "relation") data = await this.manageRelation(request, context);
     else data = await this.manageSubissue(request, context);
     return { ok: true, resource: request.resource, operation: request.operation, data };
@@ -492,6 +501,76 @@ export class LinearClient {
       { id: agentSessionId },
     );
     return data.agentSession;
+  }
+
+  async documentReviewContext(commentId: string): Promise<LinearDocumentReview | undefined> {
+    type CommentNode = {
+      id: string;
+      body: string;
+      quotedText?: string | null;
+      parentId?: string | null;
+      resolvedAt?: string | null;
+      user?: { id: string; name: string } | null;
+    };
+    type CommentWithDocument = CommentNode & {
+      documentContent?: {
+        id: string;
+        content?: string | null;
+        document?: { id: string; title: string; url: string } | null;
+      } | null;
+      children?: { nodes: CommentNode[] };
+      parent?: (CommentNode & {
+        documentContent?: {
+          id: string;
+          content?: string | null;
+          document?: { id: string; title: string; url: string } | null;
+        } | null;
+        children?: { nodes: CommentNode[] };
+      }) | null;
+    };
+    const data = await this.graphql<{ comment?: CommentWithDocument | null }>(
+      `query DocumentReviewContext($id: String!) {
+        comment(id: $id) {
+          ${COMMENT_FIELDS}
+          documentContent { id content document { id title url } }
+          children(first: 50, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
+          parent {
+            ${COMMENT_FIELDS}
+            documentContent { id content document { id title url } }
+            children(first: 50, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
+          }
+        }
+      }`,
+      { id: commentId },
+    );
+    const comment = data.comment;
+    if (!comment) return undefined;
+    const root = comment.parent ?? comment;
+    const documentContent = root.documentContent ?? comment.documentContent;
+    const document = documentContent?.document;
+    if (!document) return undefined;
+    const thread = [root, ...(root.children?.nodes ?? [])];
+    const uniqueThread = [...new Map(thread.map((entry) => [entry.id, entry])).values()];
+    return {
+      document: {
+        ...document,
+        content: (documentContent?.content ?? "").slice(0, 80_000),
+      },
+      comment: {
+        id: comment.id,
+        body: comment.body.slice(0, 8_000),
+        ...(comment.quotedText === undefined ? {} : { quotedText: comment.quotedText?.slice(0, 4_000) ?? null }),
+        ...(comment.parentId === undefined ? {} : { parentId: comment.parentId }),
+      },
+      thread: uniqueThread.map((entry) => ({
+        id: entry.id,
+        body: entry.body.slice(0, 8_000),
+        ...(entry.quotedText === undefined ? {} : { quotedText: entry.quotedText?.slice(0, 4_000) ?? null }),
+        ...(entry.parentId === undefined ? {} : { parentId: entry.parentId }),
+        ...(entry.resolvedAt === undefined ? {} : { resolvedAt: entry.resolvedAt }),
+        ...(entry.user === undefined ? {} : { user: entry.user }),
+      })),
+    };
   }
 
   async downloadInputs(payload: AgentSessionWebhook): Promise<LinearInputDownload> {
@@ -621,6 +700,107 @@ export class LinearClient {
       return result.documentUpdate.document;
     }
     throw new Error("document does not support create here; use publish to create, or list, get, update, and delete to manage existing documents");
+  }
+
+  private async manageComment(request: LinearManageRequest): Promise<unknown> {
+    if (request.operation === "list") {
+      const documentId = requiredId(request.parentId, undefined, "comment list");
+      return (await this.graphql<{ document: unknown }>(
+        `query ManagedCommentDocument($id: String!) {
+          document(id: $id) {
+            id title url documentContentId
+            comments(first: 100, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
+          }
+        }`,
+        { id: documentId },
+      )).document;
+    }
+    if (request.operation === "get") {
+      const id = requiredId(request.id, undefined, "comment get");
+      return (await this.graphql<{ comment: unknown }>(
+        `query ManagedComment($id: String!) {
+          comment(id: $id) {
+            ${COMMENT_FIELDS}
+            documentContent { id document { id title url } }
+            children(first: 50, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
+          }
+        }`,
+        { id },
+      )).comment;
+    }
+    if (request.operation === "create") {
+      const documentId = requiredId(request.parentId, undefined, "comment create");
+      const input = managedFields(request.fields, COMMENT_CREATE_FIELDS, "comment create");
+      const document = (await this.graphql<{ document: { documentContentId?: string | null } }>(
+        `query ManagedCommentCreateDocument($id: String!) { document(id: $id) { documentContentId } }`,
+        { id: documentId },
+      )).document;
+      const documentContentId = requiredId(document.documentContentId ?? undefined, undefined, "comment create Document content");
+      const result = await this.graphql<{ commentCreate: { success: boolean; comment?: unknown } }>(
+        `mutation ManagedCommentCreate($input: CommentCreateInput!) {
+          commentCreate(input: $input) { success comment { ${COMMENT_FIELDS} } }
+        }`,
+        { input: { ...input, documentContentId } },
+      );
+      if (!result.commentCreate.success || !result.commentCreate.comment) throw new Error("Linear rejected Document comment creation");
+      return result.commentCreate.comment;
+    }
+    if (request.operation === "reply") {
+      const parentId = requiredId(request.id, undefined, "comment reply");
+      const input = managedFields(request.fields, new Set(["body"]), "comment reply");
+      const result = await this.graphql<{ commentCreate: { success: boolean; comment?: unknown } }>(
+        `mutation ManagedCommentReply($input: CommentCreateInput!) {
+          commentCreate(input: $input) { success comment { ${COMMENT_FIELDS} } }
+        }`,
+        { input: { ...input, parentId } },
+      );
+      if (!result.commentCreate.success || !result.commentCreate.comment) throw new Error("Linear rejected Document comment reply");
+      return result.commentCreate.comment;
+    }
+    if (request.operation === "update") {
+      const id = requiredId(request.id, undefined, "comment update");
+      const input = managedFields(request.fields, COMMENT_UPDATE_FIELDS, "comment update");
+      const result = await this.graphql<{ commentUpdate: { success: boolean; comment?: unknown } }>(
+        `mutation ManagedCommentUpdate($id: String!, $input: CommentUpdateInput!) {
+          commentUpdate(id: $id, input: $input) { success comment { ${COMMENT_FIELDS} } }
+        }`,
+        { id, input },
+      );
+      if (!result.commentUpdate.success || !result.commentUpdate.comment) throw new Error("Linear rejected Document comment update");
+      return result.commentUpdate.comment;
+    }
+    if (request.operation === "resolve") {
+      const id = requiredId(request.id, undefined, "comment resolve");
+      const result = await this.graphql<{ commentResolve: { success: boolean; comment?: unknown } }>(
+        `mutation ManagedCommentResolve($id: String!, $resolvingCommentId: String) {
+          commentResolve(id: $id, resolvingCommentId: $resolvingCommentId) { success comment { ${COMMENT_FIELDS} } }
+        }`,
+        { id, ...(request.relatedId ? { resolvingCommentId: request.relatedId } : {}) },
+      );
+      if (!result.commentResolve.success || !result.commentResolve.comment) throw new Error("Linear rejected Document comment resolution");
+      return result.commentResolve.comment;
+    }
+    if (request.operation === "unresolve") {
+      const id = requiredId(request.id, undefined, "comment unresolve");
+      const result = await this.graphql<{ commentUnresolve: { success: boolean; comment?: unknown } }>(
+        `mutation ManagedCommentUnresolve($id: String!) {
+          commentUnresolve(id: $id) { success comment { ${COMMENT_FIELDS} } }
+        }`,
+        { id },
+      );
+      if (!result.commentUnresolve.success || !result.commentUnresolve.comment) throw new Error("Linear rejected Document comment reopening");
+      return result.commentUnresolve.comment;
+    }
+    if (request.operation === "delete") {
+      const id = requiredId(request.id, undefined, "comment delete");
+      const result = await this.graphql<{ commentDelete: { success: boolean } }>(
+        `mutation ManagedCommentDelete($id: String!) { commentDelete(id: $id) { success } }`,
+        { id },
+      );
+      if (!result.commentDelete.success) throw new Error("Linear rejected Document comment deletion");
+      return { id, deleted: true };
+    }
+    throw new Error(`comment does not support ${request.operation}; use list, get, create, reply, update, resolve, unresolve, or delete`);
   }
 
   private async manageRelation(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {

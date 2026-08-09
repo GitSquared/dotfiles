@@ -19,14 +19,16 @@ test("routes Linear inbox notifications without synthesizing comment instruction
   await controller.handleNotification({ action: "issueAssignedToYou", notification: { issueId: "issue-1" } });
   await controller.handleNotification({ action: "issueStatusChanged", notification: { issueId: "issue-1" } });
   await controller.handleNotification({ action: "documentSubscribed", notification: { documentId: "document-1" } });
+  await controller.handleNotification({ action: "documentCommentMention", notification: { documentId: "document-1" } });
+  await controller.handleNotification({ action: "documentCommentCreated", notification: { documentId: "document-1" } });
   await controller.handleNotification({ action: "documentContentUpdated", notification: { documentId: "document-1" } });
 
   const health = await controller.health() as {
     controller: { notifications: { counts: Record<string, number> } };
   };
   assert.deepEqual(health.controller.notifications.counts, {
-    agentSessionOwned: 1,
-    contextOnly: 2,
+    agentSessionOwned: 2,
+    contextOnly: 3,
     acknowledgement: 1,
     cancellation: 0,
     lifecycle: 3,

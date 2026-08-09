@@ -35,7 +35,14 @@ export type AgentSessionWebhook = {
     status?: string;
     url?: string | null;
     promptContext?: string;
-    comment?: { id?: string; body?: string } | null;
+    sourceCommentId?: string | null;
+    comment?: {
+      id?: string;
+      body?: string;
+      documentContentId?: string | null;
+      parentId?: string | null;
+      quotedText?: string | null;
+    } | null;
     issue?: LinearIssue | null;
   };
 };
@@ -112,8 +119,22 @@ export type LinearInputFile = {
   dataBase64: string;
 };
 
+export type LinearDocumentReview = {
+  document: { id: string; title: string; url: string; content: string };
+  comment: { id: string; body: string; quotedText?: string | null; parentId?: string | null };
+  thread: Array<{
+    id: string;
+    body: string;
+    quotedText?: string | null;
+    parentId?: string | null;
+    resolvedAt?: string | null;
+    user?: { id: string; name: string } | null;
+  }>;
+};
+
 export type AgentTaskPayload = AgentSessionWebhook & {
   linearInputs?: LinearInputFile[];
+  linearDocumentReview?: LinearDocumentReview;
   workbench?: {
     repositories?: RepositoryCandidate[];
     repositorySuggestions?: RepositorySuggestion[];

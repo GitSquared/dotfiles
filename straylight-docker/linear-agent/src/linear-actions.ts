@@ -5,8 +5,8 @@ import type {
   AgentPlanStep,
 } from "./types.js";
 
-export type LinearResource = "issue" | "project" | "document" | "relation" | "subissue";
-export type LinearOperation = "get" | "create" | "update" | "delete" | "list" | "link" | "unlink";
+export type LinearResource = "issue" | "project" | "document" | "comment" | "relation" | "subissue";
+export type LinearOperation = "get" | "create" | "update" | "delete" | "list" | "link" | "unlink" | "reply" | "resolve" | "unresolve";
 
 export type LinearManageRequest = {
   resource: LinearResource;
@@ -130,8 +130,8 @@ export function isLinearSessionRequest(value: unknown): value is LinearSessionRe
 export function isLinearManageRequest(value: unknown): value is LinearManageRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const request = value as Partial<LinearManageRequest>;
-  return ["issue", "project", "document", "relation", "subissue"].includes(request.resource ?? "")
-    && ["get", "create", "update", "delete", "list", "link", "unlink"].includes(request.operation ?? "")
+  return ["issue", "project", "document", "comment", "relation", "subissue"].includes(request.resource ?? "")
+    && ["get", "create", "update", "delete", "list", "link", "unlink", "reply", "resolve", "unresolve"].includes(request.operation ?? "")
     && (request.id === undefined || typeof request.id === "string")
     && (request.parentId === undefined || typeof request.parentId === "string")
     && (request.relatedId === undefined || typeof request.relatedId === "string")
