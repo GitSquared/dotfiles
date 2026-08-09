@@ -70,9 +70,8 @@ export function createServer(
   config: ControllerConfig,
   linear: LinearClient,
   controller: AgentController,
+  deduper: { accept(body: Buffer, now?: number): boolean | Promise<boolean> } = new DeliveryDeduper(),
 ): (request: Request) => Promise<Response> {
-  const deduper = new DeliveryDeduper();
-
   return async (request) => {
     try {
       return await route(request);
@@ -192,7 +191,7 @@ export function createServer(
         return json(400, { ok: false, error: "invalid_json" });
       }
       if (!freshWebhookTimestamp(payload.webhookTimestamp)) return json(401, { ok: false, error: "stale_webhook" });
-      const fresh = deduper.accept(rawBody);
+      const fresh = await deduper.accept(rawBody);
       const acceptedTypes = new Set(["AgentSessionEvent", "AppUserNotification", "PermissionChange", "OAuthApp"]);
       const accepted = fresh && Boolean(payload.type && acceptedTypes.has(payload.type));
       if (accepted) setTimeout(() => dispatchWebhook(payload), 0);

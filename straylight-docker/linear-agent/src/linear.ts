@@ -94,6 +94,28 @@ type GraphqlError = {
 };
 type GraphqlResponse<T> = { data?: T; errors?: GraphqlError[] };
 
+export type AgentSessionSnapshot = {
+  id: string;
+  status: string;
+  appUser: { id: string };
+  issue?: {
+    id: string;
+    identifier?: string;
+    title?: string;
+    description?: string | null;
+    url?: string;
+    team: { id: string; name?: string };
+  } | null;
+  activities: {
+    nodes: Array<{
+      id: string;
+      createdAt: string;
+      ephemeral: boolean;
+      content: { type: string; body?: string };
+    }>;
+  };
+};
+
 export function documentCreateInput(issueId: string, id: string, title: string, content: string) {
   return { id, issueId, title, content };
 }
@@ -388,6 +410,34 @@ export class LinearClient {
       { id: issueId },
     );
     return data.issue.state;
+  }
+
+  async agentSessionSnapshot(agentSessionId: string): Promise<AgentSessionSnapshot> {
+    const data = await this.graphql<{ agentSession: AgentSessionSnapshot }>(
+      `query RecoverAgentSession($id: String!) {
+        agentSession(id: $id) {
+          id status
+          appUser { id }
+          issue { id identifier title description url team { id name } }
+          activities(last: 20, orderBy: createdAt) {
+            nodes {
+              id createdAt ephemeral
+              content {
+                __typename
+                ... on AgentActivityActionContent { type }
+                ... on AgentActivityElicitationContent { type body }
+                ... on AgentActivityErrorContent { type body }
+                ... on AgentActivityPromptContent { type body }
+                ... on AgentActivityResponseContent { type body }
+                ... on AgentActivityThoughtContent { type body }
+              }
+            }
+          }
+        }
+      }`,
+      { id: agentSessionId },
+    );
+    return data.agentSession;
   }
 
   private async manageIssue(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {

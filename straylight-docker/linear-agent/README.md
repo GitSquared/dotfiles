@@ -101,6 +101,10 @@ comments:
   authoritative Agent Session event, ordinary new comments remain context-only,
   reactions are acknowledgements, and only unassignment or a confirmed terminal
   status cancels affected work
+- a durable controller registry and webhook-delivery ledger under `state/`;
+  after restart, Linear's current session status and latest durable Agent
+  Activity decide whether interrupted work resumes, remains awaiting input, or
+  is left terminal without replaying completed actions
 
 Pi judges access failures itself. When a login, connection, approval, or
 permission is missing, Pi calls `request_access` with a specific user-facing
@@ -126,6 +130,10 @@ Pi cannot supply another URL.
   or Claude capsule.
 - `data/tasks/<session-hash>` contains the matching Pi history, Pi config, and a
   `session.json` mapping back to the Linear session and issue.
+- `state/controller-sessions.json` retains only active, queued, or
+  awaiting-input controller sessions; `state/webhook-deliveries.json` retains a
+  bounded ten-minute delivery ledger so retries remain idempotent across a
+  controller restart. Both files are atomically replaced with mode `0600`.
 - `${LINEAR_AGENT_CLAUDE_PROFILE_VOLUME:-linear-agent-claude-profile}` is the Docker
   volume containing one engineer's Claude Code home. Use a different volume name
   for each engineer when the prototype is expanded.
@@ -411,7 +419,8 @@ sudo tailscale funnel status
 ```
 
 The health response reports controller session counts, whether native plans are
-still enabled, and notification dispositions. Its workbench snapshot includes
+still enabled, notification dispositions, and the last registry recovery result
+(`restored`, `resumed`, `skipped`, and `errors`). Its workbench snapshot includes
 `mode: warm-session-jails`, active/warm/queued tasks, actual task/service/network
 counts, the rolling ten-minute p75 CPU/RAM sample and adaptive slot count,
 warm-session limits, the public model policy, and the installed RTK version.

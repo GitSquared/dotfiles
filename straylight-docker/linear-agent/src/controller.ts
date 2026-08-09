@@ -1,5 +1,5 @@
-import { performance } from "node:perf_hooks";
-import { LinearClient } from "./linear.js";
+import { ControllerStateStore, type ControllerSessionRecord } from "./controller-state.js";
+import { LinearClient, type AgentSessionSnapshot } from "./linear.js";
 import type { LinearManageRequest, LinearManageResult } from "./linear-actions.js";
 import { followUpPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
@@ -15,11 +15,14 @@ import type {
 
 type SessionState = {
   running: boolean;
+  awaitingInput: boolean;
   generation: number;
   startedAt: number | undefined;
   pending: AgentSessionWebhook | undefined;
+  active: AgentSessionWebhook | undefined;
   issueId: string | undefined;
   teamId: string | undefined;
+  updatedAt: number;
 };
 
 type NotificationDisposition = "agentSessionOwned" | "contextOnly" | "acknowledgement" | "cancellation" | "lifecycle" | "unknown";
@@ -41,6 +44,10 @@ export function isStopRequest(payload: AgentSessionWebhook): boolean {
 
 export class AgentController {
   private readonly states = new Map<string, SessionState>();
+  private readonly stateStore: ControllerStateStore | undefined;
+  private persistence: Promise<void> = Promise.resolve();
+  private recoveredSessions = 0;
+  private lastRecovery: { at: string; restored: number; resumed: number; skipped: number; errors: number } | undefined;
   private readonly notificationCounts: Record<NotificationDisposition, number> = {
     agentSessionOwned: 0,
     contextOnly: 0,
@@ -55,7 +62,146 @@ export class AgentController {
   constructor(
     private readonly linear: LinearClient,
     private readonly runner: AgentRunner,
-  ) {}
+    stateDirectory?: string,
+  ) {
+    this.stateStore = stateDirectory ? new ControllerStateStore(stateDirectory) : undefined;
+  }
+
+  async initialize(): Promise<void> {
+    if (!this.stateStore) return;
+    const records = await this.stateStore.load();
+    const resumptions: Array<{ sessionId: string; payload: AgentSessionWebhook; state: SessionState }> = [];
+    let skipped = 0;
+    let errors = 0;
+    for (const record of records) {
+      const state: SessionState = {
+        running: record.running,
+        awaitingInput: record.awaitingInput,
+        generation: record.generation,
+        startedAt: record.startedAt,
+        pending: record.pending,
+        active: record.active,
+        issueId: record.issueId,
+        teamId: record.teamId,
+        updatedAt: record.updatedAt,
+      };
+      this.states.set(record.sessionId, state);
+      const wasRunning = state.running;
+      state.running = false;
+      state.startedAt = undefined;
+      try {
+        const snapshot = await this.linear.agentSessionSnapshot(record.sessionId);
+        state.issueId = snapshot.issue?.id ?? state.issueId;
+        state.teamId = snapshot.issue?.team.id ?? state.teamId;
+        const latest = [...snapshot.activities.nodes]
+          .filter((activity) => !activity.ephemeral)
+          .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
+          .at(-1);
+        const status = snapshot.status.toLowerCase();
+        if (["complete", "stale", "error"].includes(status) || ["response", "error"].includes(latest?.content.type ?? "")) {
+          state.awaitingInput = false;
+          state.pending = undefined;
+          state.active = undefined;
+          skipped += 1;
+        } else if (state.pending || wasRunning) {
+          resumptions.push({
+            sessionId: record.sessionId,
+            payload: this.recoveryPayload(state.pending ?? state.active, snapshot, Boolean(state.pending)),
+            state,
+          });
+          state.pending = undefined;
+          state.active = undefined;
+        } else if (status === "awaitinginput" || latest?.content.type === "elicitation") {
+          state.awaitingInput = true;
+          skipped += 1;
+        } else {
+          skipped += 1;
+        }
+      } catch (error) {
+        errors += 1;
+        console.warn("could not reconcile persisted Linear Agent Session", {
+          sessionId: record.sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      this.touch(state);
+    }
+    this.recoveredSessions = records.length;
+    await this.persist();
+    let resumed = 0;
+    for (const recovery of resumptions) {
+      await this.runner.abort(recovery.sessionId).catch(() => false);
+      await this.start(recovery.sessionId, recovery.payload, recovery.state);
+      resumed += 1;
+    }
+    this.lastRecovery = {
+      at: new Date().toISOString(),
+      restored: records.length,
+      resumed,
+      skipped,
+      errors,
+    };
+    await this.persist();
+  }
+
+  private recoveryPayload(
+    previous: AgentSessionWebhook | undefined,
+    snapshot: AgentSessionSnapshot,
+    includePendingPrompt: boolean,
+  ): AgentSessionWebhook {
+    const pendingBody = includePendingPrompt ? previous?.agentActivity?.content?.body?.trim() : undefined;
+    const recovery = [
+      "The Straylight controller restarted while this Agent Session still had unfinished work.",
+      "Reconstruct the task from persistent Pi history and the current workspace. Inspect current Linear and repository state before repeating any external action.",
+      pendingBody ? `The queued Linear follow-up was:\n${pendingBody}` : "Continue the interrupted request.",
+    ].join("\n\n");
+    return {
+      ...(previous ?? {}),
+      type: "AgentSessionEvent",
+      action: "prompted",
+      appUserId: previous?.appUserId ?? snapshot.appUser.id,
+      agentActivity: { content: { type: "prompt", body: recovery } },
+      agentSession: {
+        ...(previous?.agentSession ?? {}),
+        id: snapshot.id,
+        appUserId: snapshot.appUser.id,
+        ...(snapshot.issue?.id ? { issueId: snapshot.issue.id } : {}),
+        status: snapshot.status,
+        issue: snapshot.issue ? {
+          id: snapshot.issue.id,
+          ...(snapshot.issue.identifier ? { identifier: snapshot.issue.identifier } : {}),
+          ...(snapshot.issue.title ? { title: snapshot.issue.title } : {}),
+          ...(snapshot.issue.description === undefined ? {} : { description: snapshot.issue.description }),
+          ...(snapshot.issue.url ? { url: snapshot.issue.url } : {}),
+          teamId: snapshot.issue.team.id,
+          team: snapshot.issue.team,
+        } : null,
+      },
+    };
+  }
+
+  private touch(state: SessionState): void {
+    state.updatedAt = Date.now();
+  }
+
+  private persist(): Promise<void> {
+    if (!this.stateStore) return Promise.resolve();
+    this.persistence = this.persistence
+      .catch(() => undefined)
+      .then(() => this.stateStore?.save([...this.states].map(([sessionId, state]): ControllerSessionRecord => ({
+        sessionId,
+        running: state.running,
+        awaitingInput: state.awaitingInput,
+        generation: state.generation,
+        ...(state.startedAt === undefined ? {} : { startedAt: state.startedAt }),
+        ...(state.pending ? { pending: state.pending } : {}),
+        ...(state.active ? { active: state.active } : {}),
+        ...(state.issueId ? { issueId: state.issueId } : {}),
+        ...(state.teamId ? { teamId: state.teamId } : {}),
+        updatedAt: state.updatedAt,
+      }))) ?? Promise.resolve());
+    return this.persistence;
+  }
 
   async health(): Promise<Record<string, unknown>> {
     const sessions = [...this.states.values()];
@@ -64,7 +210,13 @@ export class AgentController {
         trackedSessions: sessions.length,
         runningSessions: sessions.filter((state) => state.running).length,
         pendingSessions: sessions.filter((state) => Boolean(state.pending)).length,
+        awaitingInputSessions: sessions.filter((state) => state.awaitingInput).length,
         plansEnabled: this.plansEnabled,
+        registry: {
+          persistent: Boolean(this.stateStore),
+          recoveredSessions: this.recoveredSessions,
+          ...(this.lastRecovery ? { lastRecovery: this.lastRecovery } : {}),
+        },
         notifications: {
           counts: { ...this.notificationCounts },
           ...(this.lastNotification ? { last: this.lastNotification } : {}),
@@ -93,23 +245,31 @@ export class AgentController {
     }
     const state = this.states.get(sessionId) ?? {
       running: false,
+      awaitingInput: false,
       generation: 0,
       startedAt: undefined,
       pending: undefined,
+      active: undefined,
       issueId: undefined,
       teamId: undefined,
+      updatedAt: Date.now(),
     };
     state.issueId = session.issueId ?? session.issue?.id ?? state.issueId;
     state.teamId = session.issue?.teamId ?? session.issue?.team?.id ?? state.teamId;
+    this.touch(state);
     this.states.set(sessionId, state);
 
     if (isStopRequest(payload)) {
       const wasRunning = state.running;
-      const runTime = state.startedAt === undefined ? undefined : performance.now() - state.startedAt;
+      const runTime = state.startedAt === undefined ? undefined : Date.now() - state.startedAt;
       state.generation += 1;
       state.running = false;
+      state.awaitingInput = false;
       state.startedAt = undefined;
       state.pending = undefined;
+      state.active = undefined;
+      this.touch(state);
+      await this.persist();
       const aborted = await this.runner.abort(sessionId);
       const suffix = runTime === undefined ? "" : ` after ${elapsed(runTime)}`;
       await this.linear.createActivity(sessionId, {
@@ -119,17 +279,25 @@ export class AgentController {
       return;
     }
 
-    if (payload.action !== "created" && payload.action !== "prompted") return;
+    if (payload.action !== "created" && payload.action !== "prompted") {
+      await this.persist();
+      return;
+    }
     if (payload.action === "prompted" && state.running) {
       if (await this.runner.followUp(sessionId, followUpPrompt(payload))) {
+        state.active = payload;
+        this.touch(state);
+        await this.persist();
         await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active Pi session." });
       } else {
         state.pending = payload;
+        this.touch(state);
+        await this.persist();
         await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current Pi turn." });
       }
       return;
     }
-    this.start(sessionId, payload, state);
+    await this.start(sessionId, payload, state);
   }
 
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
@@ -205,9 +373,11 @@ export class AgentController {
     await this.linear.revokeInstallation();
   }
 
-  private start(sessionId: string, payload: AgentSessionWebhook, state: SessionState): void {
+  private async start(sessionId: string, payload: AgentSessionWebhook, state: SessionState): Promise<void> {
     if (state.running) {
       state.pending = payload;
+      this.touch(state);
+      await this.persist();
       void this.linear
         .createActivity(sessionId, { type: "thought", body: "A Pi run is already active; this request is queued." })
         .catch((error: unknown) => console.error("failed to report queued run", {
@@ -216,12 +386,19 @@ export class AgentController {
       return;
     }
     state.running = true;
-    state.startedAt = performance.now();
+    state.awaitingInput = false;
+    state.startedAt = Date.now();
+    state.active = payload;
+    this.touch(state);
     const generation = ++state.generation;
+    await this.persist();
     void this.execute(sessionId, payload, state, generation).catch(async (error: unknown) => {
       if (state.generation !== generation) return;
       state.running = false;
       state.startedAt = undefined;
+      state.active = undefined;
+      this.touch(state);
+      await this.persist().catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
       await this.linear.createActivity(sessionId, { type: "error", body: finalText(`Pi run crashed: ${message}`) }).catch(() => undefined);
     });
@@ -321,10 +498,14 @@ export class AgentController {
       await this.finish(sessionId, result);
     }
     state.running = false;
+    state.awaitingInput = result.awaitingInput;
     state.startedAt = undefined;
+    state.active = undefined;
     const pending = state.pending;
     state.pending = undefined;
-    if (pending) this.start(sessionId, pending, state);
+    this.touch(state);
+    await this.persist();
+    if (pending) await this.start(sessionId, pending, state);
   }
 
   private finish(sessionId: string, result: PiResult): Promise<void> {
@@ -361,8 +542,11 @@ export class AgentController {
       if (!predicate(state)) continue;
       state.generation += 1;
       state.running = false;
+      state.awaitingInput = false;
       state.startedAt = undefined;
       state.pending = undefined;
+      state.active = undefined;
+      this.touch(state);
       const cancellation = this.runner.abort(sessionId)
         .then(() => undefined)
         .catch((error: unknown) => {
@@ -375,6 +559,7 @@ export class AgentController {
       cancellations.push(cancellation);
     }
     await Promise.all(cancellations);
+    await this.persist();
   }
 }
 

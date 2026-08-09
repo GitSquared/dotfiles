@@ -253,9 +253,10 @@ binary and Pi hook; deployed savings measurement remains.
 
 ## Slice 10 — Linear as a durable control plane
 
-Status: generic issue/project/relation/subissue operations and explicit Inbox
-notification routing implemented locally; deployed GraphQL acceptance and
-restart recovery remain.
+Status: generic issue/project/relation/subissue operations, explicit Inbox
+notification routing, durable controller recovery, and persistent webhook
+deduplication implemented locally. Inbound files plus deployed GraphQL and
+restart acceptance remain.
 
 - Persist the controller's session registry and reconstruct pending/running
   state from Agent Activities after a controller restart. Webhook deduplication,

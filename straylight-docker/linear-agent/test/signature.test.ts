@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import crypto from "node:crypto";
 import { test } from "bun:test";
-import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "../src/signature.js";
+import { DeliveryDeduper, PersistentDeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "../src/signature.js";
 
 test("accepts a valid Linear HMAC", () => {
   const body = Buffer.from('{"hello":"straylight"}');
@@ -27,4 +30,17 @@ test("deduplicates identical deliveries", () => {
   assert.equal(deduper.accept(Buffer.from("one"), 100), true);
   assert.equal(deduper.accept(Buffer.from("one"), 101), false);
   assert.equal(deduper.accept(Buffer.from("one"), 1_200), true);
+});
+
+test("deduplicates webhook deliveries across process restarts", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-deliveries-"));
+  try {
+    const payload = Buffer.from('{"type":"AgentSessionEvent","webhookId":"one"}');
+    const first = new PersistentDeliveryDeduper(directory);
+    assert.equal(await first.accept(payload, 1_000_000), true);
+    const restarted = new PersistentDeliveryDeduper(directory);
+    assert.equal(await restarted.accept(payload, 1_000_001), false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
 });
