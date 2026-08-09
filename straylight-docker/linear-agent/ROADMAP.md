@@ -159,7 +159,9 @@ Acceptance:
 
 ## Slice 6 — cost-aware model policy
 
-Status: implemented locally; deployed account/model acceptance remains.
+Status: allowlist, classifier, picker, and one-tier agent-requested escalation
+are implemented locally. Deployed account/model acceptance and outcome/cost
+telemetry remain.
 
 - Store one small explicit allowlist in persistent Pi configuration. Each entry
   names provider/model, relative cost class, supported reasoning levels,
@@ -170,16 +172,17 @@ Status: implemented locally; deployed account/model acceptance remains.
 - Choose the cheapest eligible model and reasoning level before the first main
   turn. Pi's SDK changes both on an idle session when the agent explicitly asks
   to escalate without losing its history.
-- Escalate one tier after a failed check-and-repair cycle, repeated tool loop,
-  context pressure, or explicit uncertainty. Never silently downgrade during a
-  turn, and never select outside the engineer-owned allowlist.
-- Let subagents choose a cheaper eligible model within the parent turn's cost
-  ceiling. Review or security helpers may match the parent, but exceeding its
-  ceiling requires a surfaced escalation.
+- Instruct Pi to request one-tier escalation after a failed check-and-repair
+  cycle, repeated tool loop, context pressure, or explicit uncertainty. Never
+  silently downgrade during a turn, and never select outside the engineer-owned
+  allowlist.
+- Helpers currently inherit the parent model and reasoning level. Letting them
+  choose a cheaper eligible tier within the parent's ceiling remains a future
+  optimization; exceeding that ceiling must still require surfaced escalation.
 - Surface the selection and escalation reason as short ephemeral Linear
-  activities. Record per-turn model, reasoning level, elapsed time, token usage,
-  retries, and outcome so cost efficiency means successful task cost rather
-  than cheapest individual inference.
+  activities. The controller currently records elapsed time and outcome only;
+  add per-turn model, reasoning level, token usage, and retry telemetry before
+  claiming measured cost efficiency rather than merely economical routing.
 
 The initial allowlist is Luna/low, Terra/medium, and Sol/high through the
 `openai-codex` subscription provider, with Terra fallback. Keep volatile provider
