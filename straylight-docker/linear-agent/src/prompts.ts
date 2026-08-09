@@ -1,5 +1,29 @@
 import type { AgentSessionWebhook, AgentTaskPayload } from "./types.js";
 
+export function currentLinearRequest(payload: AgentSessionWebhook): string | undefined {
+  const activity = payload.agentActivity?.content?.body?.trim();
+  if (payload.action === "prompted" && activity) return activity;
+  return payload.agentSession?.comment?.body?.trim()
+    || activity
+    || payload.promptContext?.trim()
+    || payload.agentSession?.promptContext?.trim()
+    || payload.agentSession?.issue?.description?.trim()
+    || payload.agentSession?.issue?.title?.trim();
+}
+
+export function modelSelectionPrompt(payload: AgentSessionWebhook): string {
+  const issue = payload.agentSession?.issue;
+  const request = currentLinearRequest(payload);
+  const context = payload.promptContext?.trim() || payload.agentSession?.promptContext?.trim();
+  return [
+    request ? `Current request (authoritative):\n${request}` : undefined,
+    issue?.identifier ? `Issue: ${issue.identifier}` : undefined,
+    issue?.title && issue.title.trim() !== request ? `Title: ${issue.title}` : undefined,
+    issue?.description && issue.description.trim() !== request ? `Supporting issue description:\n${issue.description}` : undefined,
+    context && context !== request ? `Supporting session context:\n${context}` : undefined,
+  ].filter((value): value is string => Boolean(value)).join("\n\n");
+}
+
 function guidance(payload: AgentSessionWebhook): string[] {
   const bodies = payload.guidance?.flatMap((item) => item.body?.trim() ? [item.body.trim()] : []) ?? [];
   return bodies.length ? ["", "Linear guidance:", ...bodies.map((body) => `- ${body}`)] : [];
@@ -25,7 +49,8 @@ function repositories(payload: AgentTaskPayload): string[] {
 
 export function initialPrompt(payload: AgentTaskPayload): string {
   const issue = payload.agentSession?.issue;
-  const context = payload.promptContext ?? payload.agentSession?.promptContext;
+  const request = currentLinearRequest(payload);
+  const context = payload.promptContext?.trim() || payload.agentSession?.promptContext?.trim();
   return [
     "You are Straylight's Pi coding agent, working from a Linear Agent Session.",
     "Follow /workspace/AGENTS.md. Treat the named repository and permissions as authoritative.",
@@ -37,12 +62,15 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     "You have online access plus a writable /workspace and ordinary development shell tools. Search persistent notes with memory when prior context may help, and save concise non-secret Markdown notes under PI_MEMORY_DIR when you learn something durable.",
     "Use delegate when a bounded helper context will materially improve the work. You may build a task-local extension under /workspace/.pi/extensions and call reload_resources when a reusable tool is genuinely useful.",
     "",
+    request ? `Current Linear request (authoritative):\n${request}` : undefined,
+    request ? "Treat the issue and session material below as supporting context. Do not let an older issue description override the current request." : undefined,
+    "",
     issue ? "Linear issue:" : "Linear session:",
     issue?.identifier ? `- Identifier: ${issue.identifier}` : undefined,
     issue?.title ? `- Title: ${issue.title}` : undefined,
     issue?.url ? `- URL: ${issue.url}` : undefined,
     issue?.description ? `- Description:\n${issue.description}` : undefined,
-    context ? `\nLinear context:\n${context}` : undefined,
+    context && context !== request ? `\nSupporting Linear context:\n${context}` : undefined,
     ...guidance(payload),
     ...repositories(payload),
     "",
@@ -51,9 +79,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
 }
 
 export function followUpPrompt(payload: AgentSessionWebhook): string {
-  const body = payload.agentActivity?.content?.body?.trim()
-    || payload.promptContext?.trim()
-    || payload.agentSession?.promptContext?.trim()
+  const body = currentLinearRequest(payload)
     || "Continue from the existing Linear session and report useful status.";
   return `Linear follow-up:\n${body}\n\nContinue from the existing Pi session.`;
 }

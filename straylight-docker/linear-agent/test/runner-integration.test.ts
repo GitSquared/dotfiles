@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { CapsuleClient } from "../src/capsule-client.js";
+import { LinearToolClient } from "../src/linear-tool-client.js";
 import { PiRunnerClient } from "../src/runner-client.js";
 import { createRunnerServer } from "../src/runner-server.js";
 import { ServiceClient } from "../src/service-client.js";
 
 test("streams structured events across the controller-runner boundary", async () => {
   let followUpInputs: unknown;
+  let uploaded: { token: string; filename: string; contentType: string; dataBase64: string } | undefined;
   const harness = {
     async askClaude(taskCredential: string, request: string) {
       return taskCredential === "one-time-task-token" && request === "Find the context"
@@ -17,6 +19,10 @@ test("streams structured events across the controller-runner boundary", async ()
       return taskCredential === "one-time-task-token"
         ? { ok: true, service: request.service, status: "starting" as const, connection: { host: "postgres", port: 5432 } }
         : { ok: false, service: request.service, status: "failed" as const, message: "Unauthorized task service request" };
+    },
+    async uploadLinearFile(taskCredential: string, request: { filename: string; contentType: string; dataBase64: string }) {
+      uploaded = { token: taskCredential, ...request };
+      return "https://uploads.linear.app/workspace/duck-png";
     },
     async run(_payload: unknown, send: (event: {
       type: "activity";
@@ -54,6 +60,15 @@ test("streams structured events across the controller-runner boundary", async ()
     const service = await new ServiceClient(baseUrl, "one-time-task-token").manage({ action: "start", service: "postgres" }); // yadm-secret-scan: ignore
     assert.equal(service.status, "starting");
     assert.deepEqual(service.connection, { host: "postgres", port: 5432 });
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5xkAAAAASUVORK5CYII=", "base64");
+    const assetUrl = await new LinearToolClient(baseUrl, "one-time-task-token").upload("duck.png", "image/png", png); // yadm-secret-scan: ignore
+    assert.equal(assetUrl, "https://uploads.linear.app/workspace/duck-png");
+    assert.deepEqual(uploaded, {
+      token: "one-time-task-token", // yadm-secret-scan: ignore
+      filename: "duck.png",
+      contentType: "image/png",
+      dataBase64: png.toString("base64"),
+    });
     const client = new PiRunnerClient(baseUrl, token);
     const events: unknown[] = [];
     const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });

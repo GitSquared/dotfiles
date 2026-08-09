@@ -19,7 +19,7 @@ import { decodeLinearInput, MAX_LINEAR_INPUTS, MAX_LINEAR_INPUT_TOTAL_BYTES } fr
 import { LinearToolClient } from "./linear-tool-client.js";
 import { loadModelPolicy, selectedModelName, type AllowedModel } from "./model-policy.js";
 import { ProgressReporter } from "./progress.js";
-import { followUpPrompt, initialPrompt } from "./prompts.js";
+import { followUpPrompt, initialPrompt, modelSelectionPrompt } from "./prompts.js";
 import { finalText, redact } from "./redaction.js";
 import type { PiResult, RunnerEvent } from "./runner-protocol.js";
 import { captureCommand, runCommand } from "./runtime.js";
@@ -433,18 +433,12 @@ export class PiHarness {
       if (!available.has(classifierKey)) throw new Error(`classifier model ${classifierKey} is unavailable`);
       const classifier = runtime.getModel(policy.classifier.provider, policy.classifier.model);
       if (!classifier) throw new Error(`classifier model ${classifierKey} is not registered`);
-      const issue = payload.agentSession?.issue;
-      const request = [
-        issue?.identifier ? `Issue: ${issue.identifier}` : undefined,
-        issue?.title ? `Title: ${issue.title}` : undefined,
-        issue?.description ? `Description:\n${issue.description}` : undefined,
-        payload.promptContext ? `Context:\n${payload.promptContext}` : undefined,
-        payload.agentSession?.promptContext ? `Session context:\n${payload.agentSession.promptContext}` : undefined,
-      ].filter((value): value is string => Boolean(value)).join("\n\n").slice(0, 20_000);
+      const request = modelSelectionPrompt(payload).slice(0, 20_000);
       const response = await runtime.completeSimple(classifier, {
         systemPrompt: [
           "Choose the cheapest allowed model that can reliably complete this coding-agent request.",
           "Return only JSON with keys model and reason. model must be one of the exact lowercase names below.",
+          "When the request labels a Current request as authoritative, classify that request; supporting issue or session material must not replace it.",
           "Prefer the cheaper entry unless the request's ambiguity, coupling, stakes, or depth materially needs the next tier.",
           ...models.map((model) => `- ${model.name}: ${model.description}`),
         ].join("\n"),

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { githubPullRequestUrl, isStopRequest } from "../src/controller.js";
-import { followUpPrompt, initialPrompt } from "../src/prompts.js";
+import { currentLinearRequest, followUpPrompt, initialPrompt, modelSelectionPrompt } from "../src/prompts.js";
 import { finalText, progressText, redact } from "../src/redaction.js";
 
 test("builds a repository-aware initial prompt", () => {
@@ -28,6 +28,32 @@ test("builds a repository-aware initial prompt", () => {
 test("uses the activity body for follow-ups", () => {
   const prompt = followUpPrompt({ agentActivity: { content: { body: "Run the integration tests too." } } });
   assert.match(prompt, /Run the integration tests too/);
+});
+
+test("makes a mention comment authoritative over an older issue instruction", () => {
+  const payload = {
+    action: "created",
+    promptContext: "Issue context and comments from Linear.",
+    agentSession: {
+      id: "session",
+      comment: { id: "comment", body: "@straylight generate a bitmap duck and add it to the test document." },
+      issue: {
+        identifier: "GAB-5",
+        title: "Generate duck bitmap picture for test document",
+        description: "Report the current working directory and agent name.",
+      },
+    },
+  };
+  assert.equal(currentLinearRequest(payload), "@straylight generate a bitmap duck and add it to the test document.");
+  const prompt = initialPrompt(payload);
+  assert.ok(prompt.indexOf("generate a bitmap duck") < prompt.indexOf("Report the current working directory"));
+  assert.match(prompt, /Current Linear request \(authoritative\)/);
+  assert.match(prompt, /Do not let an older issue description override the current request/);
+
+  const classifier = modelSelectionPrompt(payload);
+  assert.ok(classifier.indexOf("generate a bitmap duck") < classifier.indexOf("Report the current working directory"));
+  assert.match(classifier, /Current request \(authoritative\)/);
+  assert.match(classifier, /Supporting issue description/);
 });
 
 test("recognizes explicit stop requests", () => {

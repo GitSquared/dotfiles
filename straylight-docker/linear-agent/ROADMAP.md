@@ -259,7 +259,8 @@ binary and Pi hook; deployed savings measurement remains.
 Status: generic issue/project/document/relation/subissue operations, explicit Inbox
 notification routing, durable controller recovery, and persistent webhook
 inbox/retry/deduplication, plus bounded inbound files and multimodal images
-implemented locally. Deployed GraphQL, restart, and attachment acceptance remain.
+implemented locally. Deployed Document create/list/update is verified; restart,
+bitmap upload, and rich attachment acceptance remain.
 
 - Persist the controller's session registry and reconstruct pending/running
   state from Agent Activities after a controller restart. Webhook deduplication,
@@ -273,6 +274,12 @@ implemented locally. Deployed GraphQL, restart, and attachment acceptance remain
 - Deliberately route useful Inbox notifications such as direct issue/comment
   mentions, new comments, and reactions. Avoid treating every issue comment as
   a new instruction; only explicit agent interactions should resume work.
+- For a newly created mention session, make `agentSession.comment.body` the
+  authoritative request for both model selection and Pi; retain the issue body
+  and formatted prompt context as supporting material only.
+- Give the workbench a deterministic SVG-to-PNG path, and keep the private
+  storage PUT on a retrying Node HTTPS hop so Bun socket churn cannot discard a
+  generated bitmap.
 - Add lightweight acknowledgement reactions only if they improve responsiveness
   without duplicating Agent Activities.
 - Keep automatic queue delegation in Linear Triage Rules rather than building a

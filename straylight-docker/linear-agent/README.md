@@ -301,9 +301,10 @@ as a compatibility layer for upstream Pi executables and qmd's native SQLite
 module; Docker Engine calls retain `node:http` because they use a Unix socket,
 and permission-sensitive filesystem operations retain Node's POSIX APIs.
 
-The image also contains Git, GitHub CLI, qmd, RTK 0.45.0, build tools, Python, curl, jq,
-ripgrep, and fd. Pi is online and explicitly receives writable filesystem and
-shell tools inside its bounded task jail. TypeScript 7 checks the source, while
+The image also contains Git, GitHub CLI, qmd, RTK 0.45.0, build tools, Python,
+curl, jq, ripgrep, fd, and `rsvg-convert` for turning simple original SVGs into
+PNG bitmaps. Pi is online and explicitly receives writable filesystem and shell
+tools inside its bounded task jail. TypeScript 7 checks the source, while
 `bun test` exercises the TypeScript tests directly.
 
 GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
@@ -474,6 +475,8 @@ Useful Linear smoke tests:
     issue's documents, read and update it by id, then upload a small image and
     embed the returned private asset URL in that document. Finally publish a rich
     preview or pull-request attachment to the issue.
+    Also create a simple SVG, rasterize it to PNG with `rsvg-convert`, and share
+    the PNG to cover the complete bitmap path.
 12. Ask Pi to create a small issue, update one property, attach it as a subissue,
     add and remove a relationship, and create/update a test project. Confirm each
     result returns a native Linear id and URL where applicable.
@@ -483,9 +486,12 @@ Useful Linear smoke tests:
 14. Delegate one routine and one deliberately hard issue. Confirm the classifier
     choice appears after workspace setup, then ask the hard run to size up and
     confirm it moves exactly one allowlisted tier without losing session history.
-15. Run representative Git, search, and test commands, inspect `rtk gain`, then
+15. Give an issue an obsolete description, then mention Pi in a new comment with
+    a different request. Confirm both the model picker and Pi act on the mention
+    while retaining the issue description only as supporting context.
+16. Run representative Git, search, and test commands, inspect `rtk gain`, then
     repeat one with `RTK_RAW=1` and confirm the raw escape is unfiltered.
-16. Attach a PNG and a text or PDF file to the initial request, then attach
+17. Attach a PNG and a text or PDF file to the initial request, then attach
     another PNG in an active-session follow-up. Confirm the activity reports
     accepted inputs, the image is visible to the model, and all files appear
     only under the matching session's `.linear-inputs` directory. Try an
