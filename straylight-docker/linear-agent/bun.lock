@@ -8,6 +8,7 @@
         "@earendil-works/pi-coding-agent": "0.84.0",
         "pi-web-access": "0.18.0",
         "typebox": "1.3.7",
+        "visual-explainer": "0.8.1",
       },
       "devDependencies": {
         "@types/bun": "1.3.14",
@@ -544,6 +545,8 @@
     "undici-types": ["undici-types@6.21.0", "", {}, "sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ=="],
 
     "unpdf": ["unpdf@1.8.0", "", { "peerDependencies": { "@napi-rs/canvas": "^0.1.69 || ^1.0.0" }, "optionalPeers": ["@napi-rs/canvas"] }, "sha512-jQlkckbe5nKxRHQdbvo9IKHlU6Cjq00UlxxB8lrCIxvS2o5IbAL1wM+4a1Yc3+BIohg9p5AsoaftwO+G4Aq/qQ=="],
+
+    "visual-explainer": ["visual-explainer@0.8.1", "", { "peerDependencies": { "@earendil-works/pi-coding-agent": "*" } }, "sha512-hHG4QfzVqqGGvchf50RVjYukLZjaGsDLmjQjcbBieeHR8yHmQrU2dDDaOCg7FDUxx3dPIKUeZvImbuil6R7LQQ=="],
 
     "web-streams-polyfill": ["web-streams-polyfill@3.3.3", "", {}, "sha512-d2JWLCivmZYTSIoge9MsgFCZrt571BikcWGYkjC1khllbTeDlGqZ2D8vD8E/lJa8WGWbb7Plm8/XJYV7IJHZZw=="],
 

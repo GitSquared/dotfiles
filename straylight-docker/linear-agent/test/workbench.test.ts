@@ -64,6 +64,7 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.HostConfig.Memory, 4 * 1024 * 1024 * 1024);
   assert.ok(spec.HostConfig.Binds.some((bind) => bind.endsWith(":/repositories:ro")));
   assert.ok(spec.HostConfig.Binds.some((bind) => bind.endsWith(":/workspace")));
+  assert.ok(spec.HostConfig.Binds.some((bind) => bind.endsWith("/.agent/diagrams:/home/node/.agent/diagrams")));
   assert.notDeepEqual(spec.HostConfig.Binds, other.HostConfig.Binds);
   assert.equal(spec.Env.some((value) => value.startsWith("LINEAR_")), false);
   assert.equal(spec.Env.some((value) => value.startsWith("CAPSULE_CONTROL_")), false);

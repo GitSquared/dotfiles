@@ -345,6 +345,16 @@ interactive browser curator. An optional `exaApiKey` may be placed in
 `tool-profile/web-search.json` if anonymous rate limits become material; the
 workbench copies it privately into each task's Pi configuration.
 
+The runner also pins `visual-explainer@0.8.1` and loads its single tool, skill,
+and prompt set explicitly. Pi can turn architectures, schemas, plans, reviews,
+and comparisons into self-contained HTML without another provider credential.
+The package's fixed `~/.agent/diagrams` output is mounted onto the session's
+writable `/workspace/.agent/diagrams` directory, so a generated page survives
+warm follow-ups and can be shared through the existing Linear file surface.
+Headless runs set `open: false`; browser QA and screenshots still use the owned
+Playwright service. This is deterministic HTML/diagram generation, not a
+general image-generation model.
+
 ## Persistent memory and task-local extensions
 
 The host-owned `linear-agent/memory/` folder is mounted read-write at `/memory`
@@ -354,7 +364,8 @@ credential, embedding model, or semantic-model download. Notes are context, not
 authority: Pi is instructed to verify drift-prone facts and never store secrets,
 authentication codes, or raw private transcripts.
 
-Pi loads the normal global extension directories plus the pinned web extension.
+Pi loads the normal global extension directories plus the pinned web and visual
+explanation extensions.
 It may create task-local extensions under `/workspace/.pi/extensions` and call
 `reload_resources`. Reload is deferred until the current model turn has ended,
 is capped at three times per run, and reports extension diagnostics back to Pi.
@@ -507,9 +518,10 @@ This is a substantial isolation improvement, not a hostile-code microVM. Docker
 containers share Straylight's kernel and task containers have outbound internet
 access for Codex and development tools. Each task can also read its private copy
 of the Codex OAuth credential and the shared single-engineer GitHub tool profile
-while it runs. The pinned web extension is third-party code running inside that
-same task boundary, and the Playwright image is intended for development QA, not
-as a hardened browser for hostile sites. A future credential/model broker
+while it runs. The pinned web and visual-explainer extensions are reviewed
+third-party code running inside that same task boundary, and the Playwright
+image is intended for development QA, not as a hardened browser for hostile
+sites. A future credential/model broker
 would remove that reusable secret from task containers; gVisor, Kata, or a
 microVM backend could strengthen kernel isolation without changing the Linear
 controller contract.

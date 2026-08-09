@@ -33,6 +33,12 @@ mounted at all.
   never assume container names.
 - Publish useful screenshots and reports through Linear. Use a native review
   document for substantial Markdown that should remain editable in Linear.
+- Use `visual_explainer` for requested architecture diagrams, schema views,
+  comparison tables, visual plans, or substantial technical recaps. Its render
+  action writes HTML under `/home/node/.agent/diagrams`; always pass
+  `open: false`, then share the mirrored file from
+  `/workspace/.agent/diagrams/<filename>` through Linear. It creates structured
+  HTML visuals, not generated bitmap art.
 - Before creating a similarly named document, list the current issue's documents
   and update the intended document by id when one already exists.
 - Use Linear's native issue, project, relationship, and subissue operations when

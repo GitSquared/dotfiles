@@ -123,6 +123,7 @@ export function taskContainerSpec(
         `${path.join(hostTaskRoot, "pi-sessions")}:/app/state/pi-sessions`,
         `${path.join(hostTaskRoot, "pi-config")}:/home/node/.pi/agent`,
         `${hostWorkspace}:/workspace`,
+        `${path.join(hostWorkspace, ".agent", "diagrams")}:/home/node/.agent/diagrams`,
         `${hostRepositories}:/repositories:ro`,
         `${path.join(config.hostRoot, "tool-profile")}:/tool-profile:ro`,
         `${path.join(config.hostRoot, "memory")}:${config.memoryDirectory}`,
@@ -781,6 +782,7 @@ export class WorkbenchHarness {
     await fs.mkdir(piSessions, { recursive: true, mode: 0o700 });
     await fs.mkdir(piConfig, { recursive: true, mode: 0o700 });
     await fs.mkdir(workspace, { recursive: true, mode: 0o700 });
+    await fs.mkdir(path.join(workspace, ".agent", "diagrams"), { recursive: true, mode: 0o700 });
     await fs.writeFile(path.join(taskRoot, "session.json"), `${JSON.stringify({
       sessionId,
       issueId: payload.agentSession?.issueId ?? payload.agentSession?.issue?.id,

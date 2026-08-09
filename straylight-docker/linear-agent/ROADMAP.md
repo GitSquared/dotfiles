@@ -285,6 +285,30 @@ bitmap upload, and rich attachment acceptance remain.
 - Keep automatic queue delegation in Linear Triage Rules rather than building a
   second polling queue inside Straylight.
 
+## Slice 11 — structured visual explanations
+
+Status: implemented locally with pinned `visual-explainer@0.8.1`; deployed
+generation, attachment, and browser rendering remain acceptance checks.
+
+- Load the reviewed package's single `visual_explainer` tool, skill, and prompt
+  set explicitly from the runner image. Do not download extensions at task
+  startup or let repositories choose this shared capability.
+- Map its fixed `~/.agent/diagrams` output onto the session's writable
+  `/workspace/.agent/diagrams` directory. Render headlessly with `open: false`,
+  then use the existing generic Linear share operation or browser service.
+- Use it for architectures, schemas, plans, comparisons, and technical recaps.
+  Keep bitmap/photo generation out of scope until a separately authenticated,
+  reviewed image-generation provider is justified.
+
+Acceptance:
+
+1. Ask for a small architecture or schema view and confirm Pi selects the
+   `visual_explainer` skill without a manual slash command.
+2. Confirm the complete HTML appears in both mapped paths, survives a warm
+   follow-up, and uploads through `linear share` from the workspace path.
+3. Serve the HTML from the task container, inspect it through the owned browser
+   service, and publish a screenshot with no browser-console or layout errors.
+
 ## Later hardening
 
 - Replace the task's reusable Codex credential copy with a model broker.

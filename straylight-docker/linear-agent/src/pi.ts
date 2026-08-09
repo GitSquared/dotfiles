@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
-import { createRequire } from "node:module";
 import path from "node:path";
 import {
   createAgentSession,
@@ -18,6 +17,7 @@ import type { RunnerConfig } from "./config.js";
 import { decodeLinearInput, MAX_LINEAR_INPUTS, MAX_LINEAR_INPUT_TOTAL_BYTES } from "./linear-inputs.js";
 import { LinearToolClient } from "./linear-tool-client.js";
 import { loadModelPolicy, selectedModelName, type AllowedModel } from "./model-policy.js";
+import { visualExplainerResourcePaths, webAccessExtensionPath } from "./pi-resources.js";
 import { ProgressReporter } from "./progress.js";
 import { followUpPrompt, initialPrompt, modelSelectionPrompt } from "./prompts.js";
 import { finalText, redact } from "./redaction.js";
@@ -56,8 +56,6 @@ type ModelChoice = {
 type RunnerSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 type PiImage = { type: "image"; data: string; mimeType: string };
 type MaterializedInputs = { prompt: string; images: PiImage[] };
-
-const require = createRequire(import.meta.url);
 
 async function acquireMemoryLock(memoryDirectory: string): Promise<() => Promise<void>> {
   const lockDirectory = path.join(memoryDirectory, ".qmd.lock");
@@ -116,10 +114,6 @@ async function qmdSearch(memoryDirectory: string, query: string, limit: number):
   } finally {
     await release();
   }
-}
-
-function webAccessExtensionPath(): string {
-  return path.join(path.dirname(require.resolve("pi-web-access/package.json")), "index.ts");
 }
 
 type PlanItem = {
@@ -555,10 +549,13 @@ export class PiHarness {
     const activeChoice = choice ?? await this.chooseModel(undefined, undefined, false);
     const selected = activeChoice.models[activeChoice.selectedIndex];
     const model = selected ? modelRuntime.getModel(selected.provider, selected.model) : undefined;
+    const visualExplainer = visualExplainerResourcePaths();
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.config.piWorkdir,
       agentDir: this.config.piConfigDirectory,
-      additionalExtensionPaths: [webAccessExtensionPath()],
+      additionalExtensionPaths: [webAccessExtensionPath(), visualExplainer.extension],
+      additionalSkillPaths: [visualExplainer.skill],
+      additionalPromptTemplatePaths: [visualExplainer.prompts],
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({
