@@ -316,6 +316,53 @@ Acceptance:
 3. Serve the HTML from the task container, inspect it through the owned browser
    service, and publish a screenshot with no browser-console or layout errors.
 
+## Slice 12 — compact re-entry, closure, and Document review
+
+Status: planned. Build on native Linear issue, Agent Session, plan, and Document
+surfaces; do not introduce a second task-card database or a rigid final-comment
+template.
+
+- Maintain one compact re-entry projection at meaningful checkpoints. It should
+  cover `Now` (at most three sentences), lifecycle status, the exact thing Gaby
+  needs to do, recent consequential decisions, impact, genuine blocker, evidence
+  links, and the next safe checkpoint. Omit empty fields, transcript narrative,
+  tool output, and discarded paths.
+- Use native issue properties and Agent Session state for queryable lifecycle and
+  attention placement. Use an issue-backed work-record Document only when the
+  task needs richer durable orientation; list existing Documents and update the
+  same one by id rather than creating checkpoint copies.
+- At closure, reconcile the original request and current Linear plan. Give every
+  remaining item an explicit disposition: done, blocked, deferred, abandoned,
+  or a named next owner/action. Distinguish implementation, merge, deployment,
+  and customer-visible completion instead of treating any one as generic done.
+- Add generic Document-comment discovery, thread reading, reply, and resolution
+  operations behind the existing `linear` tool. Prefer anchored review comments
+  when Linear's API exposes them; otherwise retain the exact selected text and
+  Document id in an ordinary review thread.
+- Make an explicit Document or Document-comment mention authoritative input to
+  the matching Agent Session, including the current comment thread and bounded
+  Document context. Treat ordinary edits, subscriptions, and unmentioned comments
+  as context-only notifications so they do not synthesize new instructions.
+- Let Pi disposition a batch of review comments, revise the existing Document,
+  and report which comments were applied, declined with rationale, or still need
+  a decision. Keep the reviewed Document and its comment trail as evidence.
+
+Acceptance:
+
+1. Pause a multi-step task, return later, and identify current state, required
+   attention, evidence, and next action from Linear without reading the Pi
+   transcript.
+2. Close a task with partially completed scope and confirm every original plan
+   item has an explicit disposition and customer-visible completion is honest.
+3. Mention Straylight in a review comment on an existing Document; confirm Pi
+   receives that comment as the current request, reads the relevant Document and
+   thread, updates the same Document, and replies in the review surface.
+4. Add an ordinary unmentioned Document comment or edit and confirm it remains
+   context-only and does not start or redirect Pi work.
+5. Submit several Document review comments and confirm Pi returns an auditable
+   applied/declined/needs-decision disposition for each without creating a new
+   Document.
+
 ## Later hardening
 
 - Replace the task's reusable Codex credential copy with a model broker.
