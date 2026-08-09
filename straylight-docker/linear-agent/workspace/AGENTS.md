@@ -39,6 +39,10 @@ mounted at all.
   `open: false`, then share the mirrored file from
   `/workspace/.agent/diagrams/<filename>` through Linear. It creates structured
   HTML visuals, not generated bitmap art.
+- When asked to place that visual in a Linear document, render and inspect the
+  HTML with the owned browser, capture a PNG, upload it through `linear share`,
+  then embed the returned private asset URL while updating the existing document.
+  Do not rely on Linear rendering a fenced Mermaid block as a diagram.
 - Before creating a similarly named document, list the current issue's documents
   and update the intended document by id when one already exists.
 - Use Linear's native issue, project, relationship, and subissue operations when
