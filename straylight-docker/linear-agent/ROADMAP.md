@@ -204,7 +204,8 @@ Status: implemented and locally verified in the Linux runner image.
 
 Implemented boundary: `Bun.serve`, Web `Request`/`Response` streams, request
 cancellation, `Bun.spawn`, `bun.lock`, `bun install`, and `bun test` own the
-control path. `node:http` remains only for Docker Engine's Unix-socket API;
+control path. Long-running streamed and brokered requests explicitly disable
+Bun's ten-second idle timeout after validation. `node:http` remains only for Docker Engine's Unix-socket API;
 Node filesystem calls remain where atomic rename, POSIX modes, recursive copies,
 or directory-entry metadata are required. The image retains Node for upstream Pi
 executables and qmd's native SQLite installation, but all three Straylight entry

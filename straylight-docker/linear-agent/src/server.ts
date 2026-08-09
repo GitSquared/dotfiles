@@ -20,6 +20,8 @@ const responseHeaders = {
   "x-content-type-options": "nosniff",
 };
 
+type ControllerServer = Pick<Bun.Server<undefined>, "timeout">;
+
 function json(status: number, value: unknown): Response {
   return Response.json(value, {
     status,
@@ -75,11 +77,11 @@ export function createServer(
     enqueue(body: Buffer, payload: LinearWebhook, now?: number): Promise<boolean>;
     status?(): Promise<Record<string, unknown>>;
   },
-): (request: Request) => Promise<Response> {
+): (request: Request, server?: ControllerServer) => Promise<Response> {
   const deduper = new DeliveryDeduper();
-  return async (request) => {
+  return async (request, server) => {
     try {
-      return await route(request);
+      return await route(request, server);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("request failed", { message });
@@ -87,7 +89,7 @@ export function createServer(
     }
   };
 
-  async function route(request: Request): Promise<Response> {
+  async function route(request: Request, server?: ControllerServer): Promise<Response> {
     const method = request.method;
     const url = new URL(request.url);
 
@@ -117,6 +119,7 @@ export function createServer(
       if (typeof input.sessionId !== "string" || !isLinearManageRequest(input.request)) {
         return json(400, { ok: false, message: "Invalid Linear broker operation" });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, await controller.manageLinear(input.sessionId, input.request));
       } catch (error) {
@@ -133,6 +136,7 @@ export function createServer(
       if (typeof input.sessionId !== "string" || !isLinearSessionRequest(input.request)) {
         return json(400, { ok: false, message: "Invalid Linear collaboration request" });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, await controller.collaborateLinear(input.sessionId, input.request));
       } catch (error) {
@@ -149,6 +153,7 @@ export function createServer(
       if (typeof input.sessionId !== "string" || !isLinearUploadRequest(input.request)) {
         return json(400, { ok: false, message: "Invalid Linear upload request" });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, { ok: true, assetUrl: await controller.uploadLinearFile(input.sessionId, input.request, request.signal) });
       } catch (error) {

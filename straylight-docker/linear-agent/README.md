@@ -303,6 +303,8 @@ lock, tests, and captured subprocesses. The runner image also retains Node.js 24
 as a compatibility layer for upstream Pi executables and qmd's native SQLite
 module; Docker Engine calls retain `node:http` because they use a Unix socket,
 and permission-sensitive filesystem operations retain Node's POSIX APIs.
+Long-running Pi and broker routes disable Bun's per-request idle timeout after
+validation; explicit task deadlines and cancellation remain authoritative.
 
 The image also contains Git, GitHub CLI, qmd, RTK 0.45.0, build tools, Python,
 curl, jq, ripgrep, and fd. Pi is online and explicitly receives writable

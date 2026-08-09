@@ -167,3 +167,38 @@ test("returns a structured failed result when the workbench run throws", async (
     await server.stop(true);
   }
 });
+
+test("keeps quiet Pi and broker requests alive beyond the Bun server idle timeout", async () => {
+  const harness = {
+    async run() {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Still here.", elapsedMs: 1_100 };
+    },
+    async collaborateLinear() {
+      await new Promise((resolve) => setTimeout(resolve, 1_100));
+      throw new Error("Linear GraphQL request failed: Argument Validation Error");
+    },
+    async followUp() { return false; },
+    async abort() { return false; },
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    idleTimeout: 1,
+    fetch: createRunnerServer(harness, "runner-test-token"), // yadm-secret-scan: ignore
+  });
+  try {
+    const client = new PiRunnerClient(server.url.origin, "runner-test-token"); // yadm-secret-scan: ignore
+    const linear = new LinearToolClient(server.url.origin, "one-time-task-token"); // yadm-secret-scan: ignore
+    const [result, brokerError] = await Promise.all([
+      client.run({ agentSession: { id: "quiet-session" } }, async () => {}),
+      linear.collaborate({ action: "external_url", label: "Review", url: "https://example.com/review" })
+        .then(() => undefined, (error: unknown) => error),
+    ]);
+    assert.equal(result.ok, true);
+    assert.equal(result.summary, "Still here.");
+    assert.match(brokerError instanceof Error ? brokerError.message : String(brokerError), /Argument Validation Error/);
+  } finally {
+    await server.stop(true);
+  }
+});

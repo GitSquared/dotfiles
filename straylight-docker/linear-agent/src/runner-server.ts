@@ -43,6 +43,8 @@ type RunnerHarness = {
   uploadLinearFile?(token: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string>; // yadm-secret-scan: ignore
 };
 
+type RunnerServer = Pick<Bun.Server<undefined>, "timeout">;
+
 function authorized(request: Request, token: string): boolean { // yadm-secret-scan: ignore
   return request.headers.get("authorization") === `Bearer ${token}`;
 }
@@ -52,10 +54,10 @@ function bearer(request: Request): string {
   return authorization?.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
 }
 
-export function createRunnerServer(pi: RunnerHarness, token: string): (request: Request) => Promise<Response> { // yadm-secret-scan: ignore
-  return async (request) => {
+export function createRunnerServer(pi: RunnerHarness, token: string): (request: Request, server?: RunnerServer) => Promise<Response> { // yadm-secret-scan: ignore
+  return async (request, server) => {
     try {
-      return await route(request);
+      return await route(request, server);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error("runner request failed", { message });
@@ -63,7 +65,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
     }
   };
 
-  async function route(request: Request): Promise<Response> {
+  async function route(request: Request, server?: RunnerServer): Promise<Response> {
     const method = request.method;
     const pathname = new URL(request.url).pathname;
 
@@ -85,6 +87,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       if (!pi.askClaude || typeof input.request !== "string") {
         return json(400, { status: "error", message: "Invalid Claude request." });
       }
+      server?.timeout(request, 0);
       const result = await pi.askClaude(bearer(request), input.request, request.signal);
       return json(result.status === "error" ? 502 : 200, result);
     }
@@ -94,6 +97,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       if (!pi.manageService || !input || typeof input !== "object") {
         return json(400, { ok: false, message: "Invalid development service request." });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, await pi.manageService(bearer(request), input, request.signal));
       } catch (error) {
@@ -107,6 +111,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       if (!pi.manageLinear || !input || typeof input !== "object") {
         return json(400, { ok: false, message: "Invalid Linear operation." });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, await pi.manageLinear(bearer(request), input, request.signal));
       } catch (error) {
@@ -120,6 +125,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       if (!pi.collaborateLinear || !input || typeof input !== "object") {
         return json(400, { ok: false, message: "Invalid Linear collaboration request." });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, await pi.collaborateLinear(bearer(request), input, request.signal));
       } catch (error) {
@@ -133,6 +139,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       if (!pi.uploadLinearFile || !input || typeof input !== "object") {
         return json(400, { ok: false, message: "Invalid Linear upload request." });
       }
+      server?.timeout(request, 0);
       try {
         return json(200, { ok: true, assetUrl: await pi.uploadLinearFile(bearer(request), input, request.signal) });
       } catch (error) {
@@ -151,6 +158,9 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       const input = await body<RunRequest>(request);
       const sessionId = input.payload.agentSession?.id;
       if (!sessionId) return json(400, { ok: false, error: "missing_agent_session_id" });
+      // Pi turns can legitimately be quiet while the model reasons or a tool runs.
+      // Bun otherwise resets this streaming response after 10 idle seconds.
+      server?.timeout(request, 0);
       return streamRun(pi, sessionId, input.payload);
     }
 
