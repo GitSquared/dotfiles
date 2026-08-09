@@ -4,6 +4,7 @@ import type {
   AgentActivitySignalMetadata,
   AgentPlanStep,
   AgentTaskPayload,
+  LinearInputFile,
 } from "./types.js";
 
 export type PiResult = {
@@ -34,7 +35,7 @@ export type RunnerEvent =
   | { type: "result"; result: PiResult };
 
 export type RunRequest = { payload: AgentTaskPayload };
-export type SessionRequest = { sessionId: string; prompt?: string };
+export type SessionRequest = { sessionId: string; prompt?: string; inputs?: LinearInputFile[] };
 
 export function encodeRunnerEvent(event: RunnerEvent): string {
   return `${JSON.stringify(event)}\n`;

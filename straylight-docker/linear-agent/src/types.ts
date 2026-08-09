@@ -17,6 +17,7 @@ export type AgentSessionWebhook = {
   webhookTimestamp?: number;
   promptContext?: string;
   guidance?: Array<{ body?: string }>;
+  previousComments?: Array<{ id?: string; body?: string }>;
   agentActivity?: {
     signal?: string;
     signalMetadata?: Record<string, unknown> | null;
@@ -34,6 +35,7 @@ export type AgentSessionWebhook = {
     status?: string;
     url?: string | null;
     promptContext?: string;
+    comment?: { id?: string; body?: string } | null;
     issue?: LinearIssue | null;
   };
 };
@@ -102,7 +104,15 @@ export type RepositoryCandidate = {
 
 export type RepositorySuggestion = RepositoryCandidate & { confidence?: number };
 
+export type LinearInputFile = {
+  filename: string;
+  mimeType: string;
+  size: number;
+  dataBase64: string;
+};
+
 export type AgentTaskPayload = AgentSessionWebhook & {
+  linearInputs?: LinearInputFile[];
   workbench?: {
     repositories?: RepositoryCandidate[];
     repositorySuggestions?: RepositorySuggestion[];

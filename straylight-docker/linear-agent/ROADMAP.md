@@ -255,8 +255,8 @@ binary and Pi hook; deployed savings measurement remains.
 
 Status: generic issue/project/relation/subissue operations, explicit Inbox
 notification routing, durable controller recovery, and persistent webhook
-deduplication implemented locally. Inbound files plus deployed GraphQL and
-restart acceptance remain.
+deduplication, plus bounded inbound files and multimodal images implemented
+locally. Deployed GraphQL, restart, and attachment acceptance remain.
 
 - Persist the controller's session registry and reconstruct pending/running
   state from Agent Activities after a controller restart. Webhook deduplication,

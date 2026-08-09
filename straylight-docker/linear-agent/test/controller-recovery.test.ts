@@ -43,6 +43,7 @@ test("recovers an interrupted Agent Session from durable state and Linear activi
           },
         };
       },
+      async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
       async createActivity(_sessionId: string, content: unknown) { activities.push(content); },
     } as unknown as LinearClient;
     let recoveredPayload: AgentTaskPayload | undefined;

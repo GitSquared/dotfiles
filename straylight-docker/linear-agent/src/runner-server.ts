@@ -2,9 +2,9 @@ import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, ty
 import type { CapsuleResult } from "./capsule-client.js";
 import type { LinearManageRequest, LinearManageResult } from "./linear-actions.js";
 import type { ServiceRequest, ServiceResult } from "./service-client.js";
-import type { RepositoryCandidate } from "./types.js";
+import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 
-export const RUNNER_MAX_BODY_BYTES = 1024 * 1024;
+export const RUNNER_MAX_BODY_BYTES = 30 * 1024 * 1024;
 
 const responseHeaders = {
   "cache-control": "no-store",
@@ -25,7 +25,7 @@ function json(status: number, value: unknown): Response {
 
 type RunnerHarness = {
   run(payload: RunRequest["payload"], send: (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>): Promise<PiResult>;
-  followUp(sessionId: string, prompt: string): Promise<boolean>;
+  followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean>;
   abort(sessionId: string): Promise<boolean>;
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
@@ -121,7 +121,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
 
     if (method === "POST" && pathname === "/follow-up") {
       const input = await body<SessionRequest>(request);
-      const accepted = input.sessionId && input.prompt ? await pi.followUp(input.sessionId, input.prompt) : false;
+      const accepted = input.sessionId && input.prompt ? await pi.followUp(input.sessionId, input.prompt, input.inputs) : false;
       return json(200, { ok: true, accepted });
     }
 

@@ -6,6 +6,7 @@ import { createRunnerServer } from "../src/runner-server.js";
 import { ServiceClient } from "../src/service-client.js";
 
 test("streams structured events across the controller-runner boundary", async () => {
+  let followUpInputs: unknown;
   const harness = {
     async askClaude(taskCredential: string, request: string) {
       return taskCredential === "one-time-task-token" && request === "Find the context"
@@ -25,7 +26,7 @@ test("streams structured events across the controller-runner boundary", async ()
       await send({ type: "activity", content: { type: "action", action: "Running tests", parameter: "npm test" }, ephemeral: true });
       return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 12 };
     },
-    async followUp(_sessionId: string, _prompt: string) { return true; },
+    async followUp(_sessionId: string, _prompt: string, inputs?: unknown) { followUpInputs = inputs; return true; },
     async abort(_sessionId: string) { return true; },
   };
   const token = "runner-test-token"; // yadm-secret-scan: ignore
@@ -62,7 +63,9 @@ test("streams structured events across the controller-runner boundary", async ()
       ephemeral: true,
     }]);
     assert.equal(result.summary, "Done.");
-    assert.equal(await client.followUp("session", "Continue"), true);
+    const input = { filename: "screen.png", mimeType: "image/png", size: 3, dataBase64: "YWJj" };
+    assert.equal(await client.followUp("session", "Continue", [input]), true);
+    assert.deepEqual(followUpInputs, [input]);
     assert.equal(await client.abort("session"), true);
   } finally {
     await server.stop(true);

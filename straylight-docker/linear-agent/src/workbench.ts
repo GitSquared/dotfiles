@@ -11,7 +11,7 @@ import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
 import { PiRunnerClient } from "./runner-client.js";
 import { runCommand } from "./runtime.js";
 import type { DevelopmentService, ServiceRequest, ServiceResult } from "./service-client.js";
-import type { RepositoryCandidate } from "./types.js";
+import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 
 const TASK_LABEL = "dev.straylight.linear-agent.task=true";
 const SERVICE_LABEL = "dev.straylight.linear-agent.service=true";
@@ -326,9 +326,9 @@ export class WorkbenchHarness {
     }
   }
 
-  async followUp(sessionId: string, prompt: string): Promise<boolean> {
+  async followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean> {
     const active = this.active.get(sessionId);
-    return active?.running && !active.aborted ? active.client.followUp(sessionId, prompt) : false;
+    return active?.running && !active.aborted ? active.client.followUp(sessionId, prompt, inputs) : false;
   }
 
   async abort(sessionId: string): Promise<boolean> {

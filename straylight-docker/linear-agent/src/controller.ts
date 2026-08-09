@@ -10,6 +10,7 @@ import type {
   AgentSessionWebhook,
   AgentTaskPayload,
   AppUserNotificationWebhook,
+  LinearInputFile,
   PermissionChangeWebhook,
 } from "./types.js";
 
@@ -48,6 +49,7 @@ export class AgentController {
   private persistence: Promise<void> = Promise.resolve();
   private recoveredSessions = 0;
   private lastRecovery: { at: string; restored: number; resumed: number; skipped: number; errors: number } | undefined;
+  private readonly inputStats = { downloaded: 0, skipped: 0, bytes: 0 };
   private readonly notificationCounts: Record<NotificationDisposition, number> = {
     agentSessionOwned: 0,
     contextOnly: 0,
@@ -217,6 +219,7 @@ export class AgentController {
           recoveredSessions: this.recoveredSessions,
           ...(this.lastRecovery ? { lastRecovery: this.lastRecovery } : {}),
         },
+        linearInputs: { ...this.inputStats },
         notifications: {
           counts: { ...this.notificationCounts },
           ...(this.lastNotification ? { last: this.lastNotification } : {}),
@@ -284,7 +287,8 @@ export class AgentController {
       return;
     }
     if (payload.action === "prompted" && state.running) {
-      if (await this.runner.followUp(sessionId, followUpPrompt(payload))) {
+      const inputs = await this.prepareLinearInputs(sessionId, payload);
+      if (await this.runner.followUp(sessionId, followUpPrompt(payload), inputs)) {
         state.active = payload;
         this.touch(state);
         await this.persist();
@@ -425,6 +429,8 @@ export class AgentController {
       });
     }
     const taskPayload: AgentTaskPayload = structuredClone(payload);
+    const inputs = await this.prepareLinearInputs(sessionId, payload);
+    if (inputs.length) taskPayload.linearInputs = inputs;
     try {
       const repositories = await this.runner.repositories();
       const suggestions = state.issueId && repositories.length
@@ -522,6 +528,38 @@ export class AgentController {
         });
       }))
       : activity;
+  }
+
+  private async prepareLinearInputs(sessionId: string, payload: AgentSessionWebhook): Promise<LinearInputFile[]> {
+    try {
+      const download = await this.linear.downloadInputs(payload);
+      if (!download.inputs.length && !download.skipped.length) return [];
+      this.inputStats.downloaded += download.inputs.length;
+      this.inputStats.skipped += download.skipped.length;
+      this.inputStats.bytes += download.totalBytes;
+      const result = download.skipped.length
+        ? download.skipped.map((item) => `- ${item.label}: ${item.reason}`).join("\n").slice(0, 2_000)
+        : "Every referenced Linear file passed host, type, signature, and size validation.";
+      await this.linear.createActivity(sessionId, {
+        type: "action",
+        action: "Prepared Linear inputs",
+        parameter: `${download.inputs.length} accepted · ${download.skipped.length} skipped`,
+        result: finalText(result),
+      }).catch((error: unknown) => {
+        console.warn("could not report prepared Linear inputs", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+      return download.inputs;
+    } catch (error) {
+      this.inputStats.skipped += 1;
+      console.warn("could not prepare Linear input files", {
+        sessionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      return [];
+    }
   }
 
   private async updatePlan(sessionId: string, plan: AgentPlanStep[]): Promise<void> {

@@ -1,13 +1,13 @@
 import { loadRunnerConfig, publicRunnerConfig } from "./config.js";
 import { PiHarness } from "./pi.js";
-import { createRunnerServer } from "./runner-server.js";
+import { createRunnerServer, RUNNER_MAX_BODY_BYTES } from "./runner-server.js";
 
 const config = loadRunnerConfig(process.env);
 const pi = new PiHarness(config);
 const server = Bun.serve({
   hostname: config.host,
   port: config.port,
-  maxRequestBodySize: 1024 * 1024,
+  maxRequestBodySize: RUNNER_MAX_BODY_BYTES,
   fetch: createRunnerServer(pi, config.authToken),
 });
 console.log("Straylight Pi runner listening", publicRunnerConfig(config));

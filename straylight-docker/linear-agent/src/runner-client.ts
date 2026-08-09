@@ -1,11 +1,11 @@
-import type { AgentTaskPayload, RepositoryCandidate } from "./types.js";
+import type { AgentTaskPayload, LinearInputFile, RepositoryCandidate } from "./types.js";
 import { parseRunnerEvent, type PiResult, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
 
 export type RunnerEventHandler = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 
 export interface AgentRunner {
   run(payload: AgentTaskPayload, onEvent: RunnerEventHandler): Promise<PiResult>;
-  followUp(sessionId: string, prompt: string): Promise<boolean>;
+  followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean>;
   abort(sessionId: string): Promise<boolean>;
   repositories(): Promise<RepositoryCandidate[]>;
   health(): Promise<Record<string, unknown>>;
@@ -51,8 +51,8 @@ export class PiRunnerClient implements AgentRunner {
     return result;
   }
 
-  followUp(sessionId: string, prompt: string): Promise<boolean> {
-    return this.command("/follow-up", { sessionId, prompt });
+  followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean> {
+    return this.command("/follow-up", { sessionId, prompt, ...(inputs?.length ? { inputs } : {}) });
   }
 
   abort(sessionId: string): Promise<boolean> {

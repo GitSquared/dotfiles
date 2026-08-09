@@ -88,6 +88,10 @@ comments:
   review Documents, rich issue attachments, issue properties, relationships,
   subissues, and projects; input
   requests can include 2-12 options while still accepting free-text replies
+- bounded inbound issue, comment, and Agent Session files from Linear's private
+  `uploads.linear.app` storage; images become native model image parts when
+  supported, and every accepted file is materialized under the session's
+  private `/workspace/.linear-inputs/` tree for ordinary inspection tools
 - structured human `stop` signals, with generation invalidation and hard task
   container cancellation so no later action is published
 - active-turn follow-ups, queued follow-ups, and conversation history across
@@ -420,7 +424,8 @@ sudo tailscale funnel status
 
 The health response reports controller session counts, whether native plans are
 still enabled, notification dispositions, and the last registry recovery result
-(`restored`, `resumed`, `skipped`, and `errors`). Its workbench snapshot includes
+(`restored`, `resumed`, `skipped`, and `errors`), plus accepted/skipped inbound
+file counts and bytes. Its workbench snapshot includes
 `mode: warm-session-jails`, active/warm/queued tasks, actual task/service/network
 counts, the rolling ten-minute p75 CPU/RAM sample and adaptive slot count,
 warm-session limits, the public model policy, and the installed RTK version.
@@ -472,6 +477,12 @@ Useful Linear smoke tests:
     confirm it moves exactly one allowlisted tier without losing session history.
 15. Run representative Git, search, and test commands, inspect `rtk gain`, then
     repeat one with `RTK_RAW=1` and confirm the raw escape is unfiltered.
+16. Attach a PNG and a text or PDF file to the initial request, then attach
+    another PNG in an active-session follow-up. Confirm the activity reports
+    accepted inputs, the image is visible to the model, and all files appear
+    only under the matching session's `.linear-inputs` directory. Try an
+    oversized or unsupported file and confirm it is skipped without failing the
+    run or sending Linear authorization to another host.
 
 Logs:
 

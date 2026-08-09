@@ -2,12 +2,14 @@ import crypto from "node:crypto";
 import path from "node:path";
 import type { ControllerConfig } from "./config.js";
 import type { LinearManageContext, LinearManageRequest, LinearManageResult } from "./linear-actions.js";
+import { downloadLinearInputs, linearInputReferences, type LinearInputDownload } from "./linear-inputs.js";
 import { JsonStore } from "./storage.js";
 import type {
   AgentActivityContent,
   AgentActivitySignal,
   AgentActivitySignalMetadata,
   AgentPlanStep,
+  AgentSessionWebhook,
   RepositoryCandidate,
   RepositorySuggestion,
 } from "./types.js";
@@ -438,6 +440,24 @@ export class LinearClient {
       { id: agentSessionId },
     );
     return data.agentSession;
+  }
+
+  async downloadInputs(payload: AgentSessionWebhook): Promise<LinearInputDownload> {
+    const references = linearInputReferences(payload);
+    if (!references.length) return { inputs: [], skipped: [], totalBytes: 0 };
+    try {
+      return await downloadLinearInputs(payload, await this.accessToken());
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      return {
+        inputs: [],
+        skipped: references.map((reference, index) => ({
+          label: reference.label || `Linear input ${index + 1}`,
+          reason,
+        })),
+        totalBytes: 0,
+      };
+    }
   }
 
   private async manageIssue(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {

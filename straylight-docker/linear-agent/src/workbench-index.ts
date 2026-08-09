@@ -1,5 +1,5 @@
 import { loadWorkbenchConfig, publicWorkbenchConfig } from "./config.js";
-import { createRunnerServer } from "./runner-server.js";
+import { createRunnerServer, RUNNER_MAX_BODY_BYTES } from "./runner-server.js";
 import { WorkbenchHarness } from "./workbench.js";
 
 const config = loadWorkbenchConfig(process.env);
@@ -8,7 +8,7 @@ await workbench.initialize();
 const server = Bun.serve({
   hostname: config.host,
   port: config.port,
-  maxRequestBodySize: 1024 * 1024,
+  maxRequestBodySize: RUNNER_MAX_BODY_BYTES,
   fetch: createRunnerServer(workbench, config.authToken),
 });
 console.log("Straylight warm Pi workbench listening", publicWorkbenchConfig(config));
