@@ -7,6 +7,7 @@ import {
   DefaultResourceLoader,
   defineTool,
   initTheme,
+  ModelRuntime,
   SessionManager,
   type ToolDefinition,
   type AgentSession,
@@ -14,6 +15,8 @@ import {
 import { Type } from "typebox";
 import { CapsuleClient } from "./capsule-client.js";
 import type { RunnerConfig } from "./config.js";
+import { LinearToolClient } from "./linear-tool-client.js";
+import { loadModelPolicy, selectedModelName, type AllowedModel } from "./model-policy.js";
 import { ProgressReporter } from "./progress.js";
 import { followUpPrompt, initialPrompt } from "./prompts.js";
 import { finalText, redact } from "./redaction.js";
@@ -22,12 +25,31 @@ import { captureCommand, runCommand } from "./runtime.js";
 import { ServiceClient } from "./service-client.js";
 import type { AgentTaskPayload } from "./types.js";
 
+type ActiveRunState = {
+  send: RunnerSender;
+  awaitingInput: boolean;
+  reloadRequested: boolean;
+  reloadCount: number;
+  escalationRequested?: { reason: string };
+  escalationCount: number;
+  modelIndex: number;
+  models: AllowedModel[];
+};
+
 type ManagedSession = {
   session: AgentSession;
   resourceLoader: DefaultResourceLoader;
   unsubscribe: () => void;
   reporter: { current: ProgressReporter | undefined };
-  runState: { current: { send: RunnerSender; awaitingInput: boolean; reloadRequested: boolean; reloadCount: number } | undefined };
+  runState: { current: ActiveRunState | undefined };
+  modelIndex: number;
+  models: AllowedModel[];
+};
+
+type ModelChoice = {
+  models: AllowedModel[];
+  selectedIndex: number;
+  explicit: boolean;
 };
 
 type RunnerSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
@@ -239,11 +261,20 @@ async function runSubagent(
 export class PiHarness {
   private readonly sessions = new Map<string, ManagedSession>();
   private readonly capsule: CapsuleClient;
+  private readonly linear: LinearToolClient;
+  private readonly modelRuntime: Promise<ModelRuntime>;
   private readonly services: ServiceClient;
 
   constructor(private readonly config: RunnerConfig) {
     initTheme(config.piTheme, false);
     this.capsule = new CapsuleClient(config.capsuleUrl, config.authToken);
+    this.linear = new LinearToolClient(config.workbenchUrl, config.authToken);
+    this.modelRuntime = ModelRuntime.create({
+      authPath: path.join(config.piConfigDirectory, "auth.json"),
+      modelsPath: path.join(config.piConfigDirectory, "models.json"),
+      allowModelNetwork: true,
+      modelRefreshTimeoutMs: 10_000,
+    });
     this.services = new ServiceClient(config.workbenchUrl, config.authToken);
   }
 
@@ -252,9 +283,20 @@ export class PiHarness {
     if (!sessionId) throw new Error("agentSession.id is required");
     const startedAt = performance.now();
     const reporter = new ProgressReporter(send, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
-    const managed = await this.session(sessionId);
+    const choice = this.sessions.has(sessionId)
+      ? undefined
+      : await this.chooseModel(payload, send, payload.action === "created");
+    const managed = await this.session(sessionId, choice);
     managed.reporter.current = reporter;
-    const runState = { send, awaitingInput: false, reloadRequested: false, reloadCount: 0 };
+    const runState: ActiveRunState = {
+      send,
+      awaitingInput: false,
+      reloadRequested: false,
+      reloadCount: 0,
+      escalationCount: 0,
+      modelIndex: managed.modelIndex,
+      models: managed.models,
+    };
     managed.runState.current = runState;
     let output = "";
     let timedOut = false;
@@ -319,14 +361,126 @@ export class PiHarness {
     return true;
   }
 
+  private async chooseModel(
+    payload: AgentTaskPayload | undefined,
+    send: RunnerSender | undefined,
+    classify: boolean,
+  ): Promise<ModelChoice> {
+    const [policy, runtime] = await Promise.all([
+      loadModelPolicy(this.config.piConfigDirectory),
+      this.modelRuntime,
+    ]);
+    const available = new Set((await runtime.getAvailable()).map((model) => `${model.provider}/${model.id}`));
+    const models = policy.models.filter((model) => available.has(`${model.provider}/${model.model}`));
+    if (!models.length) {
+      throw new Error("None of the models allowed by model-policy.json is available to the current Pi authentication");
+    }
+    const fallbackIndex = Math.max(0, models.findIndex((model) => model.name === policy.fallback));
+    if (!classify || !payload || !send) return { models, selectedIndex: fallbackIndex, explicit: false };
+
+    let selectedIndex = fallbackIndex;
+    let reason = models[fallbackIndex]?.description ?? "Configured fallback.";
+    try {
+      const classifierKey = `${policy.classifier.provider}/${policy.classifier.model}`;
+      if (!available.has(classifierKey)) throw new Error(`classifier model ${classifierKey} is unavailable`);
+      const classifier = runtime.getModel(policy.classifier.provider, policy.classifier.model);
+      if (!classifier) throw new Error(`classifier model ${classifierKey} is not registered`);
+      const issue = payload.agentSession?.issue;
+      const request = [
+        issue?.identifier ? `Issue: ${issue.identifier}` : undefined,
+        issue?.title ? `Title: ${issue.title}` : undefined,
+        issue?.description ? `Description:\n${issue.description}` : undefined,
+        payload.promptContext ? `Context:\n${payload.promptContext}` : undefined,
+        payload.agentSession?.promptContext ? `Session context:\n${payload.agentSession.promptContext}` : undefined,
+      ].filter((value): value is string => Boolean(value)).join("\n\n").slice(0, 20_000);
+      const response = await runtime.completeSimple(classifier, {
+        systemPrompt: [
+          "Choose the cheapest allowed model that can reliably complete this coding-agent request.",
+          "Return only JSON with keys model and reason. model must be one of the exact lowercase names below.",
+          "Prefer the cheaper entry unless the request's ambiguity, coupling, stakes, or depth materially needs the next tier.",
+          ...models.map((model) => `- ${model.name}: ${model.description}`),
+        ].join("\n"),
+        messages: [{ role: "user", content: request || "A new Linear coding-agent session.", timestamp: Date.now() }],
+      }, { reasoning: policy.classifier.thinking });
+      if (response.stopReason === "error" || response.stopReason === "aborted") {
+        throw new Error(response.errorMessage || `classifier stopped with ${response.stopReason}`);
+      }
+      const output = messageText(response);
+      const selectedName = selectedModelName(output, { ...policy, models });
+      const candidate = selectedName ? models.findIndex((model) => model.name === selectedName) : -1;
+      if (candidate < 0) throw new Error("classifier did not return an available allowlisted model");
+      selectedIndex = candidate;
+      try {
+        const parsed = JSON.parse(output.match(/\{[\s\S]*\}/)?.[0] ?? output) as { reason?: unknown };
+        if (typeof parsed.reason === "string" && parsed.reason.trim()) reason = finalText(parsed.reason).slice(0, 500);
+        else reason = models[selectedIndex]?.description ?? reason;
+      } catch {
+        reason = models[selectedIndex]?.description ?? reason;
+      }
+    } catch (error) {
+      console.warn("model classifier failed; using configured fallback", {
+        message: error instanceof Error ? error.message : String(error),
+        fallback: models[selectedIndex]?.name,
+      });
+      reason = "The quick classifier was unavailable, so Pi is using the configured fallback.";
+    }
+
+    const selected = models[selectedIndex];
+    if (!selected) throw new Error("Model policy selected an invalid entry");
+    await send({
+      type: "activity",
+      content: {
+        type: "action",
+        action: "Picked the working model",
+        parameter: `${selected.name} · ${selected.thinking}`,
+        result: reason,
+      },
+    });
+    return { models, selectedIndex, explicit: true };
+  }
+
   private async promptWithReload(
     managed: ManagedSession,
     initial: string,
-    runState: NonNullable<ManagedSession["runState"]["current"]>,
+    runState: ActiveRunState,
   ): Promise<void> {
     let prompt = initial;
     while (true) {
       await managed.session.prompt(prompt);
+      if (runState.escalationRequested) {
+        const request = runState.escalationRequested;
+        delete runState.escalationRequested;
+        if (runState.escalationCount >= 2) throw new Error("Intelligence escalation limit reached for this Pi run");
+        const nextIndex = runState.modelIndex + 1;
+        const next = runState.models[nextIndex];
+        if (!next) {
+          await runState.send({
+            type: "activity",
+            content: { type: "thought", body: "Pi is already using the strongest model allowed by model-policy.json." },
+          });
+          return;
+        }
+        const runtime = await this.modelRuntime;
+        const model = runtime.getModel(next.provider, next.model);
+        if (!model) throw new Error(`Allowed escalation model is not registered: ${next.provider}/${next.model}`);
+        await managed.session.setModel(model);
+        managed.session.setThinkingLevel(next.thinking);
+        runState.modelIndex = nextIndex;
+        managed.modelIndex = nextIndex;
+        runState.escalationCount += 1;
+        await runState.send({
+          type: "activity",
+          content: {
+            type: "action",
+            action: "Escalated intelligence",
+            parameter: `${next.name} · ${next.thinking}`,
+            result: request.reason,
+          },
+        });
+        if (runState.awaitingInput) return;
+        prompt = `Intelligence was escalated to ${next.name} (${next.provider}/${next.model}, ${next.thinking}). Continue the task and revisit the difficulty that prompted escalation: ${request.reason}`;
+        continue;
+      }
       if (!runState.reloadRequested) return;
       if (runState.reloadCount >= 3) throw new Error("Extension reload limit reached for this Pi run");
       runState.reloadRequested = false;
@@ -342,15 +496,20 @@ export class PiHarness {
     }
   }
 
-  private async session(sessionId: string): Promise<ManagedSession> {
+  private async session(sessionId: string, choice?: ModelChoice): Promise<ManagedSession> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
     await fs.mkdir(this.config.piSessionDirectory, { recursive: true, mode: 0o700 });
     const safeName = sessionId.replace(/[^A-Za-z0-9_.-]/g, "_");
     const sessionFile = path.join(this.config.piSessionDirectory, `${safeName}.jsonl`);
+    const hasSessionFile = await fs.stat(sessionFile).then((stat) => stat.isFile()).catch(() => false);
     const manager = SessionManager.open(sessionFile, this.config.piSessionDirectory, this.config.piWorkdir);
     const reporter: ManagedSession["reporter"] = { current: undefined };
     const runState: ManagedSession["runState"] = { current: undefined };
+    const modelRuntime = await this.modelRuntime;
+    const activeChoice = choice ?? await this.chooseModel(undefined, undefined, false);
+    const selected = activeChoice.models[activeChoice.selectedIndex];
+    const model = selected ? modelRuntime.getModel(selected.provider, selected.model) : undefined;
     const resourceLoader = new DefaultResourceLoader({
       cwd: this.config.piWorkdir,
       agentDir: this.config.piConfigDirectory,
@@ -363,11 +522,32 @@ export class PiHarness {
       sessionManager: manager,
       resourceLoader,
       customTools: this.linearTools(manager, runState, reporter),
+      modelRuntime,
+      scopedModels: activeChoice.models.flatMap((allowed) => {
+        const scoped = modelRuntime.getModel(allowed.provider, allowed.model);
+        return scoped ? [{ model: scoped, thinkingLevel: allowed.thinking }] : [];
+      }),
+      ...((activeChoice.explicit || !hasSessionFile) && model && selected ? { model, thinkingLevel: selected.thinking } : {}),
     });
     const unsubscribe = session.subscribe((event) => reporter.current?.handle(event));
     await session.bindExtensions({});
     session.setActiveToolsByName(session.getAllTools().map((tool) => tool.name));
-    const managed = { session, resourceLoader, unsubscribe, reporter, runState };
+    const restoredIndex = activeChoice.models.findIndex((allowed) => (
+      allowed.provider === session.model?.provider && allowed.model === session.model?.id
+    ));
+    if (restoredIndex < 0 && model && selected) {
+      await session.setModel(model);
+      session.setThinkingLevel(selected.thinking);
+    }
+    const managed = {
+      session,
+      resourceLoader,
+      unsubscribe,
+      reporter,
+      runState,
+      models: activeChoice.models,
+      modelIndex: restoredIndex >= 0 ? restoredIndex : activeChoice.selectedIndex,
+    };
     this.sessions.set(sessionId, managed);
     return managed;
   }
@@ -378,6 +558,7 @@ export class PiHarness {
     reporter: ManagedSession["reporter"],
   ): ToolDefinition[] {
     const capsule = this.capsule;
+    const linear = this.linear;
     const services = this.services;
     const capsuleAuthUrl = this.config.capsuleAuthUrl;
     const toolAuthUrl = this.config.toolAuthUrl;
@@ -421,6 +602,38 @@ export class PiHarness {
           current.reloadRequested = true;
           return {
             content: [{ type: "text", text: "Resource reload scheduled for the clean boundary after this turn. End the turn now; Pi will reload and continue automatically." }],
+            details: {},
+          };
+        },
+      }),
+      defineTool({
+        name: "escalate_intelligence",
+        label: "Escalate intelligence",
+        description: "Move this session to the next stronger model in model-policy.json when the current task genuinely exceeds the present model's capabilities.",
+        promptSnippet: "Escalate to the next allowlisted model when the current model is not enough",
+        promptGuidelines: [
+          "Use this when ambiguity, coupling, risk, or repeated failed reasoning shows that the current model is undersized—not merely because a task is long.",
+          "Give a concrete reason, then end the turn so Pi can switch models at a clean boundary and continue automatically.",
+        ],
+        parameters: Type.Object({
+          reason: Type.String({ minLength: 1, maxLength: 2_000, description: "Why the current model is undersized for the task." }),
+        }),
+        async execute(_toolCallId, params) {
+          const current = runState.current;
+          if (!current) throw new Error("No active Linear run");
+          if (current.escalationRequested) throw new Error("An intelligence escalation is already pending");
+          if (!current.models[current.modelIndex + 1]) {
+            return { content: [{ type: "text", text: "Pi is already using the strongest model in model-policy.json." }], details: {} };
+          }
+          const reason = finalText(params.reason).slice(0, 2_000);
+          current.escalationRequested = { reason };
+          await current.send({
+            type: "activity",
+            content: { type: "thought", body: `This task needs more reasoning headroom. Pi is sizing up after this turn: ${reason}` },
+            ephemeral: true,
+          });
+          return {
+            content: [{ type: "text", text: "Intelligence escalation queued. End this turn; Pi will switch to the next allowlisted model and continue automatically." }],
             details: {},
           };
         },
@@ -492,13 +705,14 @@ export class PiHarness {
       defineTool({
         name: "linear",
         label: "Collaborate in Linear",
-        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share review material, attach a session URL, or publish a durable document or rich issue attachment.",
-        promptSnippet: "Request input, mark blocking, share or publish review material, or attach a URL in Linear",
+        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share or publish review material, attach a URL, or manage issues, properties, relationships, subissues, and projects.",
+        promptSnippet: "Request input, mark blocking, share review material, attach a URL, publish, or manage Linear work",
         promptGuidelines: [
           "Use request_input only when work cannot proceed without a user decision, and end the turn afterward.",
           "Use block when work cannot continue because of a non-authentication blocker. For missing access use request_access instead.",
           "Use share for useful review notes, screenshots, reports, or other files from /workspace. Use attach for any durable external URL, including pull requests.",
           "Use publish for substantial Markdown review documents or rich issue attachments. Reuse a returned document id to update the same document instead of creating another.",
+          "Use manage for native issue, project, relationship, and subissue work. Omit id to target the current issue where supported. Use delete only when the user explicitly requested removal; it moves issues and projects to Linear's trash.",
         ],
         parameters: Type.Object({
           action: Type.Union([
@@ -507,6 +721,7 @@ export class PiHarness {
             Type.Literal("share"),
             Type.Literal("attach"),
             Type.Literal("publish"),
+            Type.Literal("manage"),
           ]),
           body: Type.Optional(Type.String({ minLength: 1, maxLength: 100_000, description: "Question, blocker, review note, document content, attachment comment, or artifact caption in Markdown." })),
           options: Type.Optional(Type.Array(Type.Object({
@@ -520,10 +735,50 @@ export class PiHarness {
           kind: Type.Optional(Type.Union([Type.Literal("document"), Type.Literal("attachment")])),
           id: Type.Optional(Type.String({ minLength: 1, maxLength: 200, description: "Existing document id returned by an earlier publish call." })),
           subtitle: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+          resource: Type.Optional(Type.Union([
+            Type.Literal("issue"),
+            Type.Literal("project"),
+            Type.Literal("relation"),
+            Type.Literal("subissue"),
+          ])),
+          operation: Type.Optional(Type.Union([
+            Type.Literal("get"),
+            Type.Literal("create"),
+            Type.Literal("update"),
+            Type.Literal("delete"),
+            Type.Literal("list"),
+            Type.Literal("link"),
+            Type.Literal("unlink"),
+          ])),
+          parentId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+          relatedId: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+          relationType: Type.Optional(Type.Union([
+            Type.Literal("blocks"),
+            Type.Literal("duplicate"),
+            Type.Literal("related"),
+            Type.Literal("similar"),
+          ])),
+          fields: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
         }),
-        async execute(_toolCallId, params) {
+        async execute(_toolCallId, params, signal) {
           const current = runState.current;
           if (!current) throw new Error("No active Linear run");
+          if (params.action === "manage") {
+            if (!params.resource || !params.operation) throw new Error("manage requires resource and operation");
+            const result = await linear.manage({
+              resource: params.resource,
+              operation: params.operation,
+              ...(params.id ? { id: params.id } : {}),
+              ...(params.parentId ? { parentId: params.parentId } : {}),
+              ...(params.relatedId ? { relatedId: params.relatedId } : {}),
+              ...(params.relationType ? { relationType: params.relationType } : {}),
+              ...(params.fields ? { fields: params.fields } : {}),
+            }, signal);
+            return {
+              content: [{ type: "text", text: JSON.stringify(result.data, null, 2).slice(0, 100_000) }],
+              details: result,
+            };
+          }
           if (params.action === "request_input") {
             if (!params.body) throw new Error("request_input requires body");
             await reporter.current?.flush();

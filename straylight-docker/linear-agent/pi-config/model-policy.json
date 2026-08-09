@@ -1,0 +1,31 @@
+{
+  "classifier": {
+    "provider": "openai-codex",
+    "model": "gpt-5.6-luna",
+    "thinking": "low"
+  },
+  "fallback": "terra",
+  "models": [
+    {
+      "name": "luna",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-luna",
+      "thinking": "low",
+      "description": "Routine, well-scoped work where speed and low cost matter most."
+    },
+    {
+      "name": "terra",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-terra",
+      "thinking": "medium",
+      "description": "Default coding work with meaningful implementation, debugging, or architectural judgment."
+    },
+    {
+      "name": "sol",
+      "provider": "openai-codex",
+      "model": "gpt-5.6-sol",
+      "thinking": "high",
+      "description": "Hard, ambiguous, high-stakes, or deeply coupled work that benefits from the strongest model."
+    }
+  ]
+}

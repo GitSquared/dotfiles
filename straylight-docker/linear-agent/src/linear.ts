@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import type { ControllerConfig } from "./config.js";
+import type { LinearManageContext, LinearManageRequest, LinearManageResult } from "./linear-actions.js";
 import { JsonStore } from "./storage.js";
 import type {
   AgentActivityContent,
@@ -16,6 +17,55 @@ const OAUTH_URL = "https://api.linear.app/oauth/token";
 const GRAPHQL_URL = "https://api.linear.app/graphql";
 const STATE_LIFETIME_MS = 10 * 60_000;
 const REFRESH_SKEW_MS = 5 * 60_000;
+
+const ISSUE_CREATE_FIELDS = new Set([
+  "assigneeId", "cycleId", "delegateId", "description", "dueDate", "estimate", "labelIds", "parentId",
+  "priority", "projectId", "projectMilestoneId", "stateId", "subscriberIds", "teamId", "templateId", "title",
+]);
+const ISSUE_UPDATE_FIELDS = new Set([
+  "addedLabelIds", "assigneeId", "cycleId", "delegateId", "description", "dueDate", "estimate", "labelIds",
+  "parentId", "priority", "projectId", "projectMilestoneId", "removedLabelIds", "stateId", "subscriberIds",
+  "teamId", "title", "trashed",
+]);
+const PROJECT_CREATE_FIELDS = new Set([
+  "color", "content", "description", "icon", "labelIds", "leadId", "memberIds", "name", "priority",
+  "startDate", "statusId", "targetDate", "teamIds", "templateId",
+]);
+const PROJECT_UPDATE_FIELDS = new Set([
+  "canceledAt", "color", "completedAt", "content", "description", "icon", "labelIds", "leadId", "memberIds",
+  "name", "priority", "startDate", "statusId", "targetDate", "teamIds", "trashed",
+]);
+
+const ISSUE_FIELDS = `
+  id identifier title description url priority priorityLabel dueDate
+  state { id name type }
+  assignee { id name }
+  delegate { id name }
+  team { id name }
+  project { id name url }
+  parent { id identifier title url }
+  labels { nodes { id name } }
+`;
+
+const PROJECT_FIELDS = `
+  id name description content url priority priorityLabel startDate targetDate
+  status { id name type }
+  lead { id name }
+  teams { nodes { id name } }
+`;
+
+function managedFields(value: Record<string, unknown> | undefined, allowed: Set<string>, label: string): Record<string, unknown> {
+  if (!value || !Object.keys(value).length) throw new Error(`${label} requires at least one field`);
+  const rejected = Object.keys(value).filter((key) => !allowed.has(key));
+  if (rejected.length) throw new Error(`${label} does not allow field${rejected.length === 1 ? "" : "s"}: ${rejected.join(", ")}`);
+  return value;
+}
+
+function requiredId(value: string | undefined, fallback: string | undefined, label: string): string {
+  const id = value?.trim() || fallback?.trim();
+  if (!id) throw new Error(`${label} requires an id; this Agent Session is not attached to an issue`);
+  return id;
+}
 
 type OAuthState = { value: string; expiresAt: number };
 type StateFile = { states: OAuthState[] };
@@ -321,6 +371,180 @@ export class LinearClient {
     );
     if (!data.attachmentCreate.success) throw new Error("Linear rejected issue attachment");
     return data.attachmentCreate.attachment;
+  }
+
+  async manage(request: LinearManageRequest, context: LinearManageContext): Promise<LinearManageResult> {
+    let data: unknown;
+    if (request.resource === "issue") data = await this.manageIssue(request, context);
+    else if (request.resource === "project") data = await this.manageProject(request);
+    else if (request.resource === "relation") data = await this.manageRelation(request, context);
+    else data = await this.manageSubissue(request, context);
+    return { ok: true, resource: request.resource, operation: request.operation, data };
+  }
+
+  async issueState(issueId: string): Promise<{ id: string; name: string; type: string }> {
+    const data = await this.graphql<{ issue: { state: { id: string; name: string; type: string } } }>(
+      `query IssueState($id: String!) { issue(id: $id) { state { id name type } } }`,
+      { id: issueId },
+    );
+    return data.issue.state;
+  }
+
+  private async manageIssue(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {
+    if (request.operation === "get") {
+      const id = requiredId(request.id, context.issueId, "issue get");
+      return (await this.graphql<{ issue: unknown }>(
+        `query ManagedIssue($id: String!) { issue(id: $id) { ${ISSUE_FIELDS} } }`,
+        { id },
+      )).issue;
+    }
+    if (request.operation === "create") {
+      const input = managedFields(request.fields, ISSUE_CREATE_FIELDS, "issue create");
+      const result = await this.graphql<{ issueCreate: { success: boolean; issue?: unknown } }>(
+        `mutation ManagedIssueCreate($input: IssueCreateInput!) {
+          issueCreate(input: $input) { success issue { ${ISSUE_FIELDS} } }
+        }`,
+        { input },
+      );
+      if (!result.issueCreate.success || !result.issueCreate.issue) throw new Error("Linear rejected issue creation");
+      return result.issueCreate.issue;
+    }
+    if (request.operation === "update" || request.operation === "delete") {
+      const id = requiredId(request.id, context.issueId, `issue ${request.operation}`);
+      const input = request.operation === "delete"
+        ? { trashed: true }
+        : managedFields(request.fields, ISSUE_UPDATE_FIELDS, "issue update");
+      const result = await this.graphql<{ issueUpdate: { success: boolean; issue?: unknown } }>(
+        `mutation ManagedIssueUpdate($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) { success issue { ${ISSUE_FIELDS} } }
+        }`,
+        { id, input },
+      );
+      if (!result.issueUpdate.success || !result.issueUpdate.issue) throw new Error("Linear rejected issue update");
+      return result.issueUpdate.issue;
+    }
+    throw new Error(`issue does not support ${request.operation}; use get, create, update, or delete`);
+  }
+
+  private async manageProject(request: LinearManageRequest): Promise<unknown> {
+    if (request.operation === "get") {
+      const id = requiredId(request.id, undefined, "project get");
+      return (await this.graphql<{ project: unknown }>(
+        `query ManagedProject($id: String!) { project(id: $id) { ${PROJECT_FIELDS} } }`,
+        { id },
+      )).project;
+    }
+    if (request.operation === "create") {
+      const input = managedFields(request.fields, PROJECT_CREATE_FIELDS, "project create");
+      const result = await this.graphql<{ projectCreate: { success: boolean; project?: unknown } }>(
+        `mutation ManagedProjectCreate($input: ProjectCreateInput!) {
+          projectCreate(input: $input) { success project { ${PROJECT_FIELDS} } }
+        }`,
+        { input },
+      );
+      if (!result.projectCreate.success || !result.projectCreate.project) throw new Error("Linear rejected project creation");
+      return result.projectCreate.project;
+    }
+    if (request.operation === "update" || request.operation === "delete") {
+      const id = requiredId(request.id, undefined, `project ${request.operation}`);
+      const input = request.operation === "delete"
+        ? { trashed: true }
+        : managedFields(request.fields, PROJECT_UPDATE_FIELDS, "project update");
+      const result = await this.graphql<{ projectUpdate: { success: boolean; project?: unknown } }>(
+        `mutation ManagedProjectUpdate($id: String!, $input: ProjectUpdateInput!) {
+          projectUpdate(id: $id, input: $input) { success project { ${PROJECT_FIELDS} } }
+        }`,
+        { id, input },
+      );
+      if (!result.projectUpdate.success || !result.projectUpdate.project) throw new Error("Linear rejected project update");
+      return result.projectUpdate.project;
+    }
+    throw new Error(`project does not support ${request.operation}; use get, create, update, or delete`);
+  }
+
+  private async manageRelation(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {
+    if (request.operation === "list") {
+      const id = requiredId(request.id, context.issueId, "relation list");
+      return (await this.graphql<{ issue: unknown }>(
+        `query ManagedIssueRelations($id: String!) {
+          issue(id: $id) {
+            id identifier
+            relations(first: 100) { nodes { id type relatedIssue { id identifier title url } } }
+            inverseRelations(first: 100) { nodes { id type issue { id identifier title url } } }
+          }
+        }`,
+        { id },
+      )).issue;
+    }
+    if (request.operation === "create" || request.operation === "link") {
+      const issueId = requiredId(request.id, context.issueId, "relation create");
+      const relatedIssueId = requiredId(request.relatedId, undefined, "relation create related issue");
+      if (!request.relationType) throw new Error("relation create requires relationType");
+      const result = await this.graphql<{ issueRelationCreate: { success: boolean; issueRelation?: unknown } }>(
+        `mutation ManagedIssueRelationCreate($input: IssueRelationCreateInput!) {
+          issueRelationCreate(input: $input) {
+            success
+            issueRelation { id type issue { id identifier title url } relatedIssue { id identifier title url } }
+          }
+        }`,
+        { input: { issueId, relatedIssueId, type: request.relationType } },
+      );
+      if (!result.issueRelationCreate.success || !result.issueRelationCreate.issueRelation) {
+        throw new Error("Linear rejected issue relation creation");
+      }
+      return result.issueRelationCreate.issueRelation;
+    }
+    if (request.operation === "delete" || request.operation === "unlink") {
+      const id = requiredId(request.id, undefined, "relation delete");
+      const result = await this.graphql<{ issueRelationDelete: { success: boolean } }>(
+        `mutation ManagedIssueRelationDelete($id: String!) { issueRelationDelete(id: $id) { success } }`,
+        { id },
+      );
+      if (!result.issueRelationDelete.success) throw new Error("Linear rejected issue relation deletion");
+      return { id, deleted: true };
+    }
+    throw new Error(`relation does not support ${request.operation}; use list, create/link, or delete/unlink`);
+  }
+
+  private async manageSubissue(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {
+    const parentId = requiredId(request.parentId, context.issueId, `subissue ${request.operation}`);
+    if (request.operation === "list") {
+      return (await this.graphql<{ issue: unknown }>(
+        `query ManagedSubissues($id: String!) {
+          issue(id: $id) { id identifier title children(first: 100) { nodes { ${ISSUE_FIELDS} } } }
+        }`,
+        { id: parentId },
+      )).issue;
+    }
+    if (request.operation === "create") {
+      const parent = await this.graphql<{ issue: { id: string; team: { id: string } } }>(
+        `query ManagedSubissueParent($id: String!) { issue(id: $id) { id team { id } } }`,
+        { id: parentId },
+      );
+      const supplied = managedFields(request.fields, ISSUE_CREATE_FIELDS, "subissue create");
+      const input = { ...supplied, parentId: parent.issue.id, teamId: supplied.teamId ?? parent.issue.team.id };
+      const result = await this.graphql<{ issueCreate: { success: boolean; issue?: unknown } }>(
+        `mutation ManagedSubissueCreate($input: IssueCreateInput!) {
+          issueCreate(input: $input) { success issue { ${ISSUE_FIELDS} } }
+        }`,
+        { input },
+      );
+      if (!result.issueCreate.success || !result.issueCreate.issue) throw new Error("Linear rejected subissue creation");
+      return result.issueCreate.issue;
+    }
+    if (request.operation === "link" || request.operation === "unlink") {
+      const id = requiredId(request.id, undefined, `subissue ${request.operation}`);
+      const input = { parentId: request.operation === "link" ? parentId : null };
+      const result = await this.graphql<{ issueUpdate: { success: boolean; issue?: unknown } }>(
+        `mutation ManagedSubissueParentUpdate($id: String!, $input: IssueUpdateInput!) {
+          issueUpdate(id: $id, input: $input) { success issue { ${ISSUE_FIELDS} } }
+        }`,
+        { id, input },
+      );
+      if (!result.issueUpdate.success || !result.issueUpdate.issue) throw new Error("Linear rejected subissue parent update");
+      return result.issueUpdate.issue;
+    }
+    throw new Error(`subissue does not support ${request.operation}; use list, create, link, or unlink`);
   }
 
   private async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {

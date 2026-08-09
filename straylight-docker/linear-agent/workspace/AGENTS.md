@@ -33,6 +33,8 @@ mounted at all.
   never assume container names.
 - Publish useful screenshots and reports through Linear. Use a native review
   document for substantial Markdown that should remain editable in Linear.
+- Use Linear's native issue, project, relationship, and subissue operations when
+  the requested work belongs in the product rather than burying it in comments.
 
 ## Persistent memory and extensions
 
@@ -61,3 +63,9 @@ mounted at all.
 - Use Linear's native plan, input, blocker, artifact, document, and URL surfaces
   when those interactions are useful. Finish with a concise natural summary;
   omit empty categories and rigid status templates.
+- A quick classifier selects the cheapest suitable model when a new session
+  starts. If the current model is clearly undersized, call
+  `escalate_intelligence` with the concrete reason and end the turn so the next
+  allowlisted tier can take over cleanly.
+- RTK compacts supported shell output automatically. Prefix a command with
+  `RTK_RAW=1` when exact unfiltered output is genuinely needed.

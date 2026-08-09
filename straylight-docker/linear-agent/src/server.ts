@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import type { ControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
+import { isLinearManageRequest } from "./linear-actions.js";
+import { finalText } from "./redaction.js";
 import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "./signature.js";
 import type {
   AgentSessionWebhook,
@@ -55,6 +57,11 @@ function authorizedInstall(expected: string, provided: string | undefined): bool
   return expectedBytes.length === providedBytes.length && crypto.timingSafeEqual(expectedBytes, providedBytes);
 }
 
+function authorizedRunner(expected: string, request: Request): boolean {
+  const provided = request.headers.get("authorization")?.replace(/^Bearer /, "");
+  return authorizedInstall(expected, provided);
+}
+
 function matches(pathname: string, route: string): boolean {
   return pathname === `/linear${route}` || pathname === route;
 }
@@ -82,14 +89,29 @@ export function createServer(
 
     if (method === "GET" && url.pathname === "/healthz") {
       try {
-        const workbench = await controller.health();
-        return json(200, { ok: true, service: "straylight-linear-agent", workbench });
+        return json(200, { ok: true, service: "straylight-linear-agent", ...await controller.health() });
       } catch (error) {
         return json(503, {
           ok: false,
           service: "straylight-linear-agent",
           error: error instanceof Error ? error.message : String(error),
         });
+      }
+    }
+
+    if (method === "POST" && url.pathname === "/internal/linear") {
+      if (!authorizedRunner(config.runnerToken, request)) return json(401, { ok: false, message: "Unauthorized Linear broker" });
+      const raw = await body(request);
+      let input: { sessionId?: unknown; request?: unknown };
+      try { input = JSON.parse(raw.toString("utf8")) as { sessionId?: unknown; request?: unknown }; }
+      catch { return json(400, { ok: false, message: "Invalid Linear broker JSON" }); }
+      if (typeof input.sessionId !== "string" || !isLinearManageRequest(input.request)) {
+        return json(400, { ok: false, message: "Invalid Linear broker operation" });
+      }
+      try {
+        return json(200, await controller.manageLinear(input.sessionId, input.request));
+      } catch (error) {
+        return json(502, { ok: false, message: finalText(error instanceof Error ? error.message : String(error)) });
       }
     }
 

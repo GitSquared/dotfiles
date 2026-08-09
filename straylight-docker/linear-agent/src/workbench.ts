@@ -5,6 +5,8 @@ import { CapsuleClient } from "./capsule-client.js";
 import { AdaptiveSlots } from "./capacity.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
+import { isLinearManageRequest, type LinearManageRequest, type LinearManageResult } from "./linear-actions.js";
+import { loadModelPolicy, publicModelPolicy } from "./model-policy.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
 import { PiRunnerClient } from "./runner-client.js";
 import { runCommand } from "./runtime.js";
@@ -178,10 +180,11 @@ export class WorkbenchHarness {
   }
 
   async health(): Promise<Record<string, unknown>> {
-    const [containers, services, networks] = await Promise.all([
+    const [containers, services, networks, modelPolicy] = await Promise.all([
       this.engine.listByLabel(TASK_LABEL),
       this.engine.listByLabel(SERVICE_LABEL),
       this.engine.listNetworksByLabel(SESSION_NETWORK_LABEL),
+      loadModelPolicy(this.config.piConfigSource),
     ]);
     return {
       mode: "warm-session-jails",
@@ -192,6 +195,8 @@ export class WorkbenchHarness {
       serviceContainers: services.length,
       sessionNetworks: networks.length,
       adaptiveConcurrency: this.capacity.status(),
+      modelPolicy: publicModelPolicy(modelPolicy),
+      rtkVersion: process.env.RTK_VERSION ?? "unknown",
       maxWarmSessions: this.config.maxWarmSessions,
       warmSessionTtlMs: this.config.warmSessionTtlMs,
     };
@@ -247,7 +252,7 @@ export class WorkbenchHarness {
           type: "activity",
           content: {
             type: "action",
-            action: "Preparing isolated workspace",
+            action: "Setting up workspace",
             parameter: payload.agentSession?.issue?.identifier ?? "Linear Agent Session",
           },
           ephemeral: true,
@@ -390,6 +395,26 @@ export class WorkbenchHarness {
       status: await this.serviceStatus(service.containerId),
       connection: service.connection,
     };
+  }
+
+  async manageLinear(token: string, request: LinearManageRequest, signal?: AbortSignal): Promise<LinearManageResult> { // yadm-secret-scan: ignore
+    const active = this.taskForToken(token);
+    if (!active?.running || active.aborted) throw new Error("Unauthorized task Linear request");
+    if (!isLinearManageRequest(request)) throw new Error("Invalid Linear operation");
+    if (signal?.aborted) throw new Error("Linear operation was cancelled");
+    const response = await fetch(`${this.config.controllerUrl}/internal/linear`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.config.authToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: active.sessionId, request }),
+      ...(signal ? { signal } : {}),
+    });
+    const payload = await response.json() as LinearManageResult | { ok?: false; message?: string };
+    if (!response.ok || payload.ok !== true) {
+      throw new Error("message" in payload && payload.message
+        ? payload.message
+        : `Linear controller rejected the request (HTTP ${response.status})`);
+    }
+    return payload;
   }
 
   async repositories(): Promise<RepositoryCandidate[]> {
@@ -741,6 +766,7 @@ export class WorkbenchHarness {
       lastStartedAt: new Date().toISOString(),
     }, null, 2)}\n`, { mode: 0o600 });
     await fs.cp(this.config.piConfigSource, piConfig, { recursive: true, force: false, errorOnExist: false });
+    await this.syncManagedPiConfig(piConfig);
     await this.copyNewerAuth(this.config.piConfigSource, piConfig);
     await this.prepareWebSearchConfig(piConfig);
     const legacyName = `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}.jsonl`;
@@ -759,6 +785,19 @@ export class WorkbenchHarness {
   private async syncTaskAuth(sessionId: string): Promise<void> {
     const piConfig = path.join(this.config.dataDirectory, "tasks", sessionKey(sessionId), "pi-config");
     await this.copyNewerAuth(piConfig, this.config.piConfigSource);
+  }
+
+  private async syncManagedPiConfig(destination: string): Promise<void> {
+    await fs.copyFile(
+      path.join(this.config.piConfigSource, "model-policy.json"),
+      path.join(destination, "model-policy.json"),
+    );
+    const extensions = path.join(destination, "extensions");
+    await fs.mkdir(extensions, { recursive: true, mode: 0o700 });
+    await fs.copyFile(
+      path.join(this.config.piConfigSource, "extensions", "rtk.ts"),
+      path.join(extensions, "rtk.ts"),
+    );
   }
 
   private async prepareWebSearchConfig(piConfig: string): Promise<void> {

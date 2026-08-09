@@ -21,15 +21,51 @@ const config: ControllerConfig = {
 };
 
 test("serves controller health through a Web Response", async () => {
-  const controller = { async health() { return { mode: "bun" }; } } as unknown as AgentController;
+  const controller = { async health() { return { controller: { trackedSessions: 0 }, workbench: { mode: "bun" } }; } } as unknown as AgentController;
   const handler = createServer(config, {} as LinearClient, controller);
   const response = await handler(new Request("https://straylight.example.test/healthz"));
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), {
     ok: true,
     service: "straylight-linear-agent",
+    controller: { trackedSessions: 0 },
     workbench: { mode: "bun" },
   });
+});
+
+test("brokers authenticated runner Linear operations", async () => {
+  const controller = {
+    async manageLinear(sessionId: string, request: unknown) {
+      assert.equal(sessionId, "session-1");
+      assert.deepEqual(request, { resource: "issue", operation: "get" });
+      return { ok: true, resource: "issue", operation: "get", data: { id: "issue-1" } };
+    },
+  } as unknown as AgentController;
+  const handler = createServer(config, {} as LinearClient, controller);
+  const response = await handler(new Request("https://straylight.example.test/internal/linear", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.runnerToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ sessionId: "session-1", request: { resource: "issue", operation: "get" } }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    resource: "issue",
+    operation: "get",
+    data: { id: "issue-1" },
+  });
+});
+
+test("rejects unauthenticated runner Linear operations", async () => {
+  const handler = createServer(config, {} as LinearClient, {} as AgentController);
+  const response = await handler(new Request("https://straylight.example.test/internal/linear", {
+    method: "POST",
+    body: JSON.stringify({ sessionId: "session-1", request: { resource: "issue", operation: "get" } }),
+  }));
+  assert.equal(response.status, 401);
 });
 
 test("acknowledges a raw signed webhook before delayed dispatch", async () => {

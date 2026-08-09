@@ -62,6 +62,7 @@ export type WorkbenchConfig = {
   serviceNanoCpus: number;
   servicePidsLimit: number;
   capsuleUrl: string;
+  controllerUrl: string;
   capsuleAuthUrl: string;
   toolAuthUrl: string;
   capsuleControlToken: string; // yadm-secret-scan: ignore
@@ -183,6 +184,7 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     serviceNanoCpus: positiveInteger(env, "PI_SERVICE_NANO_CPUS", 1_000_000_000),
     servicePidsLimit: positiveInteger(env, "PI_SERVICE_PIDS_LIMIT", 256),
     capsuleUrl: serviceUrl(env, "CAPSULE_URL", "http://linear-agent-claude-capsule:8790"),
+    controllerUrl: serviceUrl(env, "LINEAR_CONTROLLER_URL", "http://linear-agent-controller:8787"),
     capsuleAuthUrl: httpsUrl(env, "CAPSULE_AUTH_URL"),
     toolAuthUrl: httpsUrl(env, "TOOL_AUTH_URL"),
     capsuleControlToken: secretFile(env, "CAPSULE_CONTROL_TOKEN_FILE", "/run/secrets/capsule-control-token"), // yadm-secret-scan: ignore

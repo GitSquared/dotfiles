@@ -30,13 +30,14 @@ There are four roles:
   authenticated run/follow-up/abort requests from the controller and is the only
   component with the Docker socket. It never receives Linear credentials or the
   Linear token store.
-- Every Linear Agent Session is executed by a fresh task container. The task has
+- Every Linear Agent Session is executed in a private task container. The task has
   one private persistent `/workspace`, its own Pi history and copy of Pi auth,
   read-only repository sources at `/repositories`, a shared single-engineer
   developer-tool profile at `/tool-profile`, and a one-time control token.
   It has no host port, Docker socket, SSH key, other task workspace, or
-  `LINEAR_*` environment variable. The container is destroyed after each turn;
-  the session workspace and history remain for native Linear follow-ups.
+  `LINEAR_*` environment variable. A successful container remains warm for ten
+  minutes so follow-ups reuse Pi, shell caches, and supervised services; the
+  session workspace and history remain after it expires.
 - Every active turn also gets a private auxiliary bridge network for supervised
   PostgreSQL and Playwright sidecars. The task joins it as `task`; sidecars have
   no host ports and cannot join another session's auxiliary network.
@@ -84,7 +85,8 @@ comments:
   verbs and reconstructed from Pi history whenever a warm container expires
 - one generic `linear` collaboration tool for native input requests, blockers,
   review notes, private file/image uploads, arbitrary session URLs, native
-  review Documents, and rich issue attachments; input
+  review Documents, rich issue attachments, issue properties, relationships,
+  subissues, and projects; input
   requests can include 2-12 options while still accepting free-text replies
 - structured human `stop` signals, with generation invalidation and hard task
   container cancellation so no later action is published
@@ -95,8 +97,10 @@ comments:
   PR URLs receive Linear's native enrichment without a PR-specific Pi tool
 - human-delegated issues move to the team's first started state when the issue is
   actually delegated to the app user
-- unassignment, terminal issue status, team-access removal, and OAuth revocation
-  cancel affected work
+- explicit notification policies: mentions and assignments defer to their
+  authoritative Agent Session event, ordinary new comments remain context-only,
+  reactions are acknowledgements, and only unassignment or a confirmed terminal
+  status cancels affected work
 
 Pi judges access failures itself. When a login, connection, approval, or
 permission is missing, Pi calls `request_access` with a specific user-facing
@@ -173,6 +177,38 @@ test -s linear-agent/pi-config/auth.json
 test "$(stat -c '%a' linear-agent/pi-config/auth.json)" = 600
 ```
 
+## Model allowlist and provider administration
+
+`linear-agent/pi-config/model-policy.json` is the reviewed, ordered allowlist.
+New sessions first show **Setting up workspace**, then a low-effort classifier
+chooses the cheapest suitable entry and publishes the choice to Linear. The
+initial policy uses `openai-codex/gpt-5.6-luna:low`,
+`openai-codex/gpt-5.6-terra:medium`, and
+`openai-codex/gpt-5.6-sol:high`, with Terra as the fallback. Pi can move only to
+the next stronger allowlisted entry via `escalate_intelligence`; it cannot pick
+an unlisted provider or model.
+
+To inspect the models visible to the persistent Pi profile:
+
+```sh
+cd /home/gaby/straylight-docker
+docker compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
+  linear-agent-runner --list-models
+```
+
+To add or refresh a provider, open Pi interactively in the same mounted profile,
+run `/login`, select the provider, and complete its normal flow:
+
+```sh
+docker compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
+  linear-agent-runner
+```
+
+List models again, then add only verified provider/model IDs to
+`linear-agent/pi-config/model-policy.json`. Keep entries in escalation order and
+choose a supported reasoning level. New sessions pick up the new policy;
+existing warm sessions retain their selected model.
+
 ## Persistent Pi instructions
 
 Pi loads global instructions from `~/.pi/agent/AGENTS.md` and appends them to
@@ -248,7 +284,7 @@ as a compatibility layer for upstream Pi executables and qmd's native SQLite
 module; Docker Engine calls retain `node:http` because they use a Unix socket,
 and permission-sensitive filesystem operations retain Node's POSIX APIs.
 
-The image also contains Git, GitHub CLI, qmd, build tools, Python, curl, jq,
+The image also contains Git, GitHub CLI, qmd, RTK 0.45.0, build tools, Python, curl, jq,
 ripgrep, and fd. Pi is online and explicitly receives writable filesystem and
 shell tools inside its bounded task jail. TypeScript 7 checks the source, while
 `bun test` exercises the TypeScript tests directly.
@@ -276,6 +312,11 @@ to helper Pi processes. Helpers share `/workspace`, inherit cancellation and the
 task jail, can use the same web-research extension, and cannot call the
 controller-only Linear, Claude, or service-supervisor tools. Parallel
 implementation should be reserved for edits that cannot overlap.
+
+RTK's official Pi hook rewrites supported shell commands through the pinned,
+checksum-verified binary and fails open if rewriting is unavailable. Use
+`RTK_RAW=1 <command>` when exact unfiltered output is required. `rtk gain` shows
+the estimated output savings.
 
 ## Web research
 
@@ -369,8 +410,12 @@ docker ps --filter label=dev.straylight.linear-agent.task=true
 sudo tailscale funnel status
 ```
 
-The health response should report `mode: warm-session-jails`, zero active tasks,
-the warm-task count, and adaptive-concurrency p75/slot telemetry.
+The health response reports controller session counts, whether native plans are
+still enabled, and notification dispositions. Its workbench snapshot includes
+`mode: warm-session-jails`, active/warm/queued tasks, actual task/service/network
+counts, the rolling ten-minute p75 CPU/RAM sample and adaptive slot count,
+warm-session limits, the public model policy, and the installed RTK version.
+Immediately after a clean start it should show zero active tasks.
 
 Then delegate a small issue. During the run and its warm lease, this should show
 one session container with no published port:
@@ -407,6 +452,17 @@ Useful Linear smoke tests:
     Playwright check through `task`, and publish its screenshot to Linear.
 11. Publish a native review Document, update it using the returned document id,
     then publish a rich preview or pull-request attachment to the issue.
+12. Ask Pi to create a small issue, update one property, attach it as a subissue,
+    add and remove a relationship, and create/update a test project. Confirm each
+    result returns a native Linear id and URL where applicable.
+13. Mention Pi, add an ordinary issue comment, and react to a Pi message. Confirm
+    only the Agent Session mention starts work; the comment is context-only and
+    the reaction is recorded as an acknowledgement in `/healthz`.
+14. Delegate one routine and one deliberately hard issue. Confirm the classifier
+    choice appears after workspace setup, then ask the hard run to size up and
+    confirm it moves exactly one allowlisted tier without losing session history.
+15. Run representative Git, search, and test commands, inspect `rtk gain`, then
+    repeat one with `RTK_RAW=1` and confirm the raw escape is unfiltered.
 
 Logs:
 

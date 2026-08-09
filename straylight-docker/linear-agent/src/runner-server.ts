@@ -1,5 +1,6 @@
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
 import type { CapsuleResult } from "./capsule-client.js";
+import type { LinearManageRequest, LinearManageResult } from "./linear-actions.js";
 import type { ServiceRequest, ServiceResult } from "./service-client.js";
 import type { RepositoryCandidate } from "./types.js";
 
@@ -30,6 +31,7 @@ type RunnerHarness = {
   health?(): Promise<Record<string, unknown>>;
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
   manageService?(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult>; // yadm-secret-scan: ignore
+  manageLinear?(token: string, request: LinearManageRequest, signal?: AbortSignal): Promise<LinearManageResult>; // yadm-secret-scan: ignore
 };
 
 function authorized(request: Request, token: string): boolean { // yadm-secret-scan: ignore
@@ -85,6 +87,19 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       }
       try {
         return json(200, await pi.manageService(bearer(request), input, request.signal));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });
+      }
+    }
+
+    if (method === "POST" && pathname === "/v1/linear") {
+      const input = await body<LinearManageRequest>(request);
+      if (!pi.manageLinear || !input || typeof input !== "object") {
+        return json(400, { ok: false, message: "Invalid Linear operation." });
+      }
+      try {
+        return json(200, await pi.manageLinear(bearer(request), input, request.signal));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });

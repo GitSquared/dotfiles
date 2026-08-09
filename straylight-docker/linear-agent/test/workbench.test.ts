@@ -34,6 +34,7 @@ function config(): WorkbenchConfig {
     serviceNanoCpus: 1_000_000_000,
     servicePidsLimit: 256,
     capsuleUrl: "http://linear-agent-claude-capsule:8790",
+    controllerUrl: "http://linear-agent-controller:8787",
     capsuleAuthUrl: "https://straylight.example.ts.net/linear/capsule/auth",
     toolAuthUrl: "https://straylight.example.ts.net/linear/tools/auth",
     capsuleControlToken: "c".repeat(32), // yadm-secret-scan: ignore

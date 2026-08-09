@@ -44,6 +44,9 @@ RUN apt-get update \
 
 FROM runtime-system AS runner-system
 
+ARG RTK_VERSION=0.45.0
+ARG TARGETARCH
+
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
       build-essential \
@@ -56,6 +59,17 @@ RUN apt-get update \
       ripgrep \
       fd-find \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
+    && case "$TARGETARCH" in \
+      amd64) RTK_ASSET="rtk-x86_64-unknown-linux-musl.tar.gz"; RTK_SHA256="c4c036fbf181fc55ef329786c8c17e0d427972b053b825944d968a6aafef1ba4" ;; \
+      arm64) RTK_ASSET="rtk-aarch64-unknown-linux-gnu.tar.gz"; RTK_SHA256="80a746dd305ef944ff50ef011ae4ce3878dd5ba88dfe35d859d05498191637c3" ;; \
+      *) echo "Unsupported Docker architecture for RTK: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL "https://github.com/rtk-ai/rtk/releases/download/v${RTK_VERSION}/${RTK_ASSET}" -o "/tmp/${RTK_ASSET}" \
+    && echo "${RTK_SHA256}  /tmp/${RTK_ASSET}" | sha256sum -c - \
+    && tar -xzf "/tmp/${RTK_ASSET}" -C /usr/local/bin rtk \
+    && chmod 0755 /usr/local/bin/rtk \
+    && rtk --version \
+    && rm "/tmp/${RTK_ASSET}" \
     && mkdir -p /app/state/pi-sessions /home/node/.pi/agent /workspace \
     && chown -R node:node /app/state /home/node /workspace \
     && rm -rf /var/lib/apt/lists/*
@@ -98,6 +112,7 @@ USER node
 
 ENV NODE_ENV=production \
     HOME=/home/node \
+    RTK_VERSION=0.45.0 \
     PI_CODING_AGENT_DIR=/home/node/.pi/agent \
     PI_SKIP_VERSION_CHECK=1 \
     PI_TELEMETRY=0 \

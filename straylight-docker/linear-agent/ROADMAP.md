@@ -156,19 +156,17 @@ Acceptance:
 
 ## Slice 6 — cost-aware model policy
 
-Status: design proposed; model list and routing thresholds need the engineer's
-chosen providers and models before implementation.
+Status: implemented locally; deployed account/model acceptance remains.
 
 - Store one small explicit allowlist in persistent Pi configuration. Each entry
   names provider/model, relative cost class, supported reasoning levels,
   capabilities, and eligible task classes. Query Pi's authenticated model
   runtime at startup and reject unavailable or unlisted choices.
-- Classify each turn deterministically as quick, standard, or deep from scope,
-  mutation risk, ambiguity, repository breadth, and requested work type. The
-  router itself must not spend a model call.
-- Choose the cheapest eligible model and reasoning level before each turn. Pi's
-  SDK supports changing both on an idle session, so a warm conversation can use
-  a cheap model for a narrow follow-up without losing its history.
+- Classify each new session with the configured low-effort Luna router from
+  scope, mutation risk, ambiguity, repository breadth, and requested work type.
+- Choose the cheapest eligible model and reasoning level before the first main
+  turn. Pi's SDK changes both on an idle session when the agent explicitly asks
+  to escalate without losing its history.
 - Escalate one tier after a failed check-and-repair cycle, repeated tool loop,
   context pressure, or explicit uncertainty. Never silently downgrade during a
   turn, and never select outside the engineer-owned allowlist.
@@ -180,9 +178,9 @@ chosen providers and models before implementation.
   retries, and outcome so cost efficiency means successful task cost rather
   than cheapest individual inference.
 
-Open decision: choose the initial allowed model table. Use relative cost classes
-in policy; keep volatile provider prices in optional telemetry metadata rather
-than hard-coding them into prompts.
+The initial allowlist is Luna/low, Terra/medium, and Sol/high through the
+`openai-codex` subscription provider, with Terra fallback. Keep volatile provider
+prices in optional telemetry metadata rather than hard-coding them into prompts.
 
 ## Slice 7 — Bun-native control layer
 
@@ -236,7 +234,8 @@ Acceptance:
 
 ## Slice 9 — measured context optimization
 
-Status: evaluated; run an RTK-only pilot before adding either package globally.
+Status: RTK-only pilot implemented with a pinned, checksum-verified v0.45.0
+binary and Pi hook; deployed savings measurement remains.
 
 - RTK has a native Pi `tool_call` adapter and transparently compacts common Git,
   GitHub CLI, test, Playwright, search, and file-command output. Pin it in the
@@ -254,7 +253,9 @@ Status: evaluated; run an RTK-only pilot before adding either package globally.
 
 ## Slice 10 — Linear as a durable control plane
 
-Status: proposed; prioritize restart recovery before broadening mutations.
+Status: generic issue/project/relation/subissue operations and explicit Inbox
+notification routing implemented locally; deployed GraphQL acceptance and
+restart recovery remain.
 
 - Persist the controller's session registry and reconstruct pending/running
   state from Agent Activities after a controller restart. Webhook deduplication,

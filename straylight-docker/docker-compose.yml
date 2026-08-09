@@ -316,6 +316,7 @@ services:
       PI_SERVICE_NANO_CPUS: "1000000000"
       PI_SERVICE_PIDS_LIMIT: "256"
       CAPSULE_URL: http://linear-agent-claude-capsule:8790
+      LINEAR_CONTROLLER_URL: http://linear-agent-controller:8787
       CAPSULE_AUTH_URL: "${LINEAR_AGENT_PUBLIC_URL}/linear/capsule/auth"
       TOOL_AUTH_URL: "${LINEAR_AGENT_PUBLIC_URL}/linear/tools/auth"
       CAPSULE_CONTROL_TOKEN_FILE: /run/secrets/capsule-control-token # yadm-secret-scan: ignore

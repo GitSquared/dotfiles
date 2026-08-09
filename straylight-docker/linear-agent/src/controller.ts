@@ -1,5 +1,6 @@
 import { performance } from "node:perf_hooks";
 import { LinearClient } from "./linear.js";
+import type { LinearManageRequest, LinearManageResult } from "./linear-actions.js";
 import { followUpPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
 import type { AgentRunner } from "./runner-client.js";
@@ -21,6 +22,8 @@ type SessionState = {
   teamId: string | undefined;
 };
 
+type NotificationDisposition = "agentSessionOwned" | "contextOnly" | "acknowledgement" | "cancellation" | "lifecycle" | "unknown";
+
 function elapsed(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1_000));
   if (seconds < 60) return `${seconds}s`;
@@ -38,6 +41,15 @@ export function isStopRequest(payload: AgentSessionWebhook): boolean {
 
 export class AgentController {
   private readonly states = new Map<string, SessionState>();
+  private readonly notificationCounts: Record<NotificationDisposition, number> = {
+    agentSessionOwned: 0,
+    contextOnly: 0,
+    acknowledgement: 0,
+    cancellation: 0,
+    lifecycle: 0,
+    unknown: 0,
+  };
+  private lastNotification: { action: string; disposition: NotificationDisposition; at: string } | undefined;
   private plansEnabled = true;
 
   constructor(
@@ -45,8 +57,31 @@ export class AgentController {
     private readonly runner: AgentRunner,
   ) {}
 
-  health(): Promise<Record<string, unknown>> {
-    return this.runner.health();
+  async health(): Promise<Record<string, unknown>> {
+    const sessions = [...this.states.values()];
+    return {
+      controller: {
+        trackedSessions: sessions.length,
+        runningSessions: sessions.filter((state) => state.running).length,
+        pendingSessions: sessions.filter((state) => Boolean(state.pending)).length,
+        plansEnabled: this.plansEnabled,
+        notifications: {
+          counts: { ...this.notificationCounts },
+          ...(this.lastNotification ? { last: this.lastNotification } : {}),
+        },
+      },
+      workbench: await this.runner.health(),
+    };
+  }
+
+  async manageLinear(sessionId: string, request: LinearManageRequest): Promise<LinearManageResult> {
+    const state = this.states.get(sessionId);
+    if (!state) throw new Error("Linear operation does not belong to a known Agent Session");
+    return this.linear.manage(request, {
+      agentSessionId: sessionId,
+      ...(state.issueId ? { issueId: state.issueId } : {}),
+      ...(state.teamId ? { teamId: state.teamId } : {}),
+    });
   }
 
   async handle(payload: AgentSessionWebhook): Promise<void> {
@@ -98,16 +133,65 @@ export class AgentController {
   }
 
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
-    if (payload.action !== "issueUnassignedFromYou" && payload.action !== "issueStatusChanged") {
-      console.info("received Linear app notification", { action: payload.action });
+    const action = payload.action ?? "unknown";
+    const issueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
+    if (["issueMention", "issueCommentMention"].includes(action)) {
+      this.recordNotification(action, "agentSessionOwned");
+      console.info("Linear mention notification observed; AgentSessionEvent owns the instruction", { action, issueId });
       return;
     }
-    const issueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
-    if (!issueId) return;
-    await this.cancelMatching(
-      (state) => state.issueId === issueId,
-      payload.action === "issueUnassignedFromYou" ? "Agent was unassigned from the issue." : "Issue entered a terminal status.",
-    );
+    if (action === "issueNewComment") {
+      this.recordNotification(action, "contextOnly");
+      console.info("Linear comment notification retained as context; no prompt was synthesized", { issueId });
+      return;
+    }
+    if (["issueEmojiReaction", "issueCommentReaction"].includes(action)) {
+      this.recordNotification(action, "acknowledgement");
+      console.info("Linear reaction notification observed as acknowledgement", { action, issueId });
+      return;
+    }
+    if (action === "issueAssignedToYou") {
+      this.recordNotification(action, "lifecycle");
+      console.info("Linear assignment notification observed; AgentSessionEvent owns delegated work", { issueId });
+      return;
+    }
+    if (action === "issueUnassignedFromYou") {
+      this.recordNotification(action, "cancellation");
+      if (issueId) await this.cancelMatching((state) => state.issueId === issueId, "Agent was unassigned from the issue.");
+      return;
+    }
+    if (action === "issueStatusChanged") {
+      if (!issueId) {
+        this.recordNotification(action, "unknown");
+        return;
+      }
+      let state: { id: string; name: string; type: string };
+      try {
+        state = await this.linear.issueState(issueId);
+      } catch (error) {
+        this.recordNotification(action, "unknown");
+        console.warn("could not resolve Linear status notification; active work was left running", {
+          issueId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      if (["completed", "canceled"].includes(state.type)) {
+        this.recordNotification(action, "cancellation");
+        await this.cancelMatching((session) => session.issueId === issueId, `Issue entered terminal status ${state.name}.`);
+      } else {
+        this.recordNotification(action, "lifecycle");
+        console.info("Linear issue status changed without ending the Agent Session", { issueId, state: state.type });
+      }
+      return;
+    }
+    this.recordNotification(action, "unknown");
+    console.info("received unrecognized Linear app notification", { action, issueId });
+  }
+
+  private recordNotification(action: string, disposition: NotificationDisposition): void {
+    this.notificationCounts[disposition] += 1;
+    this.lastNotification = { action, disposition, at: new Date().toISOString() };
   }
 
   async handlePermissionChange(payload: PermissionChangeWebhook): Promise<void> {
@@ -153,7 +237,7 @@ export class AgentController {
     const label = issue?.identifier ? `${issue.identifier}: ${issue.title ?? "Untitled"}` : "this Linear session";
     await this.linear.createActivity(
       sessionId,
-      { type: "thought", body: `Pi received ${label} and started working.` },
+      { type: "thought", body: `Setting up the workspace for ${label}…` },
       { ephemeral: true },
     );
     if (payload.action === "created" && payload.agentSession?.creatorId && state.issueId && payload.appUserId) {
