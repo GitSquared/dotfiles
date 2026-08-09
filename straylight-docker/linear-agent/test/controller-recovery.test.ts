@@ -68,6 +68,8 @@ test("recovers an interrupted Agent Session from durable state and Linear activi
     assert.equal(activities.some((content) => (content as { type?: string }).type === "response"), true);
     const health = await controller.health() as { controller: { registry: { lastRecovery: { resumed: number } } } };
     assert.equal(health.controller.registry.lastRecovery.resumed, 1);
+    for (let attempt = 0; attempt < 100 && (await store.load()).length; attempt += 1) await Bun.sleep(2);
+    assert.equal((await store.load()).length, 0);
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

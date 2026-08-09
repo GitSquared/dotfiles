@@ -1,6 +1,10 @@
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
 import type { CapsuleResult } from "./capsule-client.js";
-import type { LinearManageRequest, LinearManageResult } from "./linear-actions.js";
+import type {
+  LinearManageRequest,
+  LinearManageResult,
+  LinearUploadRequest,
+} from "./linear-actions.js";
 import type { ServiceRequest, ServiceResult } from "./service-client.js";
 import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 
@@ -32,6 +36,7 @@ type RunnerHarness = {
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
   manageService?(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult>; // yadm-secret-scan: ignore
   manageLinear?(token: string, request: LinearManageRequest, signal?: AbortSignal): Promise<LinearManageResult>; // yadm-secret-scan: ignore
+  uploadLinearFile?(token: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string>; // yadm-secret-scan: ignore
 };
 
 function authorized(request: Request, token: string): boolean { // yadm-secret-scan: ignore
@@ -100,6 +105,19 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       }
       try {
         return json(200, await pi.manageLinear(bearer(request), input, request.signal));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });
+      }
+    }
+
+    if (method === "POST" && pathname === "/v1/linear-upload") {
+      const input = await body<LinearUploadRequest>(request);
+      if (!pi.uploadLinearFile || !input || typeof input !== "object") {
+        return json(400, { ok: false, message: "Invalid Linear upload request." });
+      }
+      try {
+        return json(200, { ok: true, assetUrl: await pi.uploadLinearFile(bearer(request), input, request.signal) });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });

@@ -756,14 +756,14 @@ export class PiHarness {
       defineTool({
         name: "linear",
         label: "Collaborate in Linear",
-        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share or publish review material, attach a URL, or manage issues, properties, relationships, subissues, and projects.",
+        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share or publish review material, attach a URL, or manage issues, properties, documents, relationships, subissues, and projects.",
         promptSnippet: "Request input, mark blocking, share review material, attach a URL, publish, or manage Linear work",
         promptGuidelines: [
           "Use request_input only when work cannot proceed without a user decision, and end the turn afterward.",
           "Use block when work cannot continue because of a non-authentication blocker. For missing access use request_access instead.",
-          "Use share for useful review notes, screenshots, reports, or other files from /workspace. Use attach for any durable external URL, including pull requests.",
-          "Use publish for substantial Markdown review documents or rich issue attachments. Reuse a returned document id to update the same document instead of creating another.",
-          "Use manage for native issue, project, relationship, and subissue work. Omit id to target the current issue where supported. Use delete only when the user explicitly requested removal; it moves issues and projects to Linear's trash.",
+          "Use share for useful review notes, screenshots, reports, or other files from /workspace. File shares return their private Linear asset URL; embed that URL in a later publish call when the file belongs inside a document. Use attach for any durable external URL, including pull requests.",
+          "Use publish for substantial Markdown review documents or rich issue attachments. To revise an existing document in a new session, manage document list/get first, then publish with its id, title, and complete replacement body.",
+          "Use manage for native issue, project, document, relationship, and subissue work. Document list defaults to the current issue; document get returns its Markdown content. Omit id to target the current issue where supported. Use delete only when the user explicitly requested removal; it moves issues, projects, and documents to Linear's trash.",
         ],
         parameters: Type.Object({
           action: Type.Union([
@@ -789,6 +789,7 @@ export class PiHarness {
           resource: Type.Optional(Type.Union([
             Type.Literal("issue"),
             Type.Literal("project"),
+            Type.Literal("document"),
             Type.Literal("relation"),
             Type.Literal("subissue"),
           ])),
@@ -825,8 +826,12 @@ export class PiHarness {
               ...(params.relationType ? { relationType: params.relationType } : {}),
               ...(params.fields ? { fields: params.fields } : {}),
             }, signal);
+            const serialized = JSON.stringify(result.data, null, 2);
+            if (Buffer.byteLength(serialized) > 100_000) {
+              throw new Error("Linear returned more than 100 KB; narrow the operation before reading or updating this resource");
+            }
             return {
-              content: [{ type: "text", text: JSON.stringify(result.data, null, 2).slice(0, 100_000) }],
+              content: [{ type: "text", text: serialized }],
               details: result,
             };
           }
@@ -902,15 +907,23 @@ export class PiHarness {
           }
           if (params.path) {
             const artifact = await workspaceFile(piWorkdir, params.path);
+            const contentType = mimeType(artifact.filename);
+            const assetUrl = await linear.upload(artifact.filename, contentType, artifact.data, signal);
+            const label = finalText(params.title || artifact.filename).replace(/[\[\]]/g, "");
+            const link = contentType.startsWith("image/")
+              ? `![${label}](${assetUrl})`
+              : `[${label}](${assetUrl})`;
             await current.send({
-              type: "artifact",
-              filename: artifact.filename,
-              contentType: mimeType(artifact.filename),
-              dataBase64: artifact.data.toString("base64"),
-              ...(params.title ? { title: finalText(params.title).slice(0, 200) } : {}),
-              ...(params.body ? { body: finalText(params.body) } : {}),
+              type: "activity",
+              content: {
+                type: "thought",
+                body: [params.body ? finalText(params.body) : "", link].filter(Boolean).join("\n\n"),
+              },
             });
-            return { content: [{ type: "text", text: "Review artifact uploaded to Linear's private file storage and shared in the session." }], details: {} };
+            return {
+              content: [{ type: "text", text: `Review artifact uploaded and shared. Private Linear asset URL: ${assetUrl}` }],
+              details: {},
+            };
           }
           if (!params.body) throw new Error("share requires body or path");
           await current.send({

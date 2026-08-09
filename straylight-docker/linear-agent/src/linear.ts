@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import path from "node:path";
 import type { ControllerConfig } from "./config.js";
-import type { LinearManageContext, LinearManageRequest, LinearManageResult } from "./linear-actions.js";
+import type {
+  LinearManageContext,
+  LinearManageRequest,
+  LinearManageResult,
+} from "./linear-actions.js";
 import { downloadLinearInputs, linearInputReferences, type LinearInputDownload } from "./linear-inputs.js";
 import { JsonStore } from "./storage.js";
 import type {
@@ -37,6 +41,7 @@ const PROJECT_UPDATE_FIELDS = new Set([
   "canceledAt", "color", "completedAt", "content", "description", "icon", "labelIds", "leadId", "memberIds",
   "name", "priority", "startDate", "statusId", "targetDate", "teamIds", "trashed",
 ]);
+const DOCUMENT_UPDATE_FIELDS = new Set(["content", "title"]);
 
 const ISSUE_FIELDS = `
   id identifier title description url priority priorityLabel dueDate
@@ -54,6 +59,13 @@ const PROJECT_FIELDS = `
   status { id name type }
   lead { id name }
   teams { nodes { id name } }
+`;
+
+const DOCUMENT_FIELDS = `
+  id title content url createdAt updatedAt
+  creator { id name }
+  issue { id identifier title url }
+  project { id name url }
 `;
 
 function managedFields(value: Record<string, unknown> | undefined, allowed: Set<string>, label: string): Record<string, unknown> {
@@ -95,6 +107,12 @@ type GraphqlError = {
   };
 };
 type GraphqlResponse<T> = { data?: T; errors?: GraphqlError[] };
+type LinearUploadCapability = {
+  assetUrl: string;
+  uploadUrl: string;
+  headers: Array<{ key: string; value: string }>;
+};
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export type AgentSessionSnapshot = {
   id: string;
@@ -130,6 +148,39 @@ export function graphqlErrorMessage(error: GraphqlError | undefined, status: num
   ].filter((value): value is string => Boolean(value?.trim()));
   const message = error.message?.trim() || `HTTP ${status}`;
   return details.length ? `${message}: ${details.join("; ").slice(0, 1_000)}` : message;
+}
+
+export async function putPreparedLinearUpload(
+  capability: LinearUploadCapability,
+  contentType: string,
+  contents: Uint8Array,
+  signal?: AbortSignal,
+  fetchImpl: FetchLike = fetch,
+  sleep: (milliseconds: number) => Promise<void> = (milliseconds) => Bun.sleep(milliseconds),
+): Promise<string> {
+  const assetUrl = new URL(capability.assetUrl);
+  const uploadUrl = new URL(capability.uploadUrl);
+  if (assetUrl.protocol !== "https:" || assetUrl.hostname !== "uploads.linear.app") throw new Error("Linear returned an invalid private asset URL");
+  if (uploadUrl.protocol !== "https:") throw new Error("Linear returned an invalid upload capability URL");
+  const headers = new Headers({ "content-type": contentType, "cache-control": "public, max-age=31536000" });
+  for (const header of capability.headers) headers.set(header.key, header.value);
+  const body = contents.buffer.slice(contents.byteOffset, contents.byteOffset + contents.byteLength) as ArrayBuffer;
+  let lastFailure = "unknown network failure";
+  let attempts = 0;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    if (signal?.aborted) throw new Error("Linear file upload was cancelled");
+    attempts = attempt;
+    try {
+      const response = await fetchImpl(uploadUrl, { method: "PUT", headers, body, redirect: "error", ...(signal ? { signal } : {}) });
+      if (response.ok) return assetUrl.toString();
+      lastFailure = `HTTP ${response.status}`;
+      if (response.status < 500 && response.status !== 429) break;
+    } catch (error) {
+      lastFailure = error instanceof Error ? error.message : String(error);
+    }
+    if (attempt < 3) await sleep(250 * 2 ** (attempt - 1));
+  }
+  throw new Error(`Linear file upload failed after ${attempts} attempt${attempts === 1 ? "" : "s"}: ${lastFailure}`);
 }
 
 export class LinearClient {
@@ -310,7 +361,12 @@ export class LinearClient {
     if (!data.agentSessionUpdate.success) throw new Error("Linear rejected Agent Session external URL");
   }
 
-  async uploadFile(filename: string, contentType: string, contents: Uint8Array): Promise<string> {
+  async uploadFile(filename: string, contentType: string, contents: Uint8Array, signal?: AbortSignal): Promise<string> {
+    const upload = await this.prepareFileUpload(filename, contentType, contents.byteLength);
+    return putPreparedLinearUpload(upload, contentType, contents, signal);
+  }
+
+  private async prepareFileUpload(filename: string, contentType: string, size: number): Promise<LinearUploadCapability> {
     const data = await this.graphql<{
       fileUpload: {
         success: boolean;
@@ -327,16 +383,11 @@ export class LinearClient {
           uploadFile { assetUrl uploadUrl headers { key value } }
         }
       }`,
-      { contentType, filename, size: contents.byteLength },
+      { contentType, filename, size },
     );
     const upload = data.fileUpload.uploadFile;
     if (!data.fileUpload.success || !upload) throw new Error("Linear rejected file upload preparation");
-    const headers = new Headers({ "content-type": contentType, "cache-control": "public, max-age=31536000" });
-    for (const header of upload.headers) headers.set(header.key, header.value);
-    const body = contents.buffer.slice(contents.byteOffset, contents.byteOffset + contents.byteLength) as ArrayBuffer;
-    const response = await fetch(upload.uploadUrl, { method: "PUT", headers, body });
-    if (!response.ok) throw new Error(`Linear file upload failed: HTTP ${response.status}`);
-    return upload.assetUrl;
+    return upload;
   }
 
   async createDocument(issueId: string, id: string, title: string, content: string): Promise<{ id: string; title: string; url: string }> {
@@ -401,6 +452,7 @@ export class LinearClient {
     let data: unknown;
     if (request.resource === "issue") data = await this.manageIssue(request, context);
     else if (request.resource === "project") data = await this.manageProject(request);
+    else if (request.resource === "document") data = await this.manageDocument(request, context);
     else if (request.resource === "relation") data = await this.manageRelation(request, context);
     else data = await this.manageSubissue(request, context);
     return { ok: true, resource: request.resource, operation: request.operation, data };
@@ -530,6 +582,45 @@ export class LinearClient {
       return result.projectUpdate.project;
     }
     throw new Error(`project does not support ${request.operation}; use get, create, update, or delete`);
+  }
+
+  private async manageDocument(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {
+    if (request.operation === "list") {
+      const issueId = requiredId(request.parentId, context.issueId, "document list");
+      return (await this.graphql<{ issue: unknown }>(
+        `query ManagedIssueDocuments($id: String!) {
+          issue(id: $id) {
+            id identifier title url
+            documents(first: 50, orderBy: updatedAt) {
+              nodes { id title url createdAt updatedAt creator { id name } }
+            }
+          }
+        }`,
+        { id: issueId },
+      )).issue;
+    }
+    if (request.operation === "get") {
+      const id = requiredId(request.id, undefined, "document get");
+      return (await this.graphql<{ document: unknown }>(
+        `query ManagedDocument($id: String!) { document(id: $id) { ${DOCUMENT_FIELDS} } }`,
+        { id },
+      )).document;
+    }
+    if (request.operation === "update" || request.operation === "delete") {
+      const id = requiredId(request.id, undefined, `document ${request.operation}`);
+      const input = request.operation === "delete"
+        ? { trashed: true }
+        : managedFields(request.fields, DOCUMENT_UPDATE_FIELDS, "document update");
+      const result = await this.graphql<{ documentUpdate: { success: boolean; document?: unknown } }>(
+        `mutation ManagedDocumentUpdate($id: String!, $input: DocumentUpdateInput!) {
+          documentUpdate(id: $id, input: $input) { success document { ${DOCUMENT_FIELDS} } }
+        }`,
+        { id, input },
+      );
+      if (!result.documentUpdate.success || !result.documentUpdate.document) throw new Error("Linear rejected document update");
+      return result.documentUpdate.document;
+    }
+    throw new Error("document does not support create here; use publish to create, or list, get, update, and delete to manage existing documents");
   }
 
   private async manageRelation(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {

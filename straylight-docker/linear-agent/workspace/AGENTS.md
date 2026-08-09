@@ -33,6 +33,12 @@ mounted at all.
   never assume container names.
 - Publish useful screenshots and reports through Linear. Use a native review
   document for substantial Markdown that should remain editable in Linear.
+- For simple original diagrams or illustrations, create an SVG in `/workspace`,
+  share it, and embed the returned private Linear asset URL in the document.
+  Do not imply a photorealistic image-generation service is available when none
+  has been configured.
+- Before creating a similarly named document, list the current issue's documents
+  and update the intended document by id when one already exists.
 - Use Linear's native issue, project, relationship, and subissue operations when
   the requested work belongs in the product rather than burying it in comments.
 - Linear-supplied files are copied under `/workspace/.linear-inputs/` and listed

@@ -10,8 +10,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "bun test test",
-    "check": "bun run typecheck && bun test test"
+    "test": "bun test ./test/",
+    "test:capsule": "node --test claude-capsule/claude-request.test.mjs",
+    "check": "bun run typecheck && bun run test"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "0.84.0",

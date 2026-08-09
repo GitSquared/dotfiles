@@ -108,12 +108,15 @@ Acceptance:
 
 Status: implemented, awaiting deployed Linear API verification.
 
-- Create and update issue-backed native Linear Documents for substantial
-  Markdown review artifacts.
+- Create, discover, read, and update issue-backed native Linear Documents for
+  substantial Markdown review artifacts, including reuse across Agent Sessions.
 - Create or refresh rich issue attachments for external reports, previews,
   deployments, and pull requests.
 - Keep repository suggestions, private file/image upload, session URLs, native
   documents, and issue attachments behind the existing `linear` verbs.
+- Return the final private Linear asset URL from controller-brokered file/image
+  shares, allowing Pi to embed fresh images in Documents without exposing the
+  controller's Linear credential or presigned storage capability.
 - Keep these behind the existing generic `linear` verbs; do not add one tool per
   Linear mutation.
 
@@ -253,7 +256,7 @@ binary and Pi hook; deployed savings measurement remains.
 
 ## Slice 10 — Linear as a durable control plane
 
-Status: generic issue/project/relation/subissue operations, explicit Inbox
+Status: generic issue/project/document/relation/subissue operations, explicit Inbox
 notification routing, durable controller recovery, and persistent webhook
 inbox/retry/deduplication, plus bounded inbound files and multimodal images
 implemented locally. Deployed GraphQL, restart, and attachment acceptance remain.

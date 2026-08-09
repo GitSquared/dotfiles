@@ -68,6 +68,33 @@ test("rejects unauthenticated runner Linear operations", async () => {
   assert.equal(response.status, 401);
 });
 
+test("brokers a bounded Linear upload through the trusted controller", async () => {
+  const controller = {
+    async uploadLinearFile(sessionId: string, request: unknown) {
+      assert.equal(sessionId, "session-1");
+      assert.deepEqual(request, { filename: "duck.png", contentType: "image/png", dataBase64: "AQID" });
+      return "https://uploads.linear.app/workspace/duck";
+    },
+  } as unknown as AgentController;
+  const handler = createServer(config, {} as LinearClient, controller);
+  const response = await handler(new Request("https://straylight.example.test/internal/linear-upload", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.runnerToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      sessionId: "session-1",
+      request: { filename: "duck.png", contentType: "image/png", dataBase64: "AQID" },
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    assetUrl: "https://uploads.linear.app/workspace/duck",
+  });
+});
+
 test("acknowledges a raw signed webhook before delayed dispatch", async () => {
   let handled = false;
   const controller = {

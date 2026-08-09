@@ -2,7 +2,7 @@ import { loadControllerConfig, publicControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
 import { PiRunnerClient } from "./runner-client.js";
-import { createServer, dispatchLinearWebhook } from "./server.js";
+import { createServer, dispatchLinearWebhook, MAX_LINEAR_UPLOAD_BODY_BYTES } from "./server.js";
 import { DurableWebhookInbox } from "./webhook-inbox.js";
 
 const config = loadControllerConfig(process.env);
@@ -15,7 +15,7 @@ await inbox.initialize();
 const server = Bun.serve({
   hostname: config.host,
   port: config.port,
-  maxRequestBodySize: 1024 * 1024,
+  maxRequestBodySize: MAX_LINEAR_UPLOAD_BODY_BYTES,
   fetch: createServer(config, linear, controller, inbox),
 });
 console.log("Straylight Linear controller listening", publicControllerConfig(config));

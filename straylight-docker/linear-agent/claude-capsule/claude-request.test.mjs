@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs/promises";
+import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -97,16 +98,20 @@ test("terminates the Claude child when the capsule caller disconnects", async ()
       })),
       new Promise((_, reject) => setTimeout(() => reject(new Error(`Capsule did not start: ${stderr}`)), 2_000)),
     ]);
-    const controller = new AbortController();
-    const pending = fetch(`http://127.0.0.1:${port}/v1/ask`, {
+    const requestBody = JSON.stringify({ request: "Long-running corporate task" });
+    const pending = http.request(`http://127.0.0.1:${port}/v1/ask`, {
       method: "POST",
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ request: "Long-running corporate task" }),
-      signal: controller.signal,
+      headers: {
+        authorization: `Bearer ${token}`,
+        connection: "close",
+        "content-length": Buffer.byteLength(requestBody),
+        "content-type": "application/json",
+      },
     });
+    pending.on("error", () => undefined);
+    pending.end(requestBody);
     await waitForFile(startedFile);
-    controller.abort();
-    await pending.catch(() => undefined);
+    pending.destroy();
     await waitForFile(terminatedFile);
   } finally {
     capsule.kill("SIGTERM");

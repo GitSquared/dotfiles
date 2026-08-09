@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { ControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
-import { isLinearManageRequest } from "./linear-actions.js";
+import { isLinearManageRequest, isLinearUploadRequest } from "./linear-actions.js";
 import { finalText } from "./redaction.js";
 import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "./signature.js";
 import type {
@@ -13,6 +13,7 @@ import type {
 } from "./types.js";
 
 export const MAX_BODY_BYTES = 1024 * 1024;
+export const MAX_LINEAR_UPLOAD_BODY_BYTES = 15 * 1024 * 1024;
 
 const responseHeaders = {
   "cache-control": "no-store",
@@ -36,11 +37,11 @@ function text(status: number, value: string): Response {
   });
 }
 
-async function body(request: Request): Promise<Buffer> {
+async function body(request: Request, maximumBytes = MAX_BODY_BYTES): Promise<Buffer> {
   const declared = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw new Error("request_too_large");
+  if (Number.isFinite(declared) && declared > maximumBytes) throw new Error("request_too_large");
   const raw = Buffer.from(await request.arrayBuffer());
-  if (raw.byteLength > MAX_BODY_BYTES) throw new Error("request_too_large");
+  if (raw.byteLength > maximumBytes) throw new Error("request_too_large");
   return raw;
 }
 
@@ -118,6 +119,22 @@ export function createServer(
       }
       try {
         return json(200, await controller.manageLinear(input.sessionId, input.request));
+      } catch (error) {
+        return json(502, { ok: false, message: finalText(error instanceof Error ? error.message : String(error)) });
+      }
+    }
+
+    if (method === "POST" && url.pathname === "/internal/linear-upload") {
+      if (!authorizedRunner(config.runnerToken, request)) return json(401, { ok: false, message: "Unauthorized Linear upload broker" });
+      const raw = await body(request, MAX_LINEAR_UPLOAD_BODY_BYTES);
+      let input: { sessionId?: unknown; request?: unknown };
+      try { input = JSON.parse(raw.toString("utf8")) as { sessionId?: unknown; request?: unknown }; }
+      catch { return json(400, { ok: false, message: "Invalid Linear upload broker JSON" }); }
+      if (typeof input.sessionId !== "string" || !isLinearUploadRequest(input.request)) {
+        return json(400, { ok: false, message: "Invalid Linear upload request" });
+      }
+      try {
+        return json(200, { ok: true, assetUrl: await controller.uploadLinearFile(input.sessionId, input.request, request.signal) });
       } catch (error) {
         return json(502, { ok: false, message: finalText(error instanceof Error ? error.message : String(error)) });
       }

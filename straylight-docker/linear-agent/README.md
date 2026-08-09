@@ -85,9 +85,13 @@ comments:
   verbs and reconstructed from Pi history whenever a warm container expires
 - one generic `linear` collaboration tool for native input requests, blockers,
   review notes, private file/image uploads, arbitrary session URLs, native
-  review Documents, rich issue attachments, issue properties, relationships,
-  subissues, and projects; input
+  review Documents (including discovery, reading, and updates across sessions),
+  rich issue attachments, issue properties, relationships, subissues, and projects; input
   requests can include 2-12 options while still accepting free-text replies
+- file/image shares stay bounded and pass through the trusted controller, which
+  prepares and consumes Linear's short-lived upload capability; Pi receives only
+  the resulting private asset URL, so it can embed a newly uploaded image in a
+  native Document without receiving Linear credentials or presigned storage access
 - bounded inbound issue, comment, and Agent Session files from Linear's private
   `uploads.linear.app` storage; images become native model image parts when
   supported, and every accepted file is materialized under the session's
@@ -466,8 +470,10 @@ Useful Linear smoke tests:
    confirm the service and private session network disappear when the turn ends.
 10. Start a project server on `0.0.0.0`, start the browser service, run a
     Playwright check through `task`, and publish its screenshot to Linear.
-11. Publish a native review Document, update it using the returned document id,
-    then publish a rich preview or pull-request attachment to the issue.
+11. Publish a native review Document, start a fresh Agent Session, list the
+    issue's documents, read and update it by id, then upload a small image and
+    embed the returned private asset URL in that document. Finally publish a rich
+    preview or pull-request attachment to the issue.
 12. Ask Pi to create a small issue, update one property, attach it as a subissue,
     add and remove a relationship, and create/update a test project. Confirm each
     result returns a native Linear id and URL where applicable.

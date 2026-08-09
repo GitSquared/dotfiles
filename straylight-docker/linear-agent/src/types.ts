@@ -47,6 +47,7 @@ export type AppUserNotificationWebhook = {
   webhookId?: string;
   webhookTimestamp?: number;
   notification?: {
+    documentId?: string;
     issueId?: string;
     issue?: LinearIssue;
     type?: string;

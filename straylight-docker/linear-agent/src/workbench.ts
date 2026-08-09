@@ -5,7 +5,13 @@ import { CapsuleClient } from "./capsule-client.js";
 import { AdaptiveSlots } from "./capacity.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
-import { isLinearManageRequest, type LinearManageRequest, type LinearManageResult } from "./linear-actions.js";
+import {
+  isLinearManageRequest,
+  isLinearUploadRequest,
+  type LinearManageRequest,
+  type LinearManageResult,
+  type LinearUploadRequest,
+} from "./linear-actions.js";
 import { loadModelPolicy, publicModelPolicy } from "./model-policy.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
 import { PiRunnerClient } from "./runner-client.js";
@@ -415,6 +421,24 @@ export class WorkbenchHarness {
         : `Linear controller rejected the request (HTTP ${response.status})`);
     }
     return payload;
+  }
+
+  async uploadLinearFile(token: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string> { // yadm-secret-scan: ignore
+    const active = this.taskForToken(token);
+    if (!active?.running || active.aborted) throw new Error("Unauthorized task Linear upload request");
+    if (!isLinearUploadRequest(request)) throw new Error("Invalid Linear upload request");
+    if (signal?.aborted) throw new Error("Linear upload was cancelled");
+    const response = await fetch(`${this.config.controllerUrl}/internal/linear-upload`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.config.authToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: active.sessionId, request }),
+      ...(signal ? { signal } : {}),
+    });
+    const payload = await response.json() as { ok?: boolean; assetUrl?: string; message?: string };
+    if (!response.ok || payload.ok !== true || !payload.assetUrl) {
+      throw new Error(payload.message || `Linear controller rejected the upload (HTTP ${response.status})`);
+    }
+    return payload.assetUrl;
   }
 
   async repositories(): Promise<RepositoryCandidate[]> {

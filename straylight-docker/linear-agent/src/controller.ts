@@ -1,6 +1,10 @@
 import { ControllerStateStore, type ControllerSessionRecord } from "./controller-state.js";
 import { LinearClient, type AgentSessionSnapshot } from "./linear.js";
-import type { LinearManageRequest, LinearManageResult } from "./linear-actions.js";
+import type {
+  LinearManageRequest,
+  LinearManageResult,
+  LinearUploadRequest,
+} from "./linear-actions.js";
 import { followUpPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
 import type { AgentRunner } from "./runner-client.js";
@@ -239,6 +243,13 @@ export class AgentController {
     });
   }
 
+  async uploadLinearFile(sessionId: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string> {
+    if (!this.states.has(sessionId)) throw new Error("Linear upload does not belong to a known Agent Session");
+    const contents = Buffer.from(request.dataBase64, "base64");
+    if (!contents.length || contents.length > 10 * 1024 * 1024) throw new Error("Linear artifacts must be between 1 byte and 10 MB");
+    return this.linear.uploadFile(request.filename, request.contentType, contents, signal);
+  }
+
   async handle(payload: AgentSessionWebhook): Promise<void> {
     const session = payload.agentSession;
     const sessionId = session?.id;
@@ -307,6 +318,7 @@ export class AgentController {
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
     const action = payload.action ?? "unknown";
     const issueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
+    const documentId = payload.notification?.documentId;
     if (["issueMention", "issueCommentMention"].includes(action)) {
       this.recordNotification(action, "agentSessionOwned");
       console.info("Linear mention notification observed; AgentSessionEvent owns the instruction", { action, issueId });
@@ -320,6 +332,26 @@ export class AgentController {
     if (["issueEmojiReaction", "issueCommentReaction"].includes(action)) {
       this.recordNotification(action, "acknowledgement");
       console.info("Linear reaction notification observed as acknowledgement", { action, issueId });
+      return;
+    }
+    if (["documentMention", "documentCommentMention"].includes(action)) {
+      this.recordNotification(action, "agentSessionOwned");
+      console.info("Linear document mention observed; AgentSessionEvent owns the instruction", { action, documentId });
+      return;
+    }
+    if (["documentEmojiReaction", "documentCommentReaction"].includes(action)) {
+      this.recordNotification(action, "acknowledgement");
+      console.info("Linear document reaction observed as acknowledgement", { action, documentId });
+      return;
+    }
+    if (action === "documentSubscribed" || action === "documentUnsubscribed") {
+      this.recordNotification(action, "lifecycle");
+      console.info("Linear document subscription lifecycle observed", { action, documentId });
+      return;
+    }
+    if (action.startsWith("document")) {
+      this.recordNotification(action, "contextOnly");
+      console.info("Linear document notification retained as context; no prompt was synthesized", { action, documentId });
       return;
     }
     if (action === "issueAssignedToYou") {
@@ -404,6 +436,11 @@ export class AgentController {
       this.touch(state);
       await this.persist().catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
+      console.error("Pi run crashed", {
+        sessionId,
+        message: finalText(message),
+        ...(error instanceof Error && error.stack ? { stack: finalText(error.stack) } : {}),
+      });
       await this.linear.createActivity(sessionId, { type: "error", body: finalText(`Pi run crashed: ${message}`) }).catch(() => undefined);
     });
   }
