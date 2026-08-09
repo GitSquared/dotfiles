@@ -9,6 +9,7 @@ import { ServiceClient } from "../src/service-client.js";
 test("streams structured events across the controller-runner boundary", async () => {
   let followUpInputs: unknown;
   let uploaded: { token: string; filename: string; contentType: string; dataBase64: string } | undefined;
+  let collaboration: unknown;
   const harness = {
     async askClaude(taskCredential: string, request: string) {
       return taskCredential === "one-time-task-token" && request === "Find the context"
@@ -23,6 +24,11 @@ test("streams structured events across the controller-runner boundary", async ()
     async uploadLinearFile(taskCredential: string, request: { filename: string; contentType: string; dataBase64: string }) {
       uploaded = { token: taskCredential, ...request };
       return "https://uploads.linear.app/workspace/duck-png";
+    },
+    async collaborateLinear(taskCredential: string, request: unknown) {
+      assert.equal(taskCredential, "one-time-task-token");
+      collaboration = request;
+      return { ok: true as const, action: "external_url" as const };
     },
     async run(_payload: unknown, send: (event: {
       type: "activity";
@@ -69,6 +75,12 @@ test("streams structured events across the controller-runner boundary", async ()
       contentType: "image/png",
       dataBase64: png.toString("base64"),
     });
+    const linear = new LinearToolClient(baseUrl, "one-time-task-token"); // yadm-secret-scan: ignore
+    assert.deepEqual(await linear.collaborate({ action: "external_url", label: "Review", url: "https://example.com/review" }), {
+      ok: true,
+      action: "external_url",
+    });
+    assert.deepEqual(collaboration, { action: "external_url", label: "Review", url: "https://example.com/review" });
     const client = new PiRunnerClient(baseUrl, token);
     const events: unknown[] = [];
     const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });
@@ -130,6 +142,27 @@ test("propagates a disconnected Claude request to the workbench abort signal", a
       aborted,
       new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("abort signal was not propagated")), 1_000)),
     ]);
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("returns a structured failed result when the workbench run throws", async () => {
+  const harness = {
+    async run() { throw new Error("task container exited with code 137"); },
+    async followUp() { return false; },
+    async abort() { return false; },
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, "runner-test-token"), // yadm-secret-scan: ignore
+  });
+  try {
+    const client = new PiRunnerClient(server.url.origin, "runner-test-token"); // yadm-secret-scan: ignore
+    const result = await client.run({ agentSession: { id: "session" } }, async () => {});
+    assert.equal(result.ok, false);
+    assert.match(result.summary, /task container exited with code 137/);
   } finally {
     await server.stop(true);
   }

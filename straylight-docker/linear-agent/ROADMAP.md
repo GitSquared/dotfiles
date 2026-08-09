@@ -119,6 +119,9 @@ Status: implemented, awaiting deployed Linear API verification.
   controller's Linear credential or presigned storage capability.
 - Keep these behind the existing generic `linear` verbs; do not add one tool per
   Linear mutation.
+- Route semantic collaboration through an acknowledged controller broker rather
+  than the best-effort transcript stream, so tool success means Linear accepted
+  the operation.
 
 The Agent APIs and Agent Plan APIs are still previews, so controller adapters and
 tests should absorb schema churn without changing Pi's tool vocabulary.
@@ -218,13 +221,14 @@ telemetry remain acceptance checks.
 - Disable Claude and development-service supervisor capabilities while a warm
   task is idle. Stop, cancellation, crash, LRU eviction, expiry, or supervisor
   shutdown removes the complete session graph.
-- Guarantee three immediately available active turns. Under additional demand,
-  sample VM CPU and available RAM every ten seconds; open one extra slot when
-  their rolling ten-minute p75 is below 75% and 80%, and close spare slots
-  gradually under sustained pressure. This deliberately has no hardware-size
-  magic number or fixed upper ceiling.
-- Report active, queued, and warm tasks plus the current adaptive slot count and
-  p75 resource readings in workbench health.
+- Begin with one runnable turn. Under queued demand, sample VM CPU and available
+  RAM every ten seconds; open one extra turn when their rolling ten-minute p75
+  is below 75% and 80%, and close spare capacity gradually under sustained
+  pressure or lower demand. This deliberately has no configured floor,
+  hardware-size magic number, or fixed upper ceiling.
+- Report active, queued, and warm tasks plus the current adaptive active limit,
+  p75 resource readings, and the last safe pre-cleanup failure diagnostic in
+  workbench health.
 
 Acceptance:
 
@@ -234,7 +238,7 @@ Acceptance:
    workspace state.
 3. Stop both an active and idle-warm session; confirm every matching task,
    sidecar, and private network disappears.
-4. Queue more than three simultaneous turns on a quiet VM; confirm capacity
+4. Queue multiple simultaneous turns on a quiet VM; confirm capacity
    grows one slot per healthy sample, then stops growing when CPU or RAM p75
    crosses its target.
 

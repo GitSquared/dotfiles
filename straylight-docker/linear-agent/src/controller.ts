@@ -3,6 +3,8 @@ import { LinearClient, type AgentSessionSnapshot } from "./linear.js";
 import type {
   LinearManageRequest,
   LinearManageResult,
+  LinearSessionRequest,
+  LinearSessionResult,
   LinearUploadRequest,
 } from "./linear-actions.js";
 import { followUpPrompt } from "./prompts.js";
@@ -243,6 +245,47 @@ export class AgentController {
     });
   }
 
+  async collaborateLinear(sessionId: string, request: LinearSessionRequest): Promise<LinearSessionResult> {
+    const state = this.states.get(sessionId);
+    if (!state) throw new Error("Linear collaboration does not belong to a known Agent Session");
+    if (request.action === "activity") {
+      await this.linear.createActivity(sessionId, request.content, {
+        ...(request.signal ? { signal: request.signal } : {}),
+        ...(request.signalMetadata ? { signalMetadata: request.signalMetadata } : {}),
+      });
+      return { ok: true, action: request.action };
+    }
+    if (request.action === "external_url") {
+      await this.linear.addExternalUrl(sessionId, { label: request.label, url: request.url });
+      return { ok: true, action: request.action };
+    }
+    if (request.action === "plan") {
+      const mirrored = await this.updatePlan(sessionId, request.steps);
+      return { ok: true, action: request.action, data: { mirrored } };
+    }
+    if (!state.issueId) throw new Error("Linear publications require an issue-backed Agent Session");
+    if (request.publication.kind === "document") {
+      const document = request.publication.update
+        ? await this.linear.updateDocument(request.publication.id, request.publication.title, request.publication.body)
+        : await this.linear.createDocument(state.issueId, request.publication.id, request.publication.title, request.publication.body);
+      await this.linear.addExternalUrl(sessionId, { label: document.title, url: document.url });
+      await this.linear.createActivity(sessionId, {
+        type: "thought",
+        body: `[${document.title}](${document.url}) is ready for review.`,
+      });
+      return { ok: true, action: request.action, data: document };
+    }
+    const attachment = await this.linear.createIssueAttachment(state.issueId, {
+      title: request.publication.title,
+      url: request.publication.url,
+      ...(request.publication.subtitle ? { subtitle: request.publication.subtitle } : {}),
+      ...(request.publication.body ? { commentBody: request.publication.body } : {}),
+      agentSessionId: sessionId,
+    });
+    await this.linear.addExternalUrl(sessionId, { label: attachment.title, url: attachment.url });
+    return { ok: true, action: request.action, data: attachment };
+  }
+
   async uploadLinearFile(sessionId: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string> {
     if (!this.states.has(sessionId)) throw new Error("Linear upload does not belong to a known Agent Session");
     const contents = Buffer.from(request.dataBase64, "base64");
@@ -453,11 +496,7 @@ export class AgentController {
   ): Promise<void> {
     const issue = payload.agentSession?.issue;
     const label = issue?.identifier ? `${issue.identifier}: ${issue.title ?? "Untitled"}` : "this Linear session";
-    await this.linear.createActivity(
-      sessionId,
-      { type: "thought", body: `Setting up the workspace for ${label}…` },
-      { ephemeral: true },
-    );
+    await this.createEphemeralActivity(sessionId, { type: "thought", body: `Setting up the workspace for ${label}…` });
     if (payload.action === "created" && payload.agentSession?.creatorId && state.issueId && payload.appUserId) {
       await this.linear.beginHumanDelegation(state.issueId, payload.appUserId).catch((error: unknown) => {
         console.warn("failed to move human-delegated issue to started", {
@@ -481,60 +520,7 @@ export class AgentController {
     }
     const result = await this.runner.run(taskPayload, async (event) => {
       if (state.generation !== generation) return;
-      if (event.type === "plan") {
-        await this.updatePlan(sessionId, event.steps);
-        return;
-      }
-      if (event.type === "external_url") {
-        await this.linear.addExternalUrl(sessionId, { label: event.label, url: event.url });
-        return;
-      }
-      if (event.type === "artifact") {
-        const bytes = Buffer.from(event.dataBase64, "base64");
-        if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Linear artifact must be between 1 byte and 10 MB");
-        const assetUrl = await this.linear.uploadFile(event.filename, event.contentType, bytes);
-        const label = event.title || event.filename;
-        const link = event.contentType.startsWith("image/")
-          ? `![${label.replace(/[\[\]]/g, "")}](${assetUrl})`
-          : `[${label}](${assetUrl})`;
-        await this.linear.createActivity(sessionId, {
-          type: "thought",
-          body: [event.body, link].filter(Boolean).join("\n\n"),
-        });
-        return;
-      }
-      if (event.type === "linear_publish") {
-        if (!state.issueId) throw new Error("Linear documents and rich attachments require an issue-backed Agent Session");
-        if (event.publication.kind === "document") {
-          const document = event.publication.update
-            ? await this.linear.updateDocument(event.publication.id, event.publication.title, event.publication.body)
-            : await this.linear.createDocument(state.issueId, event.publication.id, event.publication.title, event.publication.body);
-          await this.linear.addExternalUrl(sessionId, { label: document.title, url: document.url });
-          await this.linear.createActivity(sessionId, {
-            type: "thought",
-            body: `[${document.title}](${document.url}) is ready for review.`,
-          });
-          return;
-        }
-        const attachment = await this.linear.createIssueAttachment(state.issueId, {
-          title: event.publication.title,
-          url: event.publication.url,
-          ...(event.publication.subtitle ? { subtitle: event.publication.subtitle } : {}),
-          ...(event.publication.body ? { commentBody: event.publication.body } : {}),
-          agentSessionId: sessionId,
-        });
-        await this.linear.addExternalUrl(sessionId, { label: attachment.title, url: attachment.url });
-        return;
-      }
-      await this.linear.createActivity(
-        sessionId,
-        event.content,
-        {
-          ...(event.ephemeral === undefined ? {} : { ephemeral: event.ephemeral }),
-          ...(event.signal === undefined ? {} : { signal: event.signal }),
-          ...(event.signalMetadata === undefined ? {} : { signalMetadata: event.signalMetadata }),
-        },
-      );
+      await this.createEphemeralActivity(sessionId, event.content);
     });
     if (state.generation !== generation) return;
     if (!result.awaitingInput) {
@@ -549,6 +535,18 @@ export class AgentController {
     this.touch(state);
     await this.persist();
     if (pending) await this.start(sessionId, pending, state);
+  }
+
+  private async createEphemeralActivity(
+    sessionId: string,
+    content: Parameters<LinearClient["createActivity"]>[1],
+  ): Promise<void> {
+    await this.linear.createActivity(sessionId, content, { ephemeral: true }).catch((error: unknown) => {
+      console.warn("failed to publish ephemeral Linear activity; Pi run continues", {
+        sessionId,
+        message: finalText(error instanceof Error ? error.message : String(error)),
+      });
+    });
   }
 
   private finish(sessionId: string, result: PiResult): Promise<void> {
@@ -599,15 +597,17 @@ export class AgentController {
     }
   }
 
-  private async updatePlan(sessionId: string, plan: AgentPlanStep[]): Promise<void> {
-    if (!this.plansEnabled) return;
+  private async updatePlan(sessionId: string, plan: AgentPlanStep[]): Promise<boolean> {
+    if (!this.plansEnabled) return false;
     try {
       await this.linear.updatePlan(sessionId, plan);
+      return true;
     } catch (error) {
       this.plansEnabled = false;
       console.warn("Agent Plan API unavailable; continuing without native plans", {
         message: error instanceof Error ? error.message : String(error),
       });
+      return false;
     }
   }
 

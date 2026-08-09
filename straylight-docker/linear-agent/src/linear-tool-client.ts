@@ -1,6 +1,8 @@
 import type {
   LinearManageRequest,
   LinearManageResult,
+  LinearSessionRequest,
+  LinearSessionResult,
 } from "./linear-actions.js";
 
 const MAX_RESULT_BYTES = 256 * 1024;
@@ -31,6 +33,10 @@ export class LinearToolClient {
     return payload;
   }
 
+  collaborate(request: LinearSessionRequest, signal?: AbortSignal): Promise<LinearSessionResult> {
+    return this.request<LinearSessionResult>("/v1/linear-session", request, signal);
+  }
+
   async upload(filename: string, contentType: string, contents: Uint8Array, signal?: AbortSignal): Promise<string> {
     const response = await fetch(`${this.baseUrl}/v1/linear-upload`, {
       method: "POST",
@@ -47,5 +53,25 @@ export class LinearToolClient {
       throw new Error(payload.message || `Linear upload broker rejected the file (HTTP ${response.status})`);
     }
     return payload.assetUrl;
+  }
+
+  private async request<T extends { ok: true }>(path: string, body: unknown, signal?: AbortSignal): Promise<T> {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
+    });
+    const raw = await response.text();
+    if (Buffer.byteLength(raw) > MAX_RESULT_BYTES) throw new Error("Linear collaboration response exceeded the safe result limit");
+    let payload: T | { ok?: false; message?: string };
+    try { payload = JSON.parse(raw) as T | { ok?: false; message?: string }; }
+    catch { throw new Error(`Linear workbench broker returned invalid JSON (HTTP ${response.status})`); }
+    if (!response.ok || payload.ok !== true) {
+      throw new Error("message" in payload && payload.message
+        ? payload.message
+        : `Linear workbench broker rejected the request (HTTP ${response.status})`);
+    }
+    return payload as T;
   }
 }

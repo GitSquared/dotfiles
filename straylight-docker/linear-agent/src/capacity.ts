@@ -44,17 +44,14 @@ async function memorySnapshot(): Promise<{ available: number; total: number }> {
 
 export class AdaptiveSlots {
   private readonly samples: ResourceSample[] = [];
-  private slots: number;
+  private activeLimit = 1;
   private previousCpu: CpuSnapshot | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
-    private readonly guaranteedSlots: number,
     private readonly demand: () => number,
     private readonly onChange: () => void = () => {},
-  ) {
-    this.slots = guaranteedSlots;
-  }
+  ) {}
 
   async start(): Promise<void> {
     if (this.timer) return;
@@ -69,7 +66,7 @@ export class AdaptiveSlots {
   }
 
   available(activeTurns: number): boolean {
-    return activeTurns < this.slots;
+    return activeTurns < this.activeLimit;
   }
 
   record(sample: ResourceSample): void {
@@ -80,18 +77,17 @@ export class AdaptiveSlots {
     const memory = p75(this.samples.map((entry) => entry.memoryPercent));
     if (cpu === undefined || memory === undefined) return;
     if (cpu <= CPU_TARGET_PERCENT && memory <= MEMORY_TARGET_PERCENT) {
-      if (this.demand() > this.slots) this.slots += 1;
-      else if (this.demand() < this.slots) this.slots = Math.max(this.guaranteedSlots, this.slots - 1);
+      if (this.demand() > this.activeLimit) this.activeLimit += 1;
+      else if (this.demand() < this.activeLimit) this.activeLimit = Math.max(1, this.activeLimit - 1);
     } else {
-      this.slots = Math.max(this.guaranteedSlots, this.slots - 1);
+      this.activeLimit = Math.max(1, this.activeLimit - 1);
     }
     this.onChange();
   }
 
   status(): Record<string, unknown> {
     return {
-      slots: this.slots,
-      guaranteedSlots: this.guaranteedSlots,
+      activeLimit: this.activeLimit,
       samples: this.samples.length,
       windowMs: WINDOW_MS,
       p75CpuPercent: p75(this.samples.map((sample) => sample.cpuPercent)),

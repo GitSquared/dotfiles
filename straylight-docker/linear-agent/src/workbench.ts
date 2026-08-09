@@ -7,15 +7,19 @@ import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
 import {
   isLinearManageRequest,
+  isLinearSessionRequest,
   isLinearUploadRequest,
   type LinearManageRequest,
   type LinearManageResult,
+  type LinearSessionRequest,
+  type LinearSessionResult,
   type LinearUploadRequest,
 } from "./linear-actions.js";
 import { loadModelPolicy, publicModelPolicy } from "./model-policy.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
 import { PiRunnerClient } from "./runner-client.js";
 import { runCommand } from "./runtime.js";
+import { redact } from "./redaction.js";
 import type { DevelopmentService, ServiceRequest, ServiceResult } from "./service-client.js";
 import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 
@@ -106,6 +110,7 @@ export function taskContainerSpec(
       `TOOL_AUTH_URL=${config.toolAuthUrl}`,
       "WORKBENCH_URL=http://linear-agent-runner:8788",
       `PI_MEMORY_DIR=${config.memoryDirectory}`,
+      `XDG_CONFIG_HOME=${path.join(config.memoryDirectory, ".config")}`,
       "GH_CONFIG_DIR=/tool-profile/gh",
       "GIT_CONFIG_GLOBAL=/tool-profile/gitconfig",
       "GIT_TERMINAL_PROMPT=0",
@@ -150,6 +155,7 @@ export class WorkbenchHarness {
   private readonly cancelled = new Set<string>();
   private readonly waiters = new Map<string, Waiter>();
   private readonly order: string[] = [];
+  private lastTaskFailure: Record<string, unknown> | undefined;
   private runningSlots = 0;
 
   constructor(
@@ -159,13 +165,13 @@ export class WorkbenchHarness {
     this.engine = engine ?? new DockerEngine(config.dockerSocket);
     this.capsule = new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
     this.capacity = new AdaptiveSlots(
-      config.guaranteedConcurrentTasks,
       () => this.runningSlots + this.waiters.size,
       () => this.drainQueue(),
     );
   }
 
   async initialize(): Promise<void> {
+    await fs.mkdir(path.join(this.config.memoryDirectory, ".config"), { recursive: true, mode: 0o700 });
     const [orphans, serviceOrphans] = await Promise.all([
       this.engine.listByLabel(TASK_LABEL),
       this.engine.listByLabel(SERVICE_LABEL),
@@ -202,6 +208,7 @@ export class WorkbenchHarness {
       serviceContainers: services.length,
       sessionNetworks: networks.length,
       adaptiveConcurrency: this.capacity.status(),
+      ...(this.lastTaskFailure ? { lastTaskFailure: this.lastTaskFailure } : {}),
       modelPolicy: publicModelPolicy(modelPolicy),
       rtkVersion: process.env.RTK_VERSION ?? "unknown",
       maxWarmSessions: this.config.maxWarmSessions,
@@ -320,6 +327,7 @@ export class WorkbenchHarness {
       return active.aborted ? stoppedResult(startedAt) : result;
     } catch (error) {
       if (active?.aborted) return stoppedResult(startedAt);
+      if (active) await this.captureTaskFailure(active, error);
       throw error;
     } finally {
       this.starting.delete(sessionId);
@@ -424,6 +432,26 @@ export class WorkbenchHarness {
     return payload;
   }
 
+  async collaborateLinear(token: string, request: LinearSessionRequest, signal?: AbortSignal): Promise<LinearSessionResult> { // yadm-secret-scan: ignore
+    const active = this.taskForToken(token);
+    if (!active?.running || active.aborted) throw new Error("Unauthorized task Linear collaboration request");
+    if (!isLinearSessionRequest(request)) throw new Error("Invalid Linear collaboration request");
+    if (signal?.aborted) throw new Error("Linear collaboration was cancelled");
+    const response = await fetch(`${this.config.controllerUrl}/internal/linear-session`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.config.authToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: active.sessionId, request }),
+      ...(signal ? { signal } : {}),
+    });
+    const payload = await response.json() as LinearSessionResult | { ok?: false; message?: string };
+    if (!response.ok || payload.ok !== true) {
+      throw new Error("message" in payload && payload.message
+        ? payload.message
+        : `Linear controller rejected the collaboration request (HTTP ${response.status})`);
+    }
+    return payload;
+  }
+
   async uploadLinearFile(token: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string> { // yadm-secret-scan: ignore
     const active = this.taskForToken(token);
     if (!active?.running || active.aborted) throw new Error("Unauthorized task Linear upload request");
@@ -509,6 +537,27 @@ export class WorkbenchHarness {
       console.warn("failed to retain refreshed Pi authentication", {
         message: error instanceof Error ? error.message : String(error),
       });
+    });
+  }
+
+  private async captureTaskFailure(active: ActiveTask, error: unknown): Promise<void> {
+    const message = redact(error instanceof Error ? error.message : String(error));
+    const [inspection, logs] = await Promise.all([
+      this.engine.inspect(active.containerId).catch(() => undefined),
+      this.engine.logs(active.containerId, 200).catch(() => ""),
+    ]);
+    const state = inspection?.State;
+    this.lastTaskFailure = {
+      at: new Date().toISOString(),
+      sessionId: active.sessionId,
+      message,
+      ...(state?.Status ? { containerStatus: state.Status } : {}),
+      ...(state?.ExitCode !== undefined ? { exitCode: state.ExitCode } : {}),
+      ...(state?.Error ? { containerError: redact(state.Error) } : {}),
+    };
+    console.error("Pi task failed before cleanup", {
+      ...this.lastTaskFailure,
+      ...(logs ? { taskLogs: redact(logs).slice(-8_000) } : {}),
     });
   }
 

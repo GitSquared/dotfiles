@@ -74,3 +74,35 @@ test("recovers an interrupted Agent Session from durable state and Linear activi
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("keeps a Pi run alive when an ephemeral Linear activity fails", async () => {
+  const activities: Array<{ content: unknown; ephemeral: boolean }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async createActivity(_sessionId: string, content: unknown, options?: { ephemeral?: boolean }) {
+      if (options?.ephemeral) throw new Error("socket connection was closed unexpectedly");
+      activities.push({ content, ephemeral: false });
+    },
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(_payload: AgentTaskPayload, onEvent: Parameters<AgentRunner["run"]>[1]) {
+      await onEvent({
+        type: "activity",
+        content: { type: "action", action: "Inspecting", parameter: "workspace" },
+        ephemeral: true,
+      });
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Finished despite flaky progress delivery.", elapsedMs: 2 };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({ action: "created", agentSession: { id: "session-1" } });
+  for (let attempt = 0; attempt < 50 && activities.length === 0; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(activities.length, 1);
+  assert.match((activities[0]?.content as { body?: string }).body ?? "", /Finished despite flaky progress delivery/);
+  const health = await controller.health() as { controller: { runningSessions: number } };
+  assert.equal(health.controller.runningSessions, 0);
+});

@@ -29,25 +29,33 @@ export class PiRunnerClient implements AgentRunner {
     const decoder = new TextDecoder();
     let buffer = "";
     let result: PiResult | undefined;
-    for (;;) {
-      const chunk = await reader.read();
-      buffer += decoder.decode(chunk.value, { stream: !chunk.done });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const event = parseRunnerEvent(line);
+    let eventCount = 0;
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        buffer += decoder.decode(chunk.value, { stream: !chunk.done });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = parseRunnerEvent(line);
+          eventCount += 1;
+          if (event.type === "result") result = event.result;
+          else await onEvent(event);
+        }
+        if (chunk.done) break;
+      }
+      if (buffer.trim()) {
+        const event = parseRunnerEvent(buffer);
+        eventCount += 1;
         if (event.type === "result") result = event.result;
         else await onEvent(event);
       }
-      if (chunk.done) break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Pi runner stream failed after ${eventCount} event${eventCount === 1 ? "" : "s"}: ${message}`, { cause: error });
     }
-    if (buffer.trim()) {
-      const event = parseRunnerEvent(buffer);
-      if (event.type === "result") result = event.result;
-      else await onEvent(event);
-    }
-    if (!result) throw new Error("Pi runner ended without a result");
+    if (!result) throw new Error(`Pi runner stream ended after ${eventCount} event${eventCount === 1 ? "" : "s"} without a result`);
     return result;
   }
 

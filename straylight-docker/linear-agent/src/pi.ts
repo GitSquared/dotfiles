@@ -317,7 +317,7 @@ export class PiHarness {
     const reporter = new ProgressReporter(send, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
     const choice = this.sessions.has(sessionId)
       ? undefined
-      : await this.chooseModel(payload, send, payload.action === "created");
+      : await this.chooseModel(payload, payload.action === "created");
     const managed = await this.session(sessionId, choice);
     const linearInputs = await materializeLinearInputs(this.config.piWorkdir, payload.linearInputs);
     managed.reporter.current = reporter;
@@ -405,7 +405,6 @@ export class PiHarness {
 
   private async chooseModel(
     payload: AgentTaskPayload | undefined,
-    send: RunnerSender | undefined,
     classify: boolean,
   ): Promise<ModelChoice> {
     const [policy, runtime] = await Promise.all([
@@ -418,7 +417,7 @@ export class PiHarness {
       throw new Error("None of the models allowed by model-policy.json is available to the current Pi authentication");
     }
     const fallbackIndex = Math.max(0, models.findIndex((model) => model.name === policy.fallback));
-    if (!classify || !payload || !send) return { models, selectedIndex: fallbackIndex, explicit: false };
+    if (!classify || !payload) return { models, selectedIndex: fallbackIndex, explicit: false };
 
     let selectedIndex = fallbackIndex;
     let reason = models[fallbackIndex]?.description ?? "Configured fallback.";
@@ -463,15 +462,17 @@ export class PiHarness {
 
     const selected = models[selectedIndex];
     if (!selected) throw new Error("Model policy selected an invalid entry");
-    await send({
-      type: "activity",
+    await this.linear.collaborate({
+      action: "activity",
       content: {
         type: "action",
         action: "Picked the working model",
         parameter: `${selected.name} · ${selected.thinking}`,
         result: reason,
       },
-    });
+    }).catch((error: unknown) => console.warn("could not report selected model to Linear", {
+      message: error instanceof Error ? error.message : String(error),
+    }));
     return { models, selectedIndex, explicit: true };
   }
 
@@ -493,10 +494,10 @@ export class PiHarness {
         const nextIndex = runState.modelIndex + 1;
         const next = runState.models[nextIndex];
         if (!next) {
-          await runState.send({
-            type: "activity",
+          await this.linear.collaborate({
+            action: "activity",
             content: { type: "thought", body: "Pi is already using the strongest model allowed by model-policy.json." },
-          });
+          }).catch(() => undefined);
           return;
         }
         const runtime = await this.modelRuntime;
@@ -507,15 +508,17 @@ export class PiHarness {
         runState.modelIndex = nextIndex;
         managed.modelIndex = nextIndex;
         runState.escalationCount += 1;
-        await runState.send({
-          type: "activity",
+        await this.linear.collaborate({
+          action: "activity",
           content: {
             type: "action",
             action: "Escalated intelligence",
             parameter: `${next.name} · ${next.thinking}`,
             result: request.reason,
           },
-        });
+        }).catch((error: unknown) => console.warn("could not report model escalation to Linear", {
+          message: error instanceof Error ? error.message : String(error),
+        }));
         if (runState.awaitingInput) return;
         prompt = `Intelligence was escalated to ${next.name} (${next.provider}/${next.model}, ${next.thinking}). Continue the task and revisit the difficulty that prompted escalation: ${request.reason}`;
         continue;
@@ -546,7 +549,7 @@ export class PiHarness {
     const reporter: ManagedSession["reporter"] = { current: undefined };
     const runState: ManagedSession["runState"] = { current: undefined };
     const modelRuntime = await this.modelRuntime;
-    const activeChoice = choice ?? await this.chooseModel(undefined, undefined, false);
+    const activeChoice = choice ?? await this.chooseModel(undefined, false);
     const selected = activeChoice.models[activeChoice.selectedIndex];
     const model = selected ? modelRuntime.getModel(selected.provider, selected.model) : undefined;
     const visualExplainer = visualExplainerResourcePaths();
@@ -730,8 +733,8 @@ export class PiHarness {
           const providerName = params.providerName
             ? finalText(params.providerName).slice(0, 200)
             : params.workspace === "claude" ? "Claude workbench" : "Developer tools";
-          await current.send({
-            type: "activity",
+          await linear.collaborate({
+            action: "activity",
             content: {
               type: "elicitation",
               body: `${message}\n\nOpen the workbench instructions, fix the access, then reply \`resume\` here.`,
@@ -833,8 +836,8 @@ export class PiHarness {
               ...(option.label ? { label: finalText(option.label).slice(0, 200) } : {}),
               value: finalText(option.value).slice(0, 1000),
             }));
-            await current.send({
-              type: "activity",
+            await linear.collaborate({
+              action: "activity",
               content: { type: "elicitation", body: finalText(params.body) },
               ...(options ? { signal: "select" as const, signalMetadata: { options } } : {}),
             });
@@ -845,7 +848,7 @@ export class PiHarness {
           if (params.action === "block") {
             if (!params.body) throw new Error("block requires body");
             await reporter.current?.flush();
-            await current.send({ type: "activity", content: { type: "error", body: finalText(params.body) } });
+            await linear.collaborate({ action: "activity", content: { type: "error", body: finalText(params.body) } });
             current.awaitingInput = true;
             reporter.current?.stop();
             return { content: [{ type: "text", text: "Blocker marked in Linear. End this turn and wait for a follow-up." }], details: {} };
@@ -854,8 +857,8 @@ export class PiHarness {
             if (!params.url || !params.label) throw new Error("attach requires label and url");
             const url = new URL(redact(params.url));
             if (url.protocol !== "https:") throw new Error("Linear session attachments must use https");
-            await current.send({
-              type: "external_url",
+            await linear.collaborate({
+              action: "external_url",
               label: finalText(params.label).slice(0, 200),
               url: url.toString(),
             });
@@ -866,8 +869,8 @@ export class PiHarness {
             if (params.kind === "document") {
               if (!params.body) throw new Error("publishing a document requires Markdown body content");
               const id = params.id || crypto.randomUUID();
-              await current.send({
-                type: "linear_publish",
+              const publication = await linear.collaborate({
+                action: "publish",
                 publication: {
                   kind: "document",
                   id,
@@ -878,14 +881,14 @@ export class PiHarness {
               });
               return {
                 content: [{ type: "text", text: `Linear document ${params.id ? "updated" : "published"}. Document id: ${id}` }],
-                details: {},
+                details: publication,
               };
             }
             if (!params.url) throw new Error("publishing an attachment requires url");
             const url = new URL(redact(params.url));
             if (url.protocol !== "https:") throw new Error("Linear issue attachments must use https");
-            await current.send({
-              type: "linear_publish",
+            const publication = await linear.collaborate({
+              action: "publish",
               publication: {
                 kind: "attachment",
                 title: finalText(params.title).slice(0, 200),
@@ -894,7 +897,7 @@ export class PiHarness {
                 ...(params.body ? { body: redact(params.body).slice(0, 100_000) } : {}),
               },
             });
-            return { content: [{ type: "text", text: "Rich attachment published to the Linear issue." }], details: {} };
+            return { content: [{ type: "text", text: "Rich attachment published to the Linear issue." }], details: publication };
           }
           if (params.path) {
             const artifact = await workspaceFile(piWorkdir, params.path);
@@ -904,8 +907,8 @@ export class PiHarness {
             const link = contentType.startsWith("image/")
               ? `![${label}](${assetUrl})`
               : `[${label}](${assetUrl})`;
-            await current.send({
-              type: "activity",
+            await linear.collaborate({
+              action: "activity",
               content: {
                 type: "thought",
                 body: [params.body ? finalText(params.body) : "", link].filter(Boolean).join("\n\n"),
@@ -917,8 +920,8 @@ export class PiHarness {
             };
           }
           if (!params.body) throw new Error("share requires body or path");
-          await current.send({
-            type: "activity",
+          await linear.collaborate({
+            action: "activity",
             content: { type: "thought", body: finalText(params.body) },
           });
           return { content: [{ type: "text", text: "Review note shared in Linear." }], details: {} };
@@ -1030,11 +1033,20 @@ export class PiHarness {
               if (!params.content && !params.status) throw new Error("update requires content or status");
             }
           }
-          await current.send({
-            type: "plan",
+          const mirror = await linear.collaborate({
+            action: "plan",
             steps: plan.items.map(({ content, status }) => ({ content, status })),
           });
-          return { content: [{ type: "text", text: "Durable plan updated and mirrored to Linear." }], details: structuredClone(plan) };
+          const mirrored = (mirror.data as { mirrored?: unknown } | undefined)?.mirrored === true;
+          return {
+            content: [{
+              type: "text",
+              text: mirrored
+                ? "Durable plan updated and mirrored to Linear."
+                : "Durable plan updated; Linear's native plan surface is currently unavailable.",
+            }],
+            details: { ...structuredClone(plan), mirrored },
+          };
         },
       }),
       defineTool({

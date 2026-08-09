@@ -48,7 +48,6 @@ export type WorkbenchConfig = {
   piConfigSource: string;
   toolProfileDirectory: string;
   memoryDirectory: string;
-  guaranteedConcurrentTasks: number;
   maxWarmSessions: number;
   warmSessionTtlMs: number;
   taskStartupTimeoutMs: number;
@@ -170,7 +169,6 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     piConfigSource: absolutePath(env, "PI_CONFIG_SOURCE", "/workbench/pi-config"),
     toolProfileDirectory: absolutePath(env, "PI_TOOL_PROFILE_DIR", "/tool-profile"),
     memoryDirectory: absolutePath(env, "PI_MEMORY_DIR", "/memory"),
-    guaranteedConcurrentTasks: positiveInteger(env, "PI_GUARANTEED_CONCURRENT_TASKS", 3),
     maxWarmSessions: positiveInteger(env, "PI_MAX_WARM_SESSIONS", 3),
     warmSessionTtlMs: positiveInteger(env, "PI_WARM_SESSION_TTL_MS", 600_000),
     taskStartupTimeoutMs: positiveInteger(env, "PI_TASK_STARTUP_TIMEOUT_MS", 30_000),

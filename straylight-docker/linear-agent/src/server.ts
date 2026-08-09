@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { ControllerConfig } from "./config.js";
 import { AgentController } from "./controller.js";
 import { LinearClient } from "./linear.js";
-import { isLinearManageRequest, isLinearUploadRequest } from "./linear-actions.js";
+import { isLinearManageRequest, isLinearSessionRequest, isLinearUploadRequest } from "./linear-actions.js";
 import { finalText } from "./redaction.js";
 import { DeliveryDeduper, freshWebhookTimestamp, verifyWebhookSignature } from "./signature.js";
 import type {
@@ -119,6 +119,22 @@ export function createServer(
       }
       try {
         return json(200, await controller.manageLinear(input.sessionId, input.request));
+      } catch (error) {
+        return json(502, { ok: false, message: finalText(error instanceof Error ? error.message : String(error)) });
+      }
+    }
+
+    if (method === "POST" && url.pathname === "/internal/linear-session") {
+      if (!authorizedRunner(config.runnerToken, request)) return json(401, { ok: false, message: "Unauthorized Linear collaboration broker" });
+      const raw = await body(request);
+      let input: { sessionId?: unknown; request?: unknown };
+      try { input = JSON.parse(raw.toString("utf8")) as { sessionId?: unknown; request?: unknown }; }
+      catch { return json(400, { ok: false, message: "Invalid Linear collaboration JSON" }); }
+      if (typeof input.sessionId !== "string" || !isLinearSessionRequest(input.request)) {
+        return json(400, { ok: false, message: "Invalid Linear collaboration request" });
+      }
+      try {
+        return json(200, await controller.collaborateLinear(input.sessionId, input.request));
       } catch (error) {
         return json(502, { ok: false, message: finalText(error instanceof Error ? error.message : String(error)) });
       }

@@ -20,7 +20,6 @@ function config(): WorkbenchConfig {
     piConfigSource: "/workbench/pi-config",
     toolProfileDirectory: "/tool-profile",
     memoryDirectory: "/memory",
-    guaranteedConcurrentTasks: 3,
     maxWarmSessions: 3,
     warmSessionTtlMs: 600_000,
     taskStartupTimeoutMs: 30_000,
@@ -75,6 +74,7 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/tool-profile:/tool-profile:ro"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/memory:/memory"), true);
   assert.equal(spec.Env.some((value) => value === "PI_MEMORY_DIR=/memory"), true);
+  assert.equal(spec.Env.some((value) => value === "XDG_CONFIG_HOME=/memory/.config"), true);
   assert.equal(spec.Env.some((value) => value === "PI_THEME=dark"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
 });
@@ -145,6 +145,67 @@ test("reuses an idle warm task and withholds supervisor capabilities between tur
   assert.deepEqual(stopped, ["warm-task"]);
   assert.deepEqual(removed, ["warm-task"]);
   assert.deepEqual(removedNetworks, ["warm-network"]);
+});
+
+test("captures task exit diagnostics before removing a failed jail", async () => {
+  const order: string[] = [];
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    pull: unused,
+    create: unused,
+    start: unused,
+    async stop() { order.push("stop"); },
+    async remove() { order.push("remove"); },
+    listByLabel: unused,
+    async inspect() {
+      order.push("inspect");
+      return { Id: "failed-task", State: { Status: "exited", ExitCode: 137, Error: "out of memory" } };
+    },
+    async logs() { order.push("logs"); return "runner was killed\n"; },
+    createNetwork: unused,
+    connectNetwork: unused,
+    async removeNetwork() { order.push("remove-network"); },
+    listNetworksByLabel: unused,
+  };
+  const harness = new WorkbenchHarness(config(), engine);
+  const active = {
+    aborted: false,
+    client: {
+      async repositories() { return []; },
+      async run() { throw new Error("runner stream disconnected"); },
+    },
+    containerId: "failed-task",
+    idleTimer: undefined,
+    lastUsedAt: Date.now(),
+    networkId: "failed-network",
+    networkName: "failed-network",
+    running: false,
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token: "failed-task-token", // yadm-secret-scan: ignore
+  };
+  const internals = harness as unknown as {
+    active: Map<string, unknown>;
+    prepareSession: () => Promise<void>;
+    syncTaskAuth: () => Promise<void>;
+    lastTaskFailure?: Record<string, unknown>;
+  };
+  internals.active.set("session", active);
+  internals.prepareSession = async () => {};
+  internals.syncTaskAuth = async () => {};
+
+  await assert.rejects(harness.run({ agentSession: { id: "session" } }, async () => {}), /runner stream disconnected/);
+  assert.ok(order.indexOf("inspect") < order.indexOf("remove"));
+  assert.ok(order.indexOf("logs") < order.indexOf("remove"));
+  assert.deepEqual(internals.lastTaskFailure, {
+    at: internals.lastTaskFailure?.at,
+    sessionId: "session",
+    message: "runner stream disconnected",
+    containerStatus: "exited",
+    exitCode: 137,
+    containerError: "out of memory",
+  });
 });
 
 test("decodes multiplexed Docker logs without exposing frame headers", () => {

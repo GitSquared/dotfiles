@@ -68,6 +68,25 @@ test("rejects unauthenticated runner Linear operations", async () => {
   assert.equal(response.status, 401);
 });
 
+test("brokers acknowledged Agent Session collaboration", async () => {
+  const request = { action: "external_url", label: "Pull request", url: "https://github.com/GitSquared/nemo/pull/42" } as const;
+  const controller = {
+    async collaborateLinear(sessionId: string, supplied: unknown) {
+      assert.equal(sessionId, "session-1");
+      assert.deepEqual(supplied, request);
+      return { ok: true, action: "external_url" };
+    },
+  } as unknown as AgentController;
+  const handler = createServer(config, {} as LinearClient, controller);
+  const response = await handler(new Request("https://straylight.example.test/internal/linear-session", {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.runnerToken}`, "content-type": "application/json" },
+    body: JSON.stringify({ sessionId: "session-1", request }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, action: "external_url" });
+});
+
 test("brokers a bounded Linear upload through the trusted controller", async () => {
   const controller = {
     async uploadLinearFile(sessionId: string, request: unknown) {

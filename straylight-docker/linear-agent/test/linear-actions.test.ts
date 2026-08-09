@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { isLinearManageRequest, isLinearUploadRequest } from "../src/linear-actions.js";
+import { isLinearManageRequest, isLinearSessionRequest, isLinearUploadRequest } from "../src/linear-actions.js";
 
 test("accepts generic issue, document, relation, subissue, and project operations", () => {
   assert.equal(isLinearManageRequest({ resource: "issue", operation: "update", fields: { priority: 2 } }), true);
@@ -20,4 +20,33 @@ test("accepts only bounded Linear upload requests", () => {
   assert.equal(isLinearUploadRequest({ filename: "duck.png", contentType: "image/png", dataBase64: "AQID" }), true);
   assert.equal(isLinearUploadRequest({ filename: "../duck.png", contentType: "image/png", dataBase64: "AQID" }), false);
   assert.equal(isLinearUploadRequest({ filename: "duck.png", contentType: "image/png", dataBase64: "not base64" }), false);
+});
+
+test("accepts bounded generic Agent Session collaboration", () => {
+  assert.equal(isLinearSessionRequest({
+    action: "activity",
+    content: { type: "elicitation", body: "Choose a repository" },
+    signal: "select",
+    signalMetadata: { options: [{ label: "Nemo", value: "nemo" }, { label: "Dotfiles", value: "dotfiles" }] },
+  }), true);
+  assert.equal(isLinearSessionRequest({ action: "external_url", label: "Review", url: "https://example.com/review" }), true);
+  assert.equal(isLinearSessionRequest({ action: "plan", steps: [{ content: "Inspect", status: "inProgress" }] }), true);
+  assert.equal(isLinearSessionRequest({
+    action: "publish",
+    publication: { kind: "document", id: "doc-1", title: "Review", body: "# Review", update: true },
+  }), true);
+});
+
+test("rejects unsafe or malformed Agent Session collaboration", () => {
+  assert.equal(isLinearSessionRequest({ action: "external_url", label: "Local", url: "http://localhost:3000" }), false);
+  assert.equal(isLinearSessionRequest({ action: "external_url", label: "Secret", url: "https://user:password@example.com" }), false);
+  assert.equal(isLinearSessionRequest({ action: "activity", content: { type: "thought", body: "" } }), false);
+  assert.equal(isLinearSessionRequest({ action: "activity", content: { type: "elicitation", body: "Choose" }, signal: "select" }), false);
+  assert.equal(isLinearSessionRequest({
+    action: "activity",
+    content: { type: "elicitation", body: "Authenticate" },
+    signal: "select",
+    signalMetadata: { url: "https://example.com/auth" },
+  }), false);
+  assert.equal(isLinearSessionRequest({ action: "plan", steps: [{ content: "Inspect", status: "surprise" }] }), false);
 });

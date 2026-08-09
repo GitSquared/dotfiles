@@ -1,11 +1,4 @@
-import type {
-  AgentActivityContent,
-  AgentActivitySignal,
-  AgentActivitySignalMetadata,
-  AgentPlanStep,
-  AgentTaskPayload,
-  LinearInputFile,
-} from "./types.js";
+import type { AgentActivityContent, AgentTaskPayload, LinearInputFile } from "./types.js";
 
 export type PiResult = {
   ok: boolean;
@@ -19,18 +12,7 @@ export type RunnerEvent =
   | {
       type: "activity";
       content: AgentActivityContent;
-      ephemeral?: boolean;
-      signal?: AgentActivitySignal;
-      signalMetadata?: AgentActivitySignalMetadata;
-    }
-  | { type: "plan"; steps: AgentPlanStep[] }
-  | { type: "external_url"; label: string; url: string }
-  | { type: "artifact"; filename: string; contentType: string; dataBase64: string; title?: string; body?: string }
-  | {
-      type: "linear_publish";
-      publication:
-        | { kind: "document"; id: string; title: string; body: string; update: boolean }
-        | { kind: "attachment"; title: string; url: string; subtitle?: string; body?: string };
+      ephemeral: true;
     }
   | { type: "result"; result: PiResult };
 
@@ -42,9 +24,25 @@ export function encodeRunnerEvent(event: RunnerEvent): string {
 }
 
 export function parseRunnerEvent(line: string): RunnerEvent {
-  const event = JSON.parse(line) as RunnerEvent;
-  if (!event || typeof event !== "object" || !["activity", "plan", "external_url", "artifact", "linear_publish", "result"].includes(event.type)) {
-    throw new Error("Runner returned an invalid event");
+  const event = JSON.parse(line) as Partial<RunnerEvent>;
+  if (!event || typeof event !== "object") throw new Error("Runner returned an invalid event");
+  if (event.type === "activity") {
+    if (event.ephemeral !== true || !event.content || typeof event.content !== "object") {
+      throw new Error("Runner returned an invalid event");
+    }
+    return event as Extract<RunnerEvent, { type: "activity" }>;
   }
-  return event;
+  if (event.type === "result") {
+    const result = event.result;
+    if (!result || typeof result !== "object"
+      || typeof result.ok !== "boolean"
+      || typeof result.timedOut !== "boolean"
+      || typeof result.awaitingInput !== "boolean"
+      || typeof result.summary !== "string"
+      || typeof result.elapsedMs !== "number") {
+      throw new Error("Runner returned an invalid event");
+    }
+    return event as Extract<RunnerEvent, { type: "result" }>;
+  }
+  throw new Error("Runner returned an invalid event");
 }

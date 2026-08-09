@@ -57,11 +57,12 @@ that authenticate only their own short-lived runner API.
 
 Task containers run as a non-root user with a read-only root filesystem, all
 Linux capabilities dropped, privilege escalation disabled, bounded tmpfs, and
-CPU, memory, and process limits. Three turns can start immediately. When demand
-is higher, the workbench samples VM CPU and available RAM every ten seconds and
-opens one additional slot whenever their rolling ten-minute p75 remains below
-75% and 80% respectively. Sustained pressure closes spare slots gradually as
-turns finish. Excess sessions queue, with no arbitrary machine-size ceiling.
+CPU, memory, and process limits. The workbench starts with one runnable turn,
+then samples VM CPU and available RAM every ten seconds. While demand is queued,
+it opens one additional turn whenever the rolling ten-minute p75 remains below
+75% and 80% respectively. Sustained pressure or lower demand closes spare
+capacity gradually. There is no configured floor or arbitrary machine-size
+ceiling.
 The workbench removes orphaned resources after a restart and stops a task if the
 controller disconnects.
 
@@ -88,6 +89,9 @@ comments:
   review Documents (including discovery, reading, and updates across sessions),
   rich issue attachments, issue properties, relationships, subissues, and projects; input
   requests can include 2-12 options while still accepting free-text replies
+- every semantic Linear action uses an acknowledged controller broker, so Pi
+  reports success only after Linear accepts it; only disposable live progress
+  travels over the best-effort transcript stream
 - file/image shares stay bounded and pass through the trusted controller, which
   prepares and consumes Linear's short-lived upload capability; Pi receives only
   the resulting private asset URL, so it can embed a newly uploaded image in a
@@ -161,7 +165,6 @@ Keep the existing Linear values in `/home/gaby/straylight-docker/.env` and add:
   the output into `.env`.
 Optional settings:
 
-- `LINEAR_AGENT_GUARANTEED_CONCURRENT_TASKS=3`
 - `LINEAR_AGENT_MAX_WARM_SESSIONS=3`
 - `LINEAR_AGENT_WARM_SESSION_TTL_MS=600000`
 - `LINEAR_AGENT_HOST_ROOT=/home/gaby/straylight-docker/linear-agent` if the
@@ -359,10 +362,10 @@ general image-generation model.
 
 The host-owned `linear-agent/memory/` folder is mounted read-write at `/memory`
 in every task. Pi writes ordinary Markdown and searches it with qmd BM25. The
-index is local to that folder and persistent; this basic mode requires no API
-credential, embedding model, or semantic-model download. Notes are context, not
-authority: Pi is instructed to verify drift-prone facts and never store secrets,
-authentication codes, or raw private transcripts.
+index and qmd configuration are local to that folder and persistent; this basic
+mode requires no API credential, embedding model, or semantic-model download.
+Notes are context, not authority: Pi is instructed to verify drift-prone facts
+and never store secrets, authentication codes, or raw private transcripts.
 
 Pi loads the normal global extension directories plus the pinned web and visual
 explanation extensions.
@@ -444,8 +447,9 @@ still enabled, notification dispositions, and the last registry recovery result
 file counts and bytes. `webhookInbox` reports pending/completed deliveries,
 retry attempts, the next retry, and the latest safe failure. Its workbench snapshot includes
 `mode: warm-session-jails`, active/warm/queued tasks, actual task/service/network
-counts, the rolling ten-minute p75 CPU/RAM sample and adaptive slot count,
-warm-session limits, the public model policy, and the installed RTK version.
+counts, the rolling ten-minute p75 CPU/RAM sample and adaptive active limit,
+the last safe task-failure diagnostic when present, warm-session limits, the
+public model policy, and the installed RTK version.
 Immediately after a clean start it should show zero active tasks.
 
 Then delegate a small issue. During the run and its warm lease, this should show
