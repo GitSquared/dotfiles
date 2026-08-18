@@ -1,9 +1,10 @@
 tap "harelba/q", trusted: true
 tap "hashicorp/tap", trusted: true
-tap "mediosz/tap", trusted: true
 tap "nikitabobko/tap", trusted: true
 tap "oven-sh/bun", trusted: true
 tap "theboredteam/boring-notch", "https://github.com/TheBoredTeam/homebrew-boring-notch", trusted: true
+# Static checker for GitHub Actions workflow files
+brew "actionlint"
 # Terminal bandwidth utilization tool
 brew "bandwhich"
 # GNU internationalization (i18n) and localization (l10n) library
@@ -163,8 +164,6 @@ brew "hashicorp/tap/terraform"
 brew "oven-sh/bun/bun"
 # Command-line interface for 1Password
 cask "1password-cli"
-# AeroSpace is an i3-like tiling window manager for macOS
-cask "nikitabobko/tap/aerospace"
 # Universal chat app powered by Matrix
 cask "beeper"
 # Virtual Audio Driver
@@ -187,14 +186,14 @@ cask "linear"
 cask "lunar"
 # Untraceable cryptocurrency wallet
 cask "monero-wallet"
+# Utility to move and zoom windows—on one display
+cask "moom"
 # Control your tools with a few keystrokes
 cask "raycast"
 # System monitor for the menu bar
 cask "stats"
 # Video game digital distribution service
 cask "steam"
-# SwipeAeroSpace is a tool to switch AeroSpace worksapces by swiping.
-cask "mediosz/tap/swipeaerospace"
 # Mesh VPN based on WireGuard
 cask "tailscale-app"
 # Open-source BitTorrent client
@@ -207,5 +206,6 @@ npm "@sentry/cli"
 npm "eas-cli"
 npm "neovim"
 npm "npm-check-updates"
+npm "skills"
 npm "typescript"
 npm "vercel"

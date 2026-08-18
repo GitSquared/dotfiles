@@ -53,7 +53,8 @@
     "carbonfact-common@carbonfact-plugins": true,
     "carbonfact-cops@carbonfact-plugins": false,
     "carbonfact-eng@carbonfact-plugins": true,
-    "context-mode@context-mode": true
+    "context-mode@context-mode": true,
+    "aikido@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "carbonfact-plugins": {
@@ -73,11 +74,11 @@
   },
   "syntaxHighlightingDisabled": false,
   "advisorModel": "opus",
+  "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
   "editorMode": "vim",
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false,
-  "tui": "fullscreen"
+  "voiceEnabled": false
 }

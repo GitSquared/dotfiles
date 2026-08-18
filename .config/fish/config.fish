@@ -71,4 +71,3 @@ set -gx BUNDLE_SSL_CA_CERT "/Library/Application Support/AikidoSecurity/Endpoint
 set -gx SSL_CERT_FILE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
 set -gx CURL_CA_BUNDLE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
 # aikido-endpoint-curl-cert-config-v2-end
-source /Users/gaby/.safe-chain/scripts/init-fish.fish # Safe-chain Fish initialization script
