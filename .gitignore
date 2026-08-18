@@ -31,6 +31,7 @@
 /straylight-docker/linear-agent/memory/
 /straylight-docker/linear-agent/dist/
 /straylight-docker/linear-agent/node_modules/
+/straylight-docker/linear-agent/claude-capsule/node_modules/
 /straylight-docker/linear-agent/pi-config/*
 !/straylight-docker/linear-agent/pi-config/README.md
 !/straylight-docker/linear-agent/pi-config/model-policy.json

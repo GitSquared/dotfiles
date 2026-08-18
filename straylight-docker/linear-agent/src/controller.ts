@@ -1,4 +1,5 @@
 import { ControllerStateStore, type ControllerSessionRecord } from "./controller-state.js";
+import { attentionBlocking, attentionPriority, renderAttentionRequest, type ActiveAttention } from "./attention.js";
 import { LinearClient, type AgentSessionSnapshot } from "./linear.js";
 import type {
   LinearManageRequest,
@@ -29,6 +30,8 @@ type SessionState = {
   active: AgentSessionWebhook | undefined;
   issueId: string | undefined;
   teamId: string | undefined;
+  humanAssigneeId: string | undefined;
+  attention: ActiveAttention[];
   updatedAt: number;
 };
 
@@ -98,6 +101,8 @@ export class AgentController {
         active: record.active,
         issueId: record.issueId,
         teamId: record.teamId,
+        humanAssigneeId: record.humanAssigneeId,
+        attention: record.attention ?? [],
         updatedAt: record.updatedAt,
       };
       this.states.set(record.sessionId, state);
@@ -108,6 +113,7 @@ export class AgentController {
         const snapshot = await this.linear.agentSessionSnapshot(record.sessionId);
         state.issueId = snapshot.issue?.id ?? state.issueId;
         state.teamId = snapshot.issue?.team.id ?? state.teamId;
+        state.humanAssigneeId = snapshot.creator?.id ?? state.humanAssigneeId;
         const latest = [...snapshot.activities.nodes]
           .filter((activity) => !activity.ephemeral)
           .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
@@ -118,6 +124,9 @@ export class AgentController {
           state.pending = undefined;
           state.active = undefined;
           skipped += 1;
+        } else if (status === "awaitinginput" || latest?.content.type === "elicitation") {
+          state.awaitingInput = true;
+          skipped += 1;
         } else if (state.pending || wasRunning) {
           resumptions.push({
             sessionId: record.sessionId,
@@ -126,9 +135,6 @@ export class AgentController {
           });
           state.pending = undefined;
           state.active = undefined;
-        } else if (status === "awaitinginput" || latest?.content.type === "elicitation") {
-          state.awaitingInput = true;
-          skipped += 1;
         } else {
           skipped += 1;
         }
@@ -167,7 +173,7 @@ export class AgentController {
     const pendingBody = includePendingPrompt ? previous?.agentActivity?.content?.body?.trim() : undefined;
     const recovery = [
       "The Straylight controller restarted while this Agent Session still had unfinished work.",
-      "Reconstruct the task from persistent Pi history and the current workspace. Inspect current Linear and repository state before repeating any external action.",
+      "Reconstruct the task from persistent agent history and the current workspace. Inspect current Linear and repository state before repeating any external action.",
       pendingBody ? `The queued Linear follow-up was:\n${pendingBody}` : "Continue the interrupted request.",
     ].join("\n\n");
     return {
@@ -180,6 +186,7 @@ export class AgentController {
         ...(previous?.agentSession ?? {}),
         id: snapshot.id,
         appUserId: snapshot.appUser.id,
+        ...(snapshot.creator?.id ? { creatorId: snapshot.creator.id } : {}),
         ...(snapshot.issue?.id ? { issueId: snapshot.issue.id } : {}),
         status: snapshot.status,
         issue: snapshot.issue ? {
@@ -213,6 +220,8 @@ export class AgentController {
         ...(state.active ? { active: state.active } : {}),
         ...(state.issueId ? { issueId: state.issueId } : {}),
         ...(state.teamId ? { teamId: state.teamId } : {}),
+        ...(state.humanAssigneeId ? { humanAssigneeId: state.humanAssigneeId } : {}),
+        ...(state.attention.length ? { attention: state.attention } : {}),
         updatedAt: state.updatedAt,
       }))) ?? Promise.resolve());
     return this.persistence;
@@ -220,12 +229,26 @@ export class AgentController {
 
   async health(): Promise<Record<string, unknown>> {
     const sessions = [...this.states.values()];
+    const attention = sessions.flatMap((state) => state.attention);
+    const now = Date.now();
     return {
       controller: {
         trackedSessions: sessions.length,
         runningSessions: sessions.filter((state) => state.running).length,
         pendingSessions: sessions.filter((state) => Boolean(state.pending)).length,
         awaitingInputSessions: sessions.filter((state) => state.awaitingInput).length,
+        attentionQueue: {
+          total: attention.length,
+          interrupts: attention.filter((request) => request.delivery === "interrupt").length,
+          queued: attention.filter((request) => request.delivery === "queue").length,
+          steering: attention.filter((request) => request.kind === "steering").length,
+          qa: attention.filter((request) => request.kind === "qa").length,
+          blocking: attention.filter((request) => request.blocking).length,
+          fyi: attention.filter((request) => !request.blocking).length,
+          urgent: attention.filter((request) => request.priority === "urgent").length,
+          unclassifiedAwaitingInput: sessions.filter((state) => state.awaitingInput && !state.attention.some((request) => request.blocking)).length,
+          oldestWaitMs: attention.length ? Math.max(...attention.map((request) => now - request.requestedAt)) : 0,
+        },
         plansEnabled: this.plansEnabled,
         registry: {
           persistent: Boolean(this.stateStore),
@@ -255,6 +278,44 @@ export class AgentController {
   async collaborateLinear(sessionId: string, request: LinearSessionRequest): Promise<LinearSessionResult> {
     const state = this.states.get(sessionId);
     if (!state) throw new Error("Linear collaboration does not belong to a known Agent Session");
+    if (request.action === "attention") {
+      if (!state.issueId) throw new Error("Attention requests require an issue-backed Agent Session");
+      if (attentionBlocking(request.request) && state.attention.some((attention) => attention.blocking)) {
+        throw new Error("This Agent Session already has an unresolved blocking attention request");
+      }
+      const issue = await this.linear.createAttentionIssue(state.issueId, request.request, state.humanAssigneeId);
+      const active: ActiveAttention = {
+        kind: request.request.kind,
+        delivery: request.request.delivery,
+        priority: attentionPriority(request.request),
+        blocking: attentionBlocking(request.request),
+        issueId: issue.id,
+        issueIdentifier: issue.identifier,
+        issueUrl: issue.url,
+        requestedAt: Date.now(),
+      };
+      state.attention.push(active);
+      this.touch(state);
+      await this.persist();
+      const attentionSession = await this.linear.createAgentSessionOnIssue(issue.id);
+      active.sessionId = attentionSession.id;
+      const options = request.request.options?.map(({ label, value }) => ({ label, value }));
+      await this.linear.createActivity(attentionSession.id, {
+        type: "elicitation",
+        body: finalText(renderAttentionRequest(request.request)),
+      }, options ? { signal: "select", signalMetadata: { options } } : {});
+      const parentBody = `[${issue.identifier}: ${issue.title}](${issue.url}) was added to your attention queue.`;
+      await this.linear.createActivity(sessionId, {
+        type: active.blocking ? "elicitation" : "thought",
+        body: active.blocking
+          ? `${parentBody}\n\nThe parent run is waiting for your response there.`
+          : `${parentBody}\n\nThis is an FYI; the parent run is continuing.`,
+      });
+      state.awaitingInput = state.attention.some((item) => item.blocking);
+      this.touch(state);
+      await this.persist();
+      return { ok: true, action: request.action, data: active };
+    }
     if (request.action === "activity") {
       await this.linear.createActivity(sessionId, request.content, {
         ...(request.signal ? { signal: request.signal } : {}),
@@ -312,6 +373,11 @@ export class AgentController {
       console.warn("ignored Agent Session event without an id");
       return;
     }
+    const attentionRoute = this.findAttentionRoute(sessionId, session.issueId ?? session.issue?.id);
+    if (attentionRoute) {
+      await this.handleAttentionSession(payload, attentionRoute.parentSessionId, attentionRoute.state, attentionRoute.attention);
+      return;
+    }
     const notificationRoot = session.comment?.id;
     const notificationSource = this.notificationSources.get(sessionId)
       ?? (notificationRoot ? this.notificationThreadSources.get(notificationRoot) : undefined);
@@ -327,16 +393,34 @@ export class AgentController {
       active: undefined,
       issueId: undefined,
       teamId: undefined,
+      humanAssigneeId: undefined,
+      attention: [],
       updatedAt: Date.now(),
     };
     state.issueId = session.issueId ?? session.issue?.id ?? state.issueId;
     state.teamId = session.issue?.teamId ?? session.issue?.team?.id ?? state.teamId;
+    const appUserId = payload.appUserId ?? session.appUserId;
+    if (session.creatorId && session.creatorId !== appUserId) state.humanAssigneeId = session.creatorId;
+    if (payload.action === "prompted" && state.attention.some((attention) => attention.blocking)) {
+      const resolved = state.attention.filter((attention) => attention.blocking);
+      await Promise.all(resolved.map(async (attention) => {
+        if (attention.sessionId) {
+          await this.linear.createActivity(attention.sessionId, {
+            type: "response",
+            body: "The engineer replied directly in the parent Agent Session; the response was routed to the parent run.",
+          }).catch(() => undefined);
+        }
+        await this.linear.completeIssue(attention.issueId).catch(() => undefined);
+      }));
+      state.attention = state.attention.filter((attention) => !attention.blocking);
+    }
     this.touch(state);
     this.states.set(sessionId, state);
 
     if (isStopRequest(payload)) {
       const wasRunning = state.running;
       const runTime = state.startedAt === undefined ? undefined : Date.now() - state.startedAt;
+      const attention = [...state.attention];
       state.generation += 1;
       state.running = false;
       state.awaitingInput = false;
@@ -345,11 +429,21 @@ export class AgentController {
       state.active = undefined;
       this.touch(state);
       await this.persist();
-      const aborted = await this.runner.abort(sessionId);
+      const aborted = await this.runner.abort(sessionId).catch((error: unknown) => {
+        console.warn("failed to abort stopped agent task", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      });
+      await this.dismissAttention(attention, "The parent Straylight run was stopped.");
+      state.attention = [];
+      this.touch(state);
+      await this.persist();
       const suffix = runTime === undefined ? "" : ` after ${elapsed(runTime)}`;
       await this.linear.createActivity(sessionId, {
         type: "error",
-        body: aborted || wasRunning ? `Stopped by user${suffix}.` : "Stop requested; no active Pi run was in progress.",
+        body: aborted || wasRunning ? `Stopped by user${suffix}.` : "Stop requested; no active agent run was in progress.",
       });
       return;
     }
@@ -364,16 +458,68 @@ export class AgentController {
         state.active = payload;
         this.touch(state);
         await this.persist();
-        await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active Pi session." });
+        await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active agent session." });
       } else {
         state.pending = payload;
         this.touch(state);
         await this.persist();
-        await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current Pi turn." });
+        await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current agent turn." });
       }
       return;
     }
     await this.start(sessionId, payload, state);
+  }
+
+  private findAttentionRoute(
+    sessionId: string,
+    issueId: string | undefined,
+  ): { parentSessionId: string; state: SessionState; attention: ActiveAttention } | undefined {
+    for (const [parentSessionId, state] of this.states) {
+      const attention = state.attention.find((item) => item.sessionId === sessionId || (issueId && item.issueId === issueId));
+      if (attention) return { parentSessionId, state, attention };
+    }
+    return undefined;
+  }
+
+  private async handleAttentionSession(
+    payload: AgentSessionWebhook,
+    parentSessionId: string,
+    parentState: SessionState,
+    attention: ActiveAttention,
+  ): Promise<void> {
+    const childSessionId = payload.agentSession?.id;
+    if (!childSessionId) return;
+    if (!attention.sessionId) attention.sessionId = childSessionId;
+    if (payload.action === "created") {
+      this.touch(parentState);
+      await this.persist();
+      return;
+    }
+    if (payload.action !== "prompted") return;
+    const answer = payload.agentActivity?.content?.body?.trim();
+    if (!answer) return;
+    await this.linear.createActivity(childSessionId, {
+      type: "response",
+      body: attention.blocking
+        ? "Response accepted and routed back to the parent Straylight run."
+        : "Acknowledged. The parent run did not need to pause.",
+    });
+    await this.linear.completeIssue(attention.issueId);
+    parentState.attention = parentState.attention.filter((item) => item !== attention);
+    parentState.awaitingInput = false;
+    this.touch(parentState);
+    await this.persist();
+    if (!attention.blocking) return;
+    const snapshot = await this.linear.agentSessionSnapshot(parentSessionId);
+    const routed = this.recoveryPayload(undefined, snapshot, false);
+    if (payload.organizationId) routed.organizationId = payload.organizationId;
+    routed.agentActivity = {
+      content: {
+        type: "prompt",
+        body: `Human response from attention issue ${attention.issueIdentifier ?? attention.issueId}:\n\n${answer}`,
+      },
+    };
+    await this.handle(routed);
   }
 
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
@@ -504,7 +650,7 @@ export class AgentController {
       this.touch(state);
       await this.persist();
       void this.linear
-        .createActivity(sessionId, { type: "thought", body: "A Pi run is already active; this request is queued." })
+        .createActivity(sessionId, { type: "thought", body: "An agent run is already active; this request is queued." })
         .catch((error: unknown) => console.error("failed to report queued run", {
           message: error instanceof Error ? error.message : String(error),
         }));
@@ -525,12 +671,12 @@ export class AgentController {
       this.touch(state);
       await this.persist().catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
-      console.error("Pi run crashed", {
+      console.error("agent run crashed", {
         sessionId,
         message: finalText(message),
         ...(error instanceof Error && error.stack ? { stack: finalText(error.stack) } : {}),
       });
-      await this.linear.createActivity(sessionId, { type: "error", body: finalText(`Pi run crashed: ${message}`) }).catch(() => undefined);
+      await this.linear.createActivity(sessionId, { type: "error", body: finalText(`Agent run crashed: ${message}`) }).catch(() => undefined);
     });
   }
 
@@ -560,7 +706,7 @@ export class AgentController {
         taskPayload.linearSourceComment = context.comment;
         if (context.documentReview) taskPayload.linearDocumentReview = context.documentReview;
       } catch (error) {
-        console.warn("Source comment context unavailable; Pi will continue with the webhook payload", {
+        console.warn("Source comment context unavailable; the agent will continue with the webhook payload", {
           commentId,
           message: error instanceof Error ? error.message : String(error),
         });
@@ -573,7 +719,7 @@ export class AgentController {
         : [];
       taskPayload.workbench = { repositories, repositorySuggestions: suggestions };
     } catch (error) {
-      console.warn("repository discovery or Linear suggestions unavailable; Pi will inspect the workbench directly", {
+      console.warn("repository discovery or Linear suggestions unavailable; the agent will inspect the workbench directly", {
         message: error instanceof Error ? error.message : String(error),
       });
     }
@@ -601,7 +747,7 @@ export class AgentController {
     content: Parameters<LinearClient["createActivity"]>[1],
   ): Promise<void> {
     await this.linear.createActivity(sessionId, content, { ephemeral: true }).catch((error: unknown) => {
-      console.warn("failed to publish ephemeral Linear activity; Pi run continues", {
+      console.warn("failed to publish ephemeral Linear activity; agent run continues", {
         sessionId,
         message: finalText(error instanceof Error ? error.message : String(error)),
       });
@@ -674,6 +820,7 @@ export class AgentController {
     const cancellations: Promise<void>[] = [];
     for (const [sessionId, state] of this.states) {
       if (!predicate(state)) continue;
+      const attention = [...state.attention];
       state.generation += 1;
       state.running = false;
       state.awaitingInput = false;
@@ -681,19 +828,40 @@ export class AgentController {
       state.pending = undefined;
       state.active = undefined;
       this.touch(state);
-      const cancellation = this.runner.abort(sessionId)
-        .then(() => undefined)
-        .catch((error: unknown) => {
-          console.warn("failed to abort invalidated Pi task", {
+      const cancellation = Promise.all([
+        this.runner.abort(sessionId).then(() => undefined).catch((error: unknown) => {
+          console.warn("failed to abort invalidated agent task", {
             sessionId,
             reason,
             message: error instanceof Error ? error.message : String(error),
           });
-        });
+        }),
+        this.dismissAttention(attention, reason),
+      ])
+        .then(() => { state.attention = []; this.touch(state); });
       cancellations.push(cancellation);
     }
     await Promise.all(cancellations);
     await this.persist();
+  }
+
+  private async dismissAttention(attention: ActiveAttention[], reason: string): Promise<void> {
+    await Promise.all(attention.map(async (item) => {
+      try {
+        if (item.sessionId) {
+          await this.linear.createActivity(item.sessionId, {
+            type: "response",
+            body: reason,
+          });
+        }
+        await this.linear.completeIssue(item.issueId);
+      } catch (error) {
+        console.warn("failed to close an attention issue", {
+          issueId: item.issueId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }));
   }
 }
 

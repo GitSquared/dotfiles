@@ -4,11 +4,12 @@ import fs from "node:fs";
 import http from "node:http";
 import { promisify } from "node:util";
 import { claudeArgs } from "./claude-request.mjs";
+import { runAgent } from "./agent-request.mjs";
 
 const execFileAsync = promisify(execFile);
 const host = process.env.HOST?.trim() || "0.0.0.0";
 const port = Number(process.env.PORT || 8790);
-const maxBodyBytes = 24 * 1024;
+const maxBodyBytes = 512 * 1024;
 const maxOutputBytes = 256 * 1024;
 const claudeTimeoutMs = 300_000;
 const controlToken = fs.readFileSync(process.env.CAPSULE_CONTROL_TOKEN_FILE || "/run/secrets/capsule-control-token", "utf8").trim(); // yadm-secret-scan: ignore
@@ -120,6 +121,42 @@ async function route(request, response) {
       }
       const result = await askClaude(input.request, requestCancellation.signal);
       if (!response.destroyed) json(response, result.status === "error" ? 502 : 200, result);
+      return;
+    } finally {
+      requestCancellation.cleanup();
+    }
+  }
+  if (method === "POST" && pathname === "/v1/agent") {
+    const requestCancellation = cancellation(request, response);
+    try {
+      if (!authorized(request)) {
+        if (!response.destroyed) json(response, 401, { status: "error", message: "Unauthorized." });
+        return;
+      }
+      const input = await body(request);
+      const validUrl = (value) => {
+        try { return ["http:", "https:"].includes(new URL(value).protocol); }
+        catch { return false; }
+      };
+      if (typeof input?.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 200_000
+        || typeof input?.taskToken !== "string" || input.taskToken.length < 32
+        || !validUrl(input?.taskUrl) || !validUrl(input?.workbenchUrl)
+        || (input.resume !== undefined && (typeof input.resume !== "string" || input.resume.length > 200))) {
+        if (!response.destroyed) json(response, 400, { status: "error", message: "Invalid Straylight agent request." });
+        return;
+      }
+      const result = await runAgent(input, requestCancellation.signal);
+      if (!response.destroyed) json(response, 200, result);
+      return;
+    } catch (error) {
+      if (!response.destroyed) {
+        json(response, 502, {
+          status: "error",
+          message: requestCancellation.signal.aborted
+            ? "The Claude agent run was cancelled."
+            : (error instanceof Error ? error.message : "The Claude agent run failed."),
+        });
+      }
       return;
     } finally {
       requestCancellation.cleanup();

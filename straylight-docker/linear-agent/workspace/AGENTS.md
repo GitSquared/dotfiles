@@ -31,8 +31,11 @@ mounted at all.
 - Bind project development servers to `0.0.0.0`, not localhost, when the remote
   browser needs to reach them. Use the connection values returned by the tool;
   never assume container names.
-- Publish useful screenshots and reports through Linear. Use a native review
+- Publish useful screenshots and reports through Linear. Claude should use
+  `share_artifact`; Pi should use `linear share`. Use a native review
   document for substantial Markdown that should remain editable in Linear.
+- Inspect supplied mockups and browser screenshots with `view_image` before
+  making visual judgments or claiming that the output matches intent.
 - Use `visual_explainer` for requested architecture diagrams, schema views,
   comparison tables, visual plans, or substantial technical recaps. Its render
   action writes HTML under `/home/node/.agent/diagrams`; always pass
@@ -42,7 +45,8 @@ mounted at all.
 - When the visual belongs inside a Linear document, do **not** upload or link the
   HTML file. Serve it from `/workspace` on `0.0.0.0`, start the owned browser,
   connect with the preinstalled matching `playwright-core` client, inspect the
-  page, and save a PNG under `/workspace`. Upload the PNG through `linear share`,
+  page, and save a PNG under `/workspace`. Upload the PNG through the available
+  artifact-sharing tool,
   copy the returned private asset URL, then update the existing document with
   `![descriptive alt text](private-asset-url)`. Do not rely on Linear rendering
   a fenced Mermaid block as a diagram.
@@ -64,7 +68,8 @@ mounted at all.
 ## Persistent memory and extensions
 
 - Shared cross-session notes live in `PI_MEMORY_DIR` (normally `/memory`). Search
-  them with the `memory` tool before repeating prior investigation.
+  them directly, or with the `memory` tool when available, before repeating prior
+  investigation.
 - Write a short Markdown note when you learn a durable environment convention,
   settle a reusable decision, or diagnose a failure likely to recur. Prefer one
   topic per descriptively named file, include provenance or a date when useful,
@@ -88,6 +93,17 @@ mounted at all.
 - Use Linear's native plan, input, blocker, artifact, document, and URL surfaces
   when those interactions are useful. Finish with a concise natural summary;
   omit empty categories and rigid status templates.
+- Treat human attention as a scarce capability. Before calling
+  `request_attention`, confirm the information is necessary and unique, name the
+  exact action expected, state the real response window and cost of waiting, and
+  give your recommendation. Use `interrupt` only when material harm can occur
+  before the next normal review window; otherwise use `queue`. A QA request must
+  follow automated checks and link a genuinely reviewable artifact. Choose a
+  native issue priority that reflects the real response window. Set `blocking`
+  only when work genuinely cannot continue without the answer; otherwise create
+  an FYI acknowledgement item and keep working. The resulting child issue—not a
+  loose notification—is the durable human queue entry, so keep its title and
+  requested action crisp enough to scan independently.
 - Maintain compact re-entry state at meaningful pauses, not after every tool
   call. Prefer native issue lifecycle and plan state. When richer orientation is
   useful, update one issue-backed work-record Document rather than creating

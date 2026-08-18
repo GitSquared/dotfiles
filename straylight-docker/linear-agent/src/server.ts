@@ -223,7 +223,7 @@ export function createServer(
       if (!(await linear.consumeState(state))) return text(401, "Invalid or expired OAuth state.\n");
       const installation = await linear.completeInstall(code);
       console.log("Linear app installed", { appUserId: installation.appUserId, scope: installation.scope });
-      return text(200, `Straylight's Pi agent is installed in Linear.\nApp user: ${installation.appUserId}\nYou can close this tab.\n`);
+      return text(200, `Straylight's coding agent is installed in Linear.\nApp user: ${installation.appUserId}\nYou can close this tab.\n`);
     }
 
     if (method === "POST" && matches(url.pathname, "/webhook")) {

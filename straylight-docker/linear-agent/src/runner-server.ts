@@ -37,6 +37,10 @@ type RunnerHarness = {
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
+  runClaude?(token: string, request: { prompt: string; resume?: string; model?: string }, signal?: AbortSignal): Promise<import("./capsule-client.js").CapsuleAgentResult>; // yadm-secret-scan: ignore
+  shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  shareArtifact?(request: { path: string; title?: string; body?: string }, signal?: AbortSignal): Promise<{ ok: true; assetUrl: string; contentType: string; filename: string }>;
+  viewImage?(request: { path: string }): Promise<{ ok: true; dataBase64: string; mimeType: string }>;
   manageService?(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult>; // yadm-secret-scan: ignore
   manageLinear?(token: string, request: LinearManageRequest, signal?: AbortSignal): Promise<LinearManageResult>; // yadm-secret-scan: ignore
   collaborateLinear?(token: string, request: LinearSessionRequest, signal?: AbortSignal): Promise<LinearSessionResult>; // yadm-secret-scan: ignore
@@ -72,11 +76,11 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
     if (method === "GET" && pathname === "/healthz") {
       try {
         const details = await pi.health?.() ?? {};
-        return json(200, { ok: true, service: "straylight-pi-runner", ...details });
+        return json(200, { ok: true, service: "straylight-agent-runner", ...details });
       } catch (error) {
         return json(503, {
           ok: false,
-          service: "straylight-pi-runner",
+          service: "straylight-agent-runner",
           error: error instanceof Error ? error.message : String(error),
         });
       }
@@ -89,6 +93,20 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       }
       server?.timeout(request, 0);
       const result = await pi.askClaude(bearer(request), input.request, request.signal);
+      return json(result.status === "error" ? 502 : 200, result);
+    }
+
+    if (method === "POST" && pathname === "/v1/agent") {
+      const input = await body<{ prompt?: string; resume?: string; model?: string }>(request);
+      if (!pi.runClaude || typeof input.prompt !== "string" || !input.prompt.trim()) {
+        return json(400, { status: "error", message: "Invalid Claude agent request." });
+      }
+      server?.timeout(request, 0);
+      const result = await pi.runClaude(bearer(request), {
+        prompt: input.prompt,
+        ...(input.resume ? { resume: input.resume } : {}),
+        ...(input.model ? { model: input.model } : {}),
+      }, request.signal);
       return json(result.status === "error" ? 502 : 200, result);
     }
 
@@ -150,6 +168,41 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
 
     if (!authorized(request, token)) return json(401, { ok: false, error: "unauthorized" });
 
+    if (method === "POST" && pathname === "/v1/shell") {
+      const input = await body<{ command?: string; timeoutMs?: number }>(request);
+      if (!pi.shell || typeof input.command !== "string" || !input.command.trim() || input.command.length > 20_000) {
+        return json(400, { ok: false, error: "invalid_shell_request" });
+      }
+      server?.timeout(request, 0);
+      return json(200, await pi.shell({
+        command: input.command,
+        ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+      }, request.signal));
+    }
+
+    if (method === "POST" && pathname === "/v1/artifact") {
+      const input = await body<{ path?: string; title?: string; body?: string }>(request);
+      if (!pi.shareArtifact || typeof input.path !== "string" || !input.path.trim() || input.path.length > 4_096
+        || (input.title !== undefined && (typeof input.title !== "string" || input.title.length > 200))
+        || (input.body !== undefined && (typeof input.body !== "string" || input.body.length > 20_000))) {
+        return json(400, { ok: false, error: "invalid_artifact_request" });
+      }
+      server?.timeout(request, 0);
+      return json(200, await pi.shareArtifact({
+        path: input.path,
+        ...(input.title ? { title: input.title } : {}),
+        ...(input.body ? { body: input.body } : {}),
+      }, request.signal));
+    }
+
+    if (method === "POST" && pathname === "/v1/image") {
+      const input = await body<{ path?: string }>(request);
+      if (!pi.viewImage || typeof input.path !== "string" || !input.path.trim() || input.path.length > 4_096) {
+        return json(400, { ok: false, error: "invalid_image_request" });
+      }
+      return json(200, await pi.viewImage({ path: input.path }));
+    }
+
     if (method === "GET" && pathname === "/repositories") {
       return json(200, { ok: true, repositories: await pi.repositories?.() ?? [] });
     }
@@ -158,7 +211,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       const input = await body<RunRequest>(request);
       const sessionId = input.payload.agentSession?.id;
       if (!sessionId) return json(400, { ok: false, error: "missing_agent_session_id" });
-      // Pi turns can legitimately be quiet while the model reasons or a tool runs.
+      // Agent turns can legitimately be quiet while the model reasons or a tool runs.
       // Bun otherwise resets this streaming response after 10 idle seconds.
       server?.timeout(request, 0);
       return streamRun(pi, sessionId, input.payload);
@@ -204,7 +257,7 @@ function streamRun(pi: RunnerHarness, sessionId: string, payload: RunRequest["pa
             ok: false,
             timedOut: false,
             awaitingInput: false,
-            summary: finalText(`Pi workbench failed: ${message}`),
+            summary: finalText(`Agent workbench failed: ${message}`),
             elapsedMs: Date.now() - startedAt,
           },
         })));

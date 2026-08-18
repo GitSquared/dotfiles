@@ -10,11 +10,34 @@ test("streams structured events across the controller-runner boundary", async ()
   let followUpInputs: unknown;
   let uploaded: { token: string; filename: string; contentType: string; dataBase64: string } | undefined;
   let collaboration: unknown;
+  let sharedArtifact: unknown;
+  let viewedImage: unknown;
   const harness = {
     async askClaude(taskCredential: string, request: string) {
       return taskCredential === "one-time-task-token" && request === "Find the context"
         ? { status: "ok" as const, answer: "Corporate context" }
         : { status: "error" as const, message: "Unauthorized." };
+    },
+    async runClaude(taskCredential: string, request: { prompt: string; resume?: string }) {
+      return taskCredential === "one-time-task-token" && request.prompt === "Implement it"
+        ? { status: "ok" as const, answer: "Implemented.", sessionId: request.resume ?? "claude-session", awaitingInput: false, durationMs: 9 }
+        : { status: "error" as const, message: "Unauthorized." };
+    },
+    async shell(request: { command: string }) {
+      return { ok: true, exitCode: 0, stdout: request.command, stderr: "" };
+    },
+    async shareArtifact(request: { path: string; title?: string }) {
+      sharedArtifact = request;
+      return {
+        ok: true as const,
+        assetUrl: "https://uploads.linear.app/workspace/preview",
+        contentType: "image/png",
+        filename: "preview.png",
+      };
+    },
+    async viewImage(request: { path: string }) {
+      viewedImage = request;
+      return { ok: true as const, dataBase64: "aW1hZ2U=", mimeType: "image/png" };
     },
     async manageService(taskCredential: string, request: { action: "start"; service: "postgres" }) {
       return taskCredential === "one-time-task-token"
@@ -63,6 +86,34 @@ test("streams structured events across the controller-runner boundary", async ()
     assert.deepEqual(await claude.json(), { status: "ok", answer: "Corporate context" });
     const rejectedClaude = await new CapsuleClient(baseUrl, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
     assert.deepEqual(rejectedClaude, { status: "error", message: "Unauthorized." });
+    const agent = await new CapsuleClient(baseUrl, "one-time-task-token").runBrokeredAgent({ prompt: "Implement it" }); // yadm-secret-scan: ignore
+    assert.deepEqual(agent, { status: "ok", answer: "Implemented.", sessionId: "claude-session", awaitingInput: false, durationMs: 9 });
+    const shell = await fetch(`${baseUrl}/v1/shell`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ command: "pwd" }),
+    });
+    assert.deepEqual(await shell.json(), { ok: true, exitCode: 0, stdout: "pwd", stderr: "" });
+    const artifact = await fetch(`${baseUrl}/v1/artifact`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ path: "/workspace/preview.png", title: "Preview" }),
+    });
+    assert.equal(artifact.status, 200);
+    assert.deepEqual(await artifact.json(), {
+      ok: true,
+      assetUrl: "https://uploads.linear.app/workspace/preview",
+      contentType: "image/png",
+      filename: "preview.png",
+    });
+    assert.deepEqual(sharedArtifact, { path: "/workspace/preview.png", title: "Preview" });
+    const image = await fetch(`${baseUrl}/v1/image`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ path: "/workspace/preview.png" }),
+    });
+    assert.deepEqual(await image.json(), { ok: true, dataBase64: "aW1hZ2U=", mimeType: "image/png" });
+    assert.deepEqual(viewedImage, { path: "/workspace/preview.png" });
     const service = await new ServiceClient(baseUrl, "one-time-task-token").manage({ action: "start", service: "postgres" }); // yadm-secret-scan: ignore
     assert.equal(service.status, "starting");
     assert.deepEqual(service.connection, { host: "postgres", port: 5432 });

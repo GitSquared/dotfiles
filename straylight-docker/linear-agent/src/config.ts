@@ -16,6 +16,7 @@ export type ControllerConfig = {
 };
 
 export type RunnerConfig = {
+  runnerBackend: "claude" | "pi";
   host: string;
   port: number;
   piWorkdir: string;
@@ -34,6 +35,7 @@ export type RunnerConfig = {
 };
 
 export type WorkbenchConfig = {
+  runnerBackend: "claude" | "pi";
   host: string;
   port: number;
   authToken: string; // yadm-secret-scan: ignore
@@ -115,6 +117,12 @@ function absolutePath(env: NodeJS.ProcessEnv, name: string, fallback: string): s
   return path.normalize(value);
 }
 
+function runnerBackend(env: NodeJS.ProcessEnv): "claude" | "pi" {
+  const value = env.STRAYLIGHT_RUNNER?.trim().toLowerCase() || "claude";
+  if (value !== "claude" && value !== "pi") throw new Error("STRAYLIGHT_RUNNER must be claude or pi");
+  return value;
+}
+
 export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
   const installSecret = secret(env, "LINEAR_AGENT_INSTALL_SECRET"); // yadm-secret-scan: ignore
 
@@ -135,6 +143,7 @@ export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
 
 export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
   return {
+    runnerBackend: runnerBackend(env),
     host: env.HOST?.trim() || "0.0.0.0",
     port: positiveInteger(env, "PORT", 8788),
     piWorkdir: env.PI_WORKDIR?.trim() || "/workspace",
@@ -155,6 +164,7 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
 
 export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
   return {
+    runnerBackend: runnerBackend(env),
     host: env.HOST?.trim() || "0.0.0.0",
     port: positiveInteger(env, "PORT", 8788),
     authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore

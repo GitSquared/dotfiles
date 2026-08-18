@@ -6,6 +6,7 @@ import { parseRepositoryRemote, taskContainerSpec, WorkbenchHarness } from "../s
 
 function config(): WorkbenchConfig {
   return {
+    runnerBackend: "claude",
     host: "0.0.0.0",
     port: 8788,
     authToken: "r".repeat(32), // yadm-secret-scan: ignore
@@ -73,10 +74,17 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.Env.some((value) => value === "GH_CONFIG_DIR=/tool-profile/gh"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/tool-profile:/tool-profile:ro"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value === "/srv/linear-agent/memory:/memory"), true);
+  assert.equal(spec.HostConfig.Binds.some((value) => value.endsWith(":/home/node/.pi/agent")), false);
+  assert.equal(spec.HostConfig.Binds.some((value) => value.endsWith(":/app/state/pi-sessions")), false);
   assert.equal(spec.Env.some((value) => value === "PI_MEMORY_DIR=/memory"), true);
   assert.equal(spec.Env.some((value) => value === "XDG_CONFIG_HOME=/memory/.config"), true);
   assert.equal(spec.Env.some((value) => value === "PI_THEME=dark"), true);
+  assert.equal(spec.Env.some((value) => value === "STRAYLIGHT_RUNNER=claude"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
+
+  const fallback = taskContainerSpec({ ...config(), runnerBackend: "pi" }, "session-c", "fallback-token"); // yadm-secret-scan: ignore
+  assert.equal(fallback.HostConfig.Binds.some((value) => value.endsWith(":/home/node/.pi/agent")), true);
+  assert.equal(fallback.HostConfig.Binds.some((value) => value.endsWith(":/app/state/pi-sessions")), true);
 });
 
 test("reuses an idle warm task and withholds supervisor capabilities between turns", async () => {
@@ -145,6 +153,64 @@ test("reuses an idle warm task and withholds supervisor capabilities between tur
   assert.deepEqual(stopped, ["warm-task"]);
   assert.deepEqual(removed, ["warm-task"]);
   assert.deepEqual(removedNetworks, ["warm-network"]);
+});
+
+test("forwards a running task to the Claude capsule without mounting its identity", async () => {
+  let request: unknown;
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    pull: unused,
+    create: unused,
+    start: unused,
+    stop: unused,
+    remove: unused,
+    listByLabel: unused,
+    inspect: unused,
+    logs: unused,
+    createNetwork: unused,
+    connectNetwork: unused,
+    removeNetwork: unused,
+    listNetworksByLabel: unused,
+  };
+  const capsule = {
+    async ask() { return { status: "error" as const, message: "unused" }; },
+    async runAgent(input: unknown) {
+      request = input;
+      return { status: "ok" as const, answer: "Done.", sessionId: "claude-1", awaitingInput: false, durationMs: 4 };
+    },
+  };
+  const harness = new WorkbenchHarness(config(), engine, capsule);
+  const active = {
+    aborted: false,
+    client: {},
+    containerId: "task-id",
+    containerName: "linear-agent-task-abc123",
+    idleTimer: undefined,
+    lastUsedAt: Date.now(),
+    networkId: "network-id",
+    networkName: "network-name",
+    running: true,
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token: "task-token",
+  };
+  const internals = harness as unknown as { active: Map<string, unknown> };
+  internals.active.set("session", active);
+
+  const result = await harness.runClaude("task-token", { prompt: "Implement it", resume: "claude-0" }); // yadm-secret-scan: ignore
+  assert.equal(result.status, "ok");
+  assert.deepEqual(request, {
+    prompt: "Implement it",
+    taskUrl: "http://linear-agent-task-abc123:8788",
+    workbenchUrl: "http://linear-agent-runner:8788",
+    taskToken: "task-token", // yadm-secret-scan: ignore
+    resume: "claude-0",
+  });
+  assert.deepEqual(await harness.runClaude("wrong-token", { prompt: "Nope" }), { // yadm-secret-scan: ignore
+    status: "error",
+    message: "Unauthorized or unavailable task workspace.",
+  });
 });
 
 test("captures task exit diagnostics before removing a failed jail", async () => {

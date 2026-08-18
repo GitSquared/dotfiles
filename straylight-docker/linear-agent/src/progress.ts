@@ -71,7 +71,7 @@ export class ProgressReporter {
   handle(event: AgentSessionEvent): void {
     switch (event.type) {
       case "agent_start":
-        this.report({ type: "activity", content: { type: "thought", body: "Pi is starting the coding session." }, ephemeral: true });
+        this.report({ type: "activity", content: { type: "thought", body: "The coding agent is starting." }, ephemeral: true });
         break;
       case "message_update": {
         const body = assistantText(event.message);
@@ -100,19 +100,19 @@ export class ProgressReporter {
               type: "action",
               action: `${actionName(event.toolName)} failed`,
               parameter: event.toolName,
-              result: "Pi is adjusting.",
+              result: "The agent is adjusting.",
             },
             ephemeral: true,
           });
         }
         break;
       case "compaction_start":
-        this.report({ type: "activity", content: { type: "thought", body: "Pi is compacting context before continuing." }, ephemeral: true });
+        this.report({ type: "activity", content: { type: "thought", body: "The agent is compacting context before continuing." }, ephemeral: true });
         break;
       case "auto_retry_start":
         this.report({
           type: "activity",
-          content: { type: "thought", body: `Pi is retrying after an error (${event.attempt}/${event.maxAttempts}).` },
+          content: { type: "thought", body: `The agent is retrying after an error (${event.attempt}/${event.maxAttempts}).` },
           ephemeral: true,
         });
         break;
@@ -126,7 +126,7 @@ export class ProgressReporter {
     if (this.heartbeat) return;
     this.heartbeat = setInterval(() => {
       if (!this.pending && Date.now() - this.lastSentAt >= this.heartbeatMs) {
-        this.report({ type: "activity", content: { type: "thought", body: "Pi is still working." }, ephemeral: true });
+        this.report({ type: "activity", content: { type: "thought", body: "The agent is still working." }, ephemeral: true });
       }
     }, this.heartbeatMs);
     this.heartbeat.unref();

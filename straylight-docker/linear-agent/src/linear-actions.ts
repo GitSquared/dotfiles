@@ -4,6 +4,7 @@ import type {
   AgentActivitySignalMetadata,
   AgentPlanStep,
 } from "./types.js";
+import { isAttentionRequest, type AttentionRequest } from "./attention.js";
 
 export type LinearResource = "issue" | "project" | "document" | "comment" | "relation" | "subissue";
 export type LinearOperation = "get" | "create" | "update" | "delete" | "list" | "link" | "unlink" | "reply" | "resolve" | "unresolve";
@@ -38,6 +39,7 @@ export type LinearUploadRequest = {
 };
 
 export type LinearSessionRequest =
+  | { action: "attention"; request: AttentionRequest }
   | {
       action: "activity";
       content: AgentActivityContent;
@@ -98,6 +100,7 @@ function isSignalMetadata(value: unknown): value is AgentActivitySignalMetadata 
 export function isLinearSessionRequest(value: unknown): value is LinearSessionRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const request = value as Record<string, unknown>;
+  if (request.action === "attention") return isAttentionRequest(request.request);
   if (request.action === "activity") {
     if (!isActivityContent(request.content)) return false;
     if (request.signal === undefined) return request.signalMetadata === undefined;

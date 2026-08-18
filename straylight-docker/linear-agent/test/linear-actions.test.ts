@@ -27,6 +27,23 @@ test("accepts only bounded Linear upload requests", () => {
 
 test("accepts bounded generic Agent Session collaboration", () => {
   assert.equal(isLinearSessionRequest({
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      blocking: true,
+      title: "Review the preview",
+      action: "Approve or point to the first visual mismatch.",
+      originalIntent: "Match the reviewed account header design.",
+      delta: "The implementation and responsive states are ready.",
+      recommendation: "Approve; the checked states match the reference.",
+      impact: "Nothing ships until review; waiting has no customer impact.",
+      timing: "No immediate deadline; review at the next normal break.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test" }],
+    },
+  }), true);
+  assert.equal(isLinearSessionRequest({
     action: "activity",
     content: { type: "elicitation", body: "Choose a repository" },
     signal: "select",
@@ -41,6 +58,20 @@ test("accepts bounded generic Agent Session collaboration", () => {
 });
 
 test("rejects unsafe or malformed Agent Session collaboration", () => {
+  assert.equal(isLinearSessionRequest({
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      title: "Review this",
+      action: "Approve it.",
+      originalIntent: "Build it.",
+      delta: "It is done.",
+      recommendation: "Approve.",
+      impact: "Work remains paused.",
+      timing: "Whenever.",
+    },
+  }), false);
   assert.equal(isLinearSessionRequest({ action: "external_url", label: "Local", url: "http://localhost:3000" }), false);
   assert.equal(isLinearSessionRequest({ action: "external_url", label: "Secret", url: "https://user:password@example.com" }), false);
   assert.equal(isLinearSessionRequest({ action: "activity", content: { type: "thought", body: "" } }), false);

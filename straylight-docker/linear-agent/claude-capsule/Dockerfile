@@ -7,9 +7,16 @@ RUN npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
     && mkdir -p /home/node/.claude /workspace /opt/capsule \
     && chown -R node:node /home/node /workspace /opt/capsule
 
-COPY --chown=node:node server.mjs claude-request.mjs claude-request.test.mjs /opt/capsule/
-RUN node --test /opt/capsule/claude-request.test.mjs \
-    && rm /opt/capsule/claude-request.test.mjs
+WORKDIR /opt/capsule
+
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts \
+    && npm cache clean --force
+
+COPY --chown=node:node server.mjs agent-request.mjs agent-request.test.mjs claude-request.mjs claude-request.test.mjs /opt/capsule/
+RUN node --test /opt/capsule/agent-request.test.mjs /opt/capsule/claude-request.test.mjs \
+    && node --input-type=module -e 'import("./agent-request.mjs").then(({ createStraylightTools }) => createStraylightTools({ taskUrl: "http://task", workbenchUrl: "http://workbench", taskToken: "build-check", awaitingInput: false }))' \
+    && rm /opt/capsule/agent-request.test.mjs /opt/capsule/claude-request.test.mjs
 COPY --chown=node:node settings.json /opt/capsule/settings.json
 RUN node -e 'JSON.parse(require("node:fs").readFileSync("/opt/capsule/settings.json", "utf8"))'
 

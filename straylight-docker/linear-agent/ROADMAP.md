@@ -385,9 +385,52 @@ Acceptance:
    applied/declined/needs-decision disposition for each without creating a new
    Document.
 
+## Slice 13 — rationalized attention requests
+
+Status: implemented locally; deployed interaction and queue-pressure measurement
+remain acceptance checks.
+
+- Replace open-ended `request_input` with a dedicated semantic attention
+  request. Every request is either Steering (new information questions the
+  original intent) or QA (a checked artifact is ready for ownership), and is
+  explicitly classified as an interruption or queued review.
+- Materialize every request as a Linear child issue assigned to the sponsoring
+  engineer. Use native priority for ordering and labels for Steering/QA plus
+  Blocking/FYI; blocking items pause and route replies to the parent, while FYIs
+  remain acknowledgement work and let the parent continue.
+- Require the exact human action, the relevant original intent, what changed,
+  the agent's recommendation, the impact of waiting, and the real response
+  window. Choice cards remain optional and reserved for genuine judgment calls.
+- Require at least one HTTPS evidence link before QA can enter the queue. The
+  agent should upload screenshots or reports and attach previews, Documents, or
+  pull requests before requesting review.
+- Keep the active attention projection in the durable controller registry and
+  expose aggregate counts by kind, delivery, priority, and blocking state in
+  health. Do not create a second task database or copy the full private request
+  into telemetry.
+- Restore an `awaitingInput` session after controller restart without replaying
+  the work that produced its elicitation, then clear the attention projection on
+  a human follow-up, stop, terminal completion, or cancellation.
+
+Acceptance:
+
+1. Attempt QA without evidence and confirm the broker rejects it before Linear
+   is disturbed.
+2. Request queued QA with a preview and screenshot, and confirm Linear creates a
+   child issue assigned to the engineer with the requested priority, QA and FYI
+   labels, and usable evidence.
+3. Request blocking Steering with real options and confirm Linear creates its
+   child Agent Session, renders a native select signal, and routes the reply back
+   into the paused parent while still accepting free text.
+4. Confirm controller health distinguishes queued QA, queued Steering, FYI,
+   blocking, urgent, and true interruptions across simultaneous sessions.
+5. Restart the controller while an attention request is pending; confirm it
+   remains awaiting input and does not rerun tools or external actions.
+
 ## Later hardening
 
-- Replace the task's reusable Codex credential copy with a model broker.
+- Replace the Pi fallback task's reusable Codex credential copy with a model
+  broker before broadening that route beyond the personal pilot.
 - Move from shared-kernel Docker isolation to gVisor, Kata, or a microVM backend
   if hostile repository code becomes an explicit threat model.
 - Split `/tool-profile` into typed, short-lived capabilities if the pilot grows

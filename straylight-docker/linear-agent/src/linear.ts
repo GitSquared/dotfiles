@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
+import { linearAttentionPriority, renderAttentionRequest, type AttentionRequest } from "./attention.js";
 import type { ControllerConfig } from "./config.js";
 import type {
   LinearManageContext,
@@ -123,10 +124,18 @@ type LinearUploadCapability = {
 };
 type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
+export type AttentionIssue = {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+};
+
 export type AgentSessionSnapshot = {
   id: string;
   status: string;
   appUser: { id: string };
+  creator?: { id: string } | null;
   issue?: {
     id: string;
     identifier?: string;
@@ -432,7 +441,7 @@ export class LinearClient {
       url: string;
       subtitle?: string;
       commentBody?: string;
-      agentSessionId: string;
+      agentSessionId?: string;
     },
   ): Promise<{ id: string; title: string; url: string }> {
     const data = await this.graphql<{
@@ -447,7 +456,7 @@ export class LinearClient {
           title: attachment.title,
           url: attachment.url,
           groupBySource: true,
-          metadata: { agentSessionId: attachment.agentSessionId },
+          ...(attachment.agentSessionId ? { metadata: { agentSessionId: attachment.agentSessionId } } : {}),
           ...(attachment.subtitle ? { subtitle: attachment.subtitle } : {}),
           ...(attachment.commentBody ? { commentBody: attachment.commentBody } : {}),
         },
@@ -482,6 +491,7 @@ export class LinearClient {
         agentSession(id: $id) {
           id status
           appUser { id }
+          creator { id }
           issue { id identifier title description url team { id name } }
           activities(last: 20, orderBy: createdAt) {
             nodes {
@@ -587,6 +597,89 @@ export class LinearClient {
     const session = data.agentSessionCreateOnComment.agentSession;
     if (!data.agentSessionCreateOnComment.success || !session) throw new Error("Linear rejected Agent Session creation for the Document comment");
     return session;
+  }
+
+  async createAgentSessionOnIssue(issueId: string): Promise<{ id: string }> {
+    const data = await this.graphql<{
+      agentSessionCreateOnIssue: { success: boolean; agentSession?: { id: string } | null };
+    }>(
+      `mutation CreateAttentionAgentSession($input: AgentSessionCreateOnIssue!) {
+        agentSessionCreateOnIssue(input: $input) { success agentSession { id } }
+      }`,
+      { input: { issueId } },
+    );
+    const session = data.agentSessionCreateOnIssue.agentSession;
+    if (!data.agentSessionCreateOnIssue.success || !session) throw new Error("Linear rejected Agent Session creation for the attention issue");
+    return session;
+  }
+
+  async createAttentionIssue(parentIssueId: string, request: AttentionRequest, humanAssigneeId?: string): Promise<AttentionIssue> {
+    const parent = await this.graphql<{
+      issue: { id: string; identifier: string; url: string; team: { id: string }; creator?: { id: string } | null };
+    }>(
+      `query AttentionParentIssue($id: String!) {
+        issue(id: $id) { id identifier url team { id } creator { id } }
+      }`,
+      { id: parentIssueId },
+    );
+    const labelNames = [
+      `Attention / ${request.kind === "steering" ? "Steering" : "QA"}`,
+      `Attention / ${request.blocking === false ? "FYI" : "Blocking"}`,
+    ];
+    const labelIds = await Promise.all(labelNames.map((name) => this.ensureAttentionLabel(parent.issue.team.id, name)));
+    const description = [
+      renderAttentionRequest(request),
+      `**Parent work**\n[${parent.issue.identifier}](${parent.issue.url})`,
+      "Reply in this issue's Agent Session. Straylight will route the response back to the parent run.",
+    ].join("\n\n");
+    const input = {
+      teamId: parent.issue.team.id,
+      parentId: parent.issue.id,
+      title: request.title,
+      description,
+      priority: linearAttentionPriority(request),
+      labelIds,
+      ...(humanAssigneeId || parent.issue.creator?.id ? { assigneeId: humanAssigneeId || parent.issue.creator?.id } : {}),
+    };
+    const data = await this.graphql<{ issueCreate: { success: boolean; issue?: AttentionIssue | null } }>(
+      `mutation CreateAttentionIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) { success issue { id identifier title url } }
+      }`,
+      { input },
+    );
+    const issue = data.issueCreate.issue;
+    if (!data.issueCreate.success || !issue) throw new Error("Linear rejected attention subissue creation");
+    await Promise.all((request.evidence ?? []).map((evidence) => this.createIssueAttachment(issue.id, {
+      title: evidence.label,
+      url: evidence.url,
+      ...(evidence.description ? { subtitle: evidence.description } : {}),
+    }).catch((error: unknown) => {
+      console.warn("failed to attach attention evidence; the description link remains available", {
+        issueId: issue.id,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    })));
+    return issue;
+  }
+
+  async completeIssue(issueId: string): Promise<void> {
+    const data = await this.graphql<{
+      issue: { team: { states: { nodes: Array<{ id: string; position: number }> } } };
+    }>(
+      `query AttentionCompletionState($id: String!) {
+        issue(id: $id) { team { states(filter: { type: { eq: "completed" } }) { nodes { id position } } } }
+      }`,
+      { id: issueId },
+    );
+    const state = [...data.issue.team.states.nodes].sort((left, right) => left.position - right.position)[0];
+    if (!state) throw new Error("Attention issue team has no completed workflow state");
+    const result = await this.graphql<{ issueUpdate: { success: boolean } }>(
+      `mutation CompleteAttentionIssue($id: String!, $input: IssueUpdateInput!) {
+        issueUpdate(id: $id, input: $input) { success }
+      }`,
+      { id: issueId, input: { stateId: state.id } },
+    );
+    if (!result.issueUpdate.success) throw new Error("Linear rejected attention issue completion");
   }
 
   async downloadInputs(payload: AgentSessionWebhook): Promise<LinearInputDownload> {
@@ -902,6 +995,42 @@ export class LinearClient {
       return result.issueUpdate.issue;
     }
     throw new Error(`subissue does not support ${request.operation}; use list, create, link, or unlink`);
+  }
+
+  private async ensureAttentionLabel(teamId: string, name: string): Promise<string> {
+    const find = async () => {
+      const data = await this.graphql<{
+        issueLabels: { nodes: Array<{ id: string; name: string; team?: { id: string } | null }> };
+      }>(
+        `query AttentionLabels {
+          issueLabels(first: 250) { nodes { id name team { id } } }
+        }`,
+      );
+      return data.issueLabels.nodes.find((label) => label.name === name && label.team?.id === teamId)?.id;
+    };
+    const existing = await find();
+    if (existing) return existing;
+    const color = name.endsWith("Steering") ? "#F2994A"
+      : name.endsWith("QA") ? "#5E6AD2"
+        : name.endsWith("Blocking") ? "#EB5757"
+          : "#8A8F98";
+    try {
+      const data = await this.graphql<{
+        issueLabelCreate: { success: boolean; issueLabel?: { id: string } | null };
+      }>(
+        `mutation CreateAttentionLabel($input: IssueLabelCreateInput!) {
+          issueLabelCreate(input: $input) { success issueLabel { id } }
+        }`,
+        { input: { teamId, name, color, description: "Human attention requested by Straylight." } },
+      );
+      const label = data.issueLabelCreate.issueLabel;
+      if (data.issueLabelCreate.success && label) return label.id;
+    } catch (error) {
+      const raced = await find();
+      if (raced) return raced;
+      throw error;
+    }
+    throw new Error(`Linear rejected attention label creation: ${name}`);
   }
 
   private async graphql<T>(query: string, variables?: Record<string, unknown>): Promise<T> {

@@ -13,6 +13,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CapsuleClient } from "./capsule-client.js";
+import type { AttentionRequest } from "./attention.js";
 import type { RunnerConfig } from "./config.js";
 import { decodeLinearInput, MAX_LINEAR_INPUTS, MAX_LINEAR_INPUT_TOTAL_BYTES } from "./linear-inputs.js";
 import { LinearToolClient } from "./linear-tool-client.js";
@@ -790,12 +791,99 @@ export class PiHarness {
         },
       }),
       defineTool({
+        name: "request_attention",
+        label: "Request attention",
+        description: "Negotiate for the engineer's scarce attention with one rationalized Steering or QA request, classified as either a real interruption or queued review.",
+        promptSnippet: "Request rationalized Steering or QA attention with decision context and evidence",
+        promptGuidelines: [
+          "Use only when there is a concrete action for the engineer. If you can safely decide, continue working; if a signal is not actionable or unique, do not surface it.",
+          "Choose steering when new information questions the original intent. Choose qa only when a reviewable output is ready, automated checks are complete, and at least one evidence URL is attached.",
+          "Choose interrupt only when material harm can occur before the engineer's next normal review window; interrupts are blocking and urgent. Otherwise queue it and choose the Linear priority that reflects when it deserves review.",
+          "Set blocking false only for an FYI that needs acknowledgement but does not require the parent run to pause. Blocking items wait for a response on their Linear child issue.",
+          "Lead with the exact action and your recommendation. Preserve the original intent, explain only what changed, and state the consequence of waiting. Keep detail behind evidence links.",
+          "Options are for genuine judgment calls, not decisions you were delegated to make. End the turn after requesting attention and wait for the engineer's follow-up.",
+        ],
+        parameters: Type.Object({
+          kind: Type.Union([Type.Literal("steering"), Type.Literal("qa")]),
+          delivery: Type.Union([Type.Literal("interrupt"), Type.Literal("queue")]),
+          priority: Type.Optional(Type.Union([
+            Type.Literal("urgent"),
+            Type.Literal("high"),
+            Type.Literal("medium"),
+            Type.Literal("low"),
+            Type.Literal("none"),
+          ], { description: "Priority of the human attention item in Linear. Interrupts must be urgent." })),
+          blocking: Type.Optional(Type.Boolean({ description: "Whether the parent run must wait for a response. Defaults to true; false creates an FYI acknowledgement item and work continues." })),
+          title: Type.String({ minLength: 1, maxLength: 160, description: "Compact queue label for the decision or review." }),
+          action: Type.String({ minLength: 1, maxLength: 1_000, description: "The exact action or answer needed from the engineer." }),
+          originalIntent: Type.String({ minLength: 1, maxLength: 2_000, description: "The relevant original instruction or acceptance intent, not the whole task history." }),
+          delta: Type.String({ minLength: 1, maxLength: 2_000, description: "What changed since that intent: new information for Steering, or the output now ready for QA." }),
+          recommendation: Type.String({ minLength: 1, maxLength: 1_000, description: "The agent's recommended answer or review disposition and why." }),
+          impact: Type.String({ minLength: 1, maxLength: 1_000, description: "The concrete consequence of ignoring or delaying this request." }),
+          timing: Type.String({ minLength: 1, maxLength: 500, description: "The latest useful response window; say explicitly when there is no immediate deadline." }),
+          options: Type.Optional(Type.Array(Type.Object({
+            label: Type.String({ minLength: 1, maxLength: 200 }),
+            value: Type.String({ minLength: 1, maxLength: 1_000 }),
+            tradeoff: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+          }), { minItems: 2, maxItems: 6 })),
+          evidence: Type.Optional(Type.Array(Type.Object({
+            label: Type.String({ minLength: 1, maxLength: 200 }),
+            url: Type.String({ minLength: 1, maxLength: 2_000 }),
+            description: Type.Optional(Type.String({ minLength: 1, maxLength: 500 })),
+          }), { minItems: 1, maxItems: 8 })),
+        }),
+        async execute(_toolCallId, params) {
+          const current = runState.current;
+          if (!current) throw new Error("No active Linear run");
+          await reporter.current?.flush();
+          const request: AttentionRequest = {
+            kind: params.kind,
+            delivery: params.delivery,
+            ...(params.priority ? { priority: params.priority } : {}),
+            ...(params.blocking === undefined ? {} : { blocking: params.blocking }),
+            title: finalText(params.title).slice(0, 160),
+            action: finalText(params.action).slice(0, 1_000),
+            originalIntent: finalText(params.originalIntent).slice(0, 2_000),
+            delta: finalText(params.delta).slice(0, 2_000),
+            recommendation: finalText(params.recommendation).slice(0, 1_000),
+            impact: finalText(params.impact).slice(0, 1_000),
+            timing: finalText(params.timing).slice(0, 500),
+            ...(params.options ? {
+              options: params.options.map((option) => ({
+                label: finalText(option.label).slice(0, 200),
+                value: finalText(option.value).slice(0, 1_000),
+                ...(option.tradeoff ? { tradeoff: finalText(option.tradeoff).slice(0, 500) } : {}),
+              })),
+            } : {}),
+            ...(params.evidence ? {
+              evidence: params.evidence.map((evidence) => ({
+                label: finalText(evidence.label).slice(0, 200),
+                url: redact(evidence.url).slice(0, 2_000),
+                ...(evidence.description ? { description: finalText(evidence.description).slice(0, 500) } : {}),
+              })),
+            } : {}),
+          };
+          await linear.collaborate({ action: "attention", request });
+          current.awaitingInput = request.blocking ?? true;
+          if (current.awaitingInput) reporter.current?.stop();
+          return {
+            content: [{
+              type: "text",
+              text: (request.blocking ?? true)
+                ? `${request.kind === "steering" ? "Steering" : "QA"} attention item sent to Linear. End this turn and wait for the engineer's response on the child issue.`
+                : `${request.kind === "steering" ? "Steering" : "QA"} FYI sent to the Linear attention queue. Continue the delegated work.`,
+            }],
+            details: {},
+          };
+        },
+      }),
+      defineTool({
         name: "linear",
         label: "Collaborate in Linear",
-        description: "Collaborate through Linear using generic verbs: request input, mark work blocked, share or publish review material, attach a URL, or manage issues, properties, Documents, review comments, relationships, subissues, and projects.",
-        promptSnippet: "Request input, mark blocking, share review material, attach a URL, publish, or manage Linear work",
+        description: "Collaborate through Linear using generic verbs: mark work blocked, share or publish review material, attach a URL, or manage issues, properties, Documents, review comments, relationships, subissues, and projects.",
+        promptSnippet: "Mark blocking, share review material, attach a URL, publish, or manage Linear work",
         promptGuidelines: [
-          "Use request_input only when work cannot proceed without a user decision, and end the turn afterward.",
+          "Use request_attention—not this generic tool—when the engineer needs to steer or review work.",
           "Use block when work cannot continue because of a non-authentication blocker. For missing access use request_access instead.",
           "Use share for useful review notes, screenshots, reports, or other files from /workspace. File shares return their private Linear asset URL; embed that URL in a later publish call when the file belongs inside a document. Use attach for any durable external URL, including pull requests.",
           "Use publish for substantial Markdown review documents or rich issue attachments. To revise an existing Document in a new session, manage document list/get first, then publish with its id, title, and complete replacement body.",
@@ -804,7 +892,6 @@ export class PiHarness {
         ],
         parameters: Type.Object({
           action: Type.Union([
-            Type.Literal("request_input"),
             Type.Literal("block"),
             Type.Literal("share"),
             Type.Literal("attach"),
@@ -812,10 +899,6 @@ export class PiHarness {
             Type.Literal("manage"),
           ]),
           body: Type.Optional(Type.String({ minLength: 1, maxLength: 100_000, description: "Question, blocker, review note, document content, attachment comment, or artifact caption in Markdown." })),
-          options: Type.Optional(Type.Array(Type.Object({
-            label: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
-            value: Type.String({ minLength: 1, maxLength: 1000 }),
-          }), { minItems: 2, maxItems: 12 })),
           path: Type.Optional(Type.String({ minLength: 1, maxLength: 2_000, description: "Local review artifact inside /workspace." })),
           title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
           label: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
@@ -875,22 +958,6 @@ export class PiHarness {
               content: [{ type: "text", text: serialized }],
               details: result,
             };
-          }
-          if (params.action === "request_input") {
-            if (!params.body) throw new Error("request_input requires body");
-            await reporter.current?.flush();
-            const options = params.options?.map((option) => ({
-              ...(option.label ? { label: finalText(option.label).slice(0, 200) } : {}),
-              value: finalText(option.value).slice(0, 1000),
-            }));
-            await linear.collaborate({
-              action: "activity",
-              content: { type: "elicitation", body: finalText(params.body) },
-              ...(options ? { signal: "select" as const, signalMetadata: { options } } : {}),
-            });
-            current.awaitingInput = true;
-            reporter.current?.stop();
-            return { content: [{ type: "text", text: "Input requested in Linear. End this turn and wait for the user's follow-up." }], details: {} };
           }
           if (params.action === "block") {
             if (!params.body) throw new Error("block requires body");

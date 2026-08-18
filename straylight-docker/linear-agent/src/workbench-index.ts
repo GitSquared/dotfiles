@@ -11,10 +11,10 @@ const server = Bun.serve({
   maxRequestBodySize: RUNNER_MAX_BODY_BYTES,
   fetch: createRunnerServer(workbench, config.authToken),
 });
-console.log("Straylight warm Pi workbench listening", publicWorkbenchConfig(config));
+console.log("Straylight warm agent workbench listening", publicWorkbenchConfig(config));
 
 async function stop(signal: string): Promise<void> {
-  console.log("Stopping Straylight Pi workbench", { signal });
+  console.log("Stopping Straylight agent workbench", { signal });
   await workbench.shutdown();
   await server.stop();
 }

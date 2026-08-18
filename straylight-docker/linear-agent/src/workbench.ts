@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CapsuleClient } from "./capsule-client.js";
+import type { CapsuleAgentResult } from "./capsule-client.js";
 import { AdaptiveSlots } from "./capacity.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
@@ -38,6 +39,7 @@ type ActiveTask = {
   aborted: boolean;
   client: PiRunnerClient;
   containerId: string;
+  containerName?: string;
   idleTimer: ReturnType<typeof setTimeout> | undefined;
   lastUsedAt: number;
   networkId: string;
@@ -105,6 +107,7 @@ export function taskContainerSpec(
       "PI_PROGRESS_DEBOUNCE_MS=3000",
       "PI_PROGRESS_HEARTBEAT_MS=300000",
       "PI_TIMEOUT_MS=1800000",
+      `STRAYLIGHT_RUNNER=${config.runnerBackend}`,
       "CAPSULE_URL=http://linear-agent-runner:8788",
       `CAPSULE_AUTH_URL=${config.capsuleAuthUrl}`,
       `TOOL_AUTH_URL=${config.toolAuthUrl}`,
@@ -125,8 +128,10 @@ export function taskContainerSpec(
     HostConfig: {
       AutoRemove: false,
       Binds: [
-        `${path.join(hostTaskRoot, "pi-sessions")}:/app/state/pi-sessions`,
-        `${path.join(hostTaskRoot, "pi-config")}:/home/node/.pi/agent`,
+        ...(config.runnerBackend === "pi" ? [
+          `${path.join(hostTaskRoot, "pi-sessions")}:/app/state/pi-sessions`,
+          `${path.join(hostTaskRoot, "pi-config")}:/home/node/.pi/agent`,
+        ] : []),
         `${hostWorkspace}:/workspace`,
         `${path.join(hostWorkspace, ".agent", "diagrams")}:/home/node/.agent/diagrams`,
         `${hostRepositories}:/repositories:ro`,
@@ -148,7 +153,7 @@ export function taskContainerSpec(
 
 export class WorkbenchHarness {
   private readonly engine: ContainerEngine;
-  private readonly capsule: CapsuleClient;
+  private readonly capsule: Pick<CapsuleClient, "ask" | "runAgent">;
   private readonly capacity: AdaptiveSlots;
   private readonly active = new Map<string, ActiveTask>();
   private readonly starting = new Set<string>();
@@ -161,9 +166,10 @@ export class WorkbenchHarness {
   constructor(
     private readonly config: WorkbenchConfig,
     engine?: ContainerEngine,
+    capsule?: Pick<CapsuleClient, "ask" | "runAgent">,
   ) {
     this.engine = engine ?? new DockerEngine(config.dockerSocket);
-    this.capsule = new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
+    this.capsule = capsule ?? new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
     this.capacity = new AdaptiveSlots(
       () => this.runningSlots + this.waiters.size,
       () => this.drainQueue(),
@@ -183,7 +189,7 @@ export class WorkbenchHarness {
     const networks = await this.engine.listNetworksByLabel(SESSION_NETWORK_LABEL);
     await Promise.all(networks.map((network) => this.engine.removeNetwork(network.Id).catch(() => undefined)));
     if (orphans.length || serviceOrphans.length || networks.length) {
-      console.warn("removed orphaned Pi workbench resources", {
+      console.warn("removed orphaned agent workbench resources", {
         taskContainers: orphans.length,
         serviceContainers: serviceOrphans.length,
         sessionNetworks: networks.length,
@@ -197,7 +203,7 @@ export class WorkbenchHarness {
       this.engine.listByLabel(TASK_LABEL),
       this.engine.listByLabel(SERVICE_LABEL),
       this.engine.listNetworksByLabel(SESSION_NETWORK_LABEL),
-      loadModelPolicy(this.config.piConfigSource),
+      this.config.runnerBackend === "pi" ? loadModelPolicy(this.config.piConfigSource) : Promise.resolve(undefined),
     ]);
     return {
       mode: "warm-session-jails",
@@ -207,9 +213,10 @@ export class WorkbenchHarness {
       taskContainers: containers.length,
       serviceContainers: services.length,
       sessionNetworks: networks.length,
+      runnerBackend: this.config.runnerBackend,
       adaptiveConcurrency: this.capacity.status(),
       ...(this.lastTaskFailure ? { lastTaskFailure: this.lastTaskFailure } : {}),
-      modelPolicy: publicModelPolicy(modelPolicy),
+      ...(modelPolicy ? { modelPolicy: publicModelPolicy(modelPolicy) } : {}),
       rtkVersion: process.env.RTK_VERSION ?? "unknown",
       maxWarmSessions: this.config.maxWarmSessions,
       warmSessionTtlMs: this.config.warmSessionTtlMs,
@@ -290,6 +297,7 @@ export class WorkbenchHarness {
             aborted: false,
             client,
             containerId,
+            containerName: name,
             idleTimer: undefined,
             lastUsedAt: Date.now(),
             networkId,
@@ -387,6 +395,25 @@ export class WorkbenchHarness {
     });
     if (!allowed) return { status: "error" as const, message: "Unauthorized." };
     return this.capsule.ask(request, signal);
+  }
+
+  async runClaude(
+    token: string, // yadm-secret-scan: ignore
+    request: { prompt: string; resume?: string; model?: string },
+    signal?: AbortSignal,
+  ): Promise<CapsuleAgentResult> {
+    const active = this.taskForToken(token);
+    if (!active?.running || active.aborted || !active.containerName) {
+      return { status: "error", message: "Unauthorized or unavailable task workspace." };
+    }
+    return this.capsule.runAgent({
+      prompt: request.prompt,
+      taskUrl: `http://${active.containerName}:8788`,
+      workbenchUrl: "http://linear-agent-runner:8788",
+      taskToken: token,
+      ...(request.resume ? { resume: request.resume } : {}),
+      ...(request.model ? { model: request.model } : {}),
+    }, signal);
   }
 
   async manageService(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult> { // yadm-secret-scan: ignore
@@ -555,7 +582,7 @@ export class WorkbenchHarness {
       ...(state?.ExitCode !== undefined ? { exitCode: state.ExitCode } : {}),
       ...(state?.Error ? { containerError: redact(state.Error) } : {}),
     };
-    console.error("Pi task failed before cleanup", {
+    console.error("agent task failed before cleanup", {
       ...this.lastTaskFailure,
       ...(logs ? { taskLogs: redact(logs).slice(-8_000) } : {}),
     });
@@ -828,8 +855,7 @@ export class WorkbenchHarness {
     const piConfig = path.join(taskRoot, "pi-config");
     const piSessions = path.join(taskRoot, "pi-sessions");
     const workspace = path.join(this.config.workspaceRunsDirectory, key);
-    await fs.mkdir(piSessions, { recursive: true, mode: 0o700 });
-    await fs.mkdir(piConfig, { recursive: true, mode: 0o700 });
+    await fs.mkdir(taskRoot, { recursive: true, mode: 0o700 });
     await fs.mkdir(workspace, { recursive: true, mode: 0o700 });
     await fs.mkdir(path.join(workspace, ".agent", "diagrams"), { recursive: true, mode: 0o700 });
     await fs.writeFile(path.join(taskRoot, "session.json"), `${JSON.stringify({
@@ -840,24 +866,29 @@ export class WorkbenchHarness {
       issueUrl: payload.agentSession?.issue?.url,
       lastStartedAt: new Date().toISOString(),
     }, null, 2)}\n`, { mode: 0o600 });
-    await fs.cp(this.config.piConfigSource, piConfig, { recursive: true, force: false, errorOnExist: false });
-    await this.syncManagedPiConfig(piConfig);
-    await this.copyNewerAuth(this.config.piConfigSource, piConfig);
-    await this.prepareWebSearchConfig(piConfig);
-    const legacyName = `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}.jsonl`;
-    await fs.copyFile(
-      path.join(this.config.dataDirectory, "pi-sessions", legacyName),
-      path.join(piSessions, legacyName),
-      fs.constants.COPYFILE_EXCL,
-    ).catch((error: unknown) => {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code !== "ENOENT" && code !== "EEXIST") throw error;
-    });
+    if (this.config.runnerBackend === "pi") {
+      await fs.mkdir(piSessions, { recursive: true, mode: 0o700 });
+      await fs.mkdir(piConfig, { recursive: true, mode: 0o700 });
+      await fs.cp(this.config.piConfigSource, piConfig, { recursive: true, force: false, errorOnExist: false });
+      await this.syncManagedPiConfig(piConfig);
+      await this.copyNewerAuth(this.config.piConfigSource, piConfig);
+      await this.prepareWebSearchConfig(piConfig);
+      const legacyName = `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}.jsonl`;
+      await fs.copyFile(
+        path.join(this.config.dataDirectory, "pi-sessions", legacyName),
+        path.join(piSessions, legacyName),
+        fs.constants.COPYFILE_EXCL,
+      ).catch((error: unknown) => {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT" && code !== "EEXIST") throw error;
+      });
+    }
     await fs.copyFile(this.config.workspaceInstructions, path.join(workspace, "AGENTS.md"));
     await fs.chmod(path.join(workspace, "AGENTS.md"), 0o600);
   }
 
   private async syncTaskAuth(sessionId: string): Promise<void> {
+    if (this.config.runnerBackend !== "pi") return;
     const piConfig = path.join(this.config.dataDirectory, "tasks", sessionKey(sessionId), "pi-config");
     await this.copyNewerAuth(piConfig, this.config.piConfigSource);
   }
@@ -906,7 +937,7 @@ export class WorkbenchHarness {
     if (destinationStat && destinationStat.mtimeMs >= sourceStat.mtimeMs) return;
     const value = await fs.readFile(source, "utf8");
     const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Pi auth.json is not a JSON object");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Pi fallback auth.json is not a JSON object");
     await fs.mkdir(destinationDirectory, { recursive: true, mode: 0o700 });
     const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
     await fs.writeFile(temporary, value, { mode: 0o600 });
@@ -917,7 +948,7 @@ export class WorkbenchHarness {
   private async waitUntilReady(client: PiRunnerClient, active: ActiveTask): Promise<void> {
     const deadline = Date.now() + this.config.taskStartupTimeoutMs;
     while (Date.now() < deadline) {
-      if (active.aborted) throw new Error("Pi task was aborted during startup");
+      if (active.aborted) throw new Error("Agent task was aborted during startup");
       try {
         await client.repositories();
         return;
@@ -925,7 +956,7 @@ export class WorkbenchHarness {
         await new Promise((resolve) => setTimeout(resolve, 250));
       }
     }
-    throw new Error("Pi task jail did not become ready before its startup deadline");
+    throw new Error("Agent task jail did not become ready before its startup deadline");
   }
 }
 

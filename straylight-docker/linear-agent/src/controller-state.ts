@@ -1,5 +1,6 @@
 import path from "node:path";
 import { JsonStore } from "./storage.js";
+import type { ActiveAttention } from "./attention.js";
 import type { AgentSessionWebhook } from "./types.js";
 
 export type ControllerSessionRecord = {
@@ -12,6 +13,8 @@ export type ControllerSessionRecord = {
   active?: AgentSessionWebhook;
   issueId?: string;
   teamId?: string;
+  humanAssigneeId?: string;
+  attention?: ActiveAttention[];
   updatedAt: number;
 };
 
@@ -41,6 +44,15 @@ export class ControllerStateStore {
       && typeof record.generation === "number"
       && typeof record.running === "boolean"
       && typeof record.awaitingInput === "boolean"
+      && (record.humanAssigneeId === undefined || typeof record.humanAssigneeId === "string")
+      && (record.attention === undefined || (Array.isArray(record.attention) && record.attention.every((attention) => (
+        ["steering", "qa"].includes(attention.kind)
+        && ["interrupt", "queue"].includes(attention.delivery)
+        && ["urgent", "high", "medium", "low", "none"].includes(attention.priority)
+        && typeof attention.blocking === "boolean"
+        && typeof attention.issueId === "string"
+        && typeof attention.requestedAt === "number"
+      ))))
       && typeof record.updatedAt === "number"
     ));
   }
@@ -49,7 +61,7 @@ export class ControllerStateStore {
     return this.store.update((state) => {
       state.version = 1;
       state.sessions = [...records]
-        .filter((record) => record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active))
+        .filter((record) => record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active) || Boolean(record.attention?.length))
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_STORED_SESSIONS);
     });

@@ -11,7 +11,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test ./test/",
-    "test:capsule": "node --test claude-capsule/claude-request.test.mjs",
+    "test:capsule": "node --test claude-capsule/agent-request.test.mjs claude-capsule/claude-request.test.mjs",
     "check": "bun run typecheck && bun run test"
   },
   "dependencies": {

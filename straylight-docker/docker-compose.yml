@@ -288,6 +288,7 @@ services:
       HOST: 0.0.0.0
       PORT: "8788"
       PI_RUNNER_TOKEN: "${LINEAR_AGENT_RUNNER_SECRET}"
+      STRAYLIGHT_RUNNER: "${LINEAR_AGENT_RUNNER_BACKEND:-claude}"
       PI_DOCKER_SOCKET: /var/run/docker.sock
       PI_TASK_IMAGE: linear-agent-runner:local
       PI_TASK_NETWORK: linear-agent-tasks

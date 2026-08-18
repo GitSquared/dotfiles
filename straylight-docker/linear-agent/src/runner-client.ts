@@ -23,7 +23,7 @@ export class PiRunnerClient implements AgentRunner {
       headers: this.headers(),
       body: JSON.stringify({ payload }),
     });
-    if (!response.ok || !response.body) throw new Error(`Pi runner rejected run: HTTP ${response.status}`);
+    if (!response.ok || !response.body) throw new Error(`Agent runner rejected run: HTTP ${response.status}`);
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -53,9 +53,9 @@ export class PiRunnerClient implements AgentRunner {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Pi runner stream failed after ${eventCount} event${eventCount === 1 ? "" : "s"}: ${message}`, { cause: error });
+      throw new Error(`Agent runner stream failed after ${eventCount} event${eventCount === 1 ? "" : "s"}: ${message}`, { cause: error });
     }
-    if (!result) throw new Error(`Pi runner stream ended after ${eventCount} event${eventCount === 1 ? "" : "s"} without a result`);
+    if (!result) throw new Error(`Agent runner stream ended after ${eventCount} event${eventCount === 1 ? "" : "s"} without a result`);
     return result;
   }
 
@@ -69,7 +69,7 @@ export class PiRunnerClient implements AgentRunner {
 
   async repositories(): Promise<RepositoryCandidate[]> {
     const response = await fetch(`${this.baseUrl}/repositories`, { headers: this.headers() });
-    if (!response.ok) throw new Error(`Pi runner repository discovery failed: HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`Agent runner repository discovery failed: HTTP ${response.status}`);
     const payload = await response.json() as { repositories?: RepositoryCandidate[] };
     return Array.isArray(payload.repositories) ? payload.repositories : [];
   }
@@ -77,7 +77,7 @@ export class PiRunnerClient implements AgentRunner {
   async health(): Promise<Record<string, unknown>> {
     const response = await fetch(`${this.baseUrl}/healthz`);
     const payload = await response.json() as Record<string, unknown>;
-    if (!response.ok) throw new Error(`Pi runner is unhealthy: HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`Agent runner is unhealthy: HTTP ${response.status}`);
     return payload;
   }
 
@@ -87,7 +87,7 @@ export class PiRunnerClient implements AgentRunner {
       headers: this.headers(),
       body: JSON.stringify(body),
     });
-    if (!response.ok) throw new Error(`Pi runner command failed: HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`Agent runner command failed: HTTP ${response.status}`);
     const payload = await response.json() as { accepted?: boolean };
     return payload.accepted === true;
   }
