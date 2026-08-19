@@ -96,14 +96,25 @@ comments:
   verbs, plus an explicit closure reconciliation that dispositions every item
   before completion; plans are reconstructed from agent history whenever a warm
   container expires
-- a rigid `request_attention` state machine that creates a real child issue
-  assigned to the sponsoring engineer. Signal is always a queued nonblocking
-  question or notification and work continues; Steering always pauses for a
-  required answer; QA always pauses checked work for human approval and is
-  refused without a reviewable HTTPS evidence URL. Native labels and priority
-  make those states sortable. QA exposes standard **Approve and complete** and
-  **Not approved** controls: approval completes the parent issue without another
-  inference turn, while changes resume the same workspace and conversation
+- a rigid `request_attention` state machine, matched to whether the request
+  actually blocks the run. Signal is always a queued nonblocking question or
+  notification and work continues - it posts a plain comment on the current
+  issue, no separate issue or label. Steering and QA always pause for a
+  required answer or approval, and are exclusive per session; a blocking
+  request flips the issue to a configured workflow state (`LINEAR_ATTENTION_STATE_NAME`,
+  default `Blocked`) and posts the request as a comment on that same issue.
+  Because Linear resumes an Agent Session natively from a comment on its own
+  issue, the reply lands directly back on the paused run - no child issue,
+  no second session, no cross-session routing. QA is refused without a
+  reviewable HTTPS evidence URL, and exposes standard **Approve and complete**
+  and **Not approved** controls: approval completes the issue without another
+  inference turn, while changes restore the prior workflow state and resume
+  the same workspace and conversation
+- a separate `defer_followup` tool for a fourth, non-blocking case: something
+  discovered mid-task that isn't this task's job and doesn't pause it. It
+  requires a real justification (what, why not now, what re-surfaces it), not
+  just a title, and creates a genuine follow-up subissue - so an agent can't
+  manufacture busywork subissues nobody owns
 - one generic `linear` collaboration tool for blockers, review notes, private
   file/image uploads, arbitrary session URLs, native
   review Documents (including discovery, reading, updates, inline-comment
@@ -174,9 +185,9 @@ failures are repaired from the interactive workbench described below.
   configuration, and a
   `session.json` mapping back to the Linear session and issue.
 - `state/controller-sessions.json` retains only active, queued, or
-  awaiting-input controller sessions, including the child issue id, kind,
-  delivery, priority, blocking state, and request time for active attention
-  items; aggregate queue pressure is exposed
+  awaiting-input controller sessions, including the kind, priority, prior
+  workflow state, and request time for an active blocking attention item;
+  aggregate queue pressure is exposed
   in controller health without copying request content into another database.
   `state/webhook-inbox.json` durably queues
   accepted webhook payloads before acknowledgement, retries transient handling
@@ -384,17 +395,23 @@ without logging prompts or task tokens.
 
 ## Linear workflow setup
 
-No additional Linear workflow status or board is required for the pilot. A
-delegated parent moves into the team's first Started state, remains there while
-working or awaiting Steering/QA, and moves to the team's first Completed state
-only when the engineer chooses **Approve and complete** on the QA child. The
-controller creates the `Attention / Signal`, `Attention / Steering`,
-`Attention / QA`, `Attention / FYI`, and `Attention / Blocking` labels lazily.
+A delegated parent moves into the team's first Started state, remains there
+while working, and moves to the team's first Completed state only when the
+engineer chooses **Approve and complete** on a QA attention.
 
-An optional saved view can filter incomplete child issues assigned to the
-engineer with an `Attention / ...` label, then sort by native priority. Keep this
-as a view over Linear's issues rather than creating another board or workflow
-state until the pilot shows a concrete need.
+One additional named workflow state is required per team: a "needs human
+input" state (`LINEAR_ATTENTION_STATE_NAME`, default `Blocked`) that the issue
+flips to for the duration of a blocking Steering or QA request, then away from
+on resolution or dismissal. Linear's `WorkflowState.type` enum has no generic
+`blocked` type to look up, so this is resolved by configured name and is not
+created automatically - create it once per team (any `started`-type state
+works) and the controller will use it; if a team is missing it, a blocking
+attention request fails with an actionable error naming the missing state
+rather than silently degrading or attempting to create one.
+
+An optional saved view can filter issues currently in that state, sorted by
+native priority, as the engineer's attention queue. Keep this as a view over
+Linear's issues rather than creating another board.
 
 The older headless `ask_claude` route remains available to the Pi fallback for
 connected corporate context. Corporate connectors are action-capable, but local
@@ -603,78 +620,81 @@ docker ps --filter label=dev.straylight.linear-agent.task=true
 Useful Linear smoke tests:
 
 1. Delegate a tiny repository inspection and confirm the task uses
-   `runnerBackend: claude`, reaches a QA child through the subscription-authenticated
+   `runnerBackend: claude`, reaches a QA request through the subscription-authenticated
    capsule, and leaves no Claude profile or Pi credential mount in the task.
-2. Send a nonblocking Signal and confirm its queued FYI child remains for
-   acknowledgement while the parent continues working.
-3. “Ask me to choose between alpha and beta before continuing.” Confirm a
-   Blocking Steering child issue is assigned to you with native priority and
-   labels; either a button or free text in its Agent Session resumes the parent.
+2. Send a nonblocking Signal and confirm it lands as a plain comment on the
+   issue while the parent continues working - no new issue, no label.
+3. “Ask me to choose between alpha and beta before continuing.” Confirm the
+   issue flips to the configured attention state with native priority and the
+   request posted as a comment; either a button or free text in its Agent
+   Session resumes the run and restores the prior state.
 4. Finish a checked change and confirm QA contains evidence plus **Approve and
-   complete** / **Not approved**. Approval completes parent and child without a
-   new agent turn; free-text changes resume the parent and eventually return to QA.
-5. Run a task with reasoning and a longer tool call. Confirm Linear replaces the
+   complete** / **Not approved**. Approval completes the issue without a
+   new agent turn; free-text changes resume the run and eventually return to QA.
+5. Discover something out-of-scope mid-task and confirm `defer_followup`
+   creates a real subissue with its justification, without pausing the task.
+6. Run a task with reasoning and a longer tool call. Confirm Linear replaces the
    activity with inspectable reasoning, assistant text, and a useful tool target
    plus elapsed time; then keep Claude genuinely quiet longer than five minutes
    and confirm synthetic progress, no runner-stream timeout, and one eventual
    lifecycle transition.
-6. Start a longer command and choose **Send stop request**. Confirm the session
+7. Start a longer command and choose **Send stop request**. Confirm the session
    reports that it stopped and the task container disappears.
-7. Send a follow-up within ten minutes. Confirm the same warm workspace,
+8. Send a follow-up within ten minutes. Confirm the same warm workspace,
    development processes, browser, and Claude conversation are reused without a
    new container; after ten minutes, confirm history and files reconstruct in a
    new container.
-8. Put a Git repository with an `origin` under `workspace/repos`, delegate an
+9. Put a Git repository with an `origin` under `workspace/repos`, delegate an
    issue naming it, and confirm the cache refreshes once, the agent clones into
    its private workspace using the cache, and its `origin` remains the canonical
    HTTPS GitHub URL.
-9. Ask the agent to inspect and publish a screenshot or report from `/workspace`;
+10. Ask the agent to inspect and publish a screenshot or report from `/workspace`;
    confirm it is viewed before any visual claim, uploaded to Linear's private
    storage, and rendered in the Agent Session.
-10. Ask the agent to attach an HTTPS review URL, then a GitHub pull request URL;
+11. Ask the agent to attach an HTTPS review URL, then a GitHub pull request URL;
    confirm both appear without invoking a PR-specific tool.
-11. Create and mutate a plan, stop, resume, and confirm plan IDs and statuses are
+12. Create and mutate a plan, stop, resume, and confirm plan IDs and statuses are
    retained. On the Pi fallback, delegate a review helper and confirm stop
    terminates it too.
-12. Ask the agent to search for a current fact and fetch one primary
+13. Ask the agent to search for a current fact and fetch one primary
     documentation page; confirm cited URLs are returned without requesting a
     credential.
-13. Start disposable PostgreSQL, wait for healthy status, run a migration, and
+14. Start disposable PostgreSQL, wait for healthy status, run a migration, and
    confirm the service and private session network disappear when the turn ends.
-14. Start a project server on `0.0.0.0`, start the browser service, run a
+15. Start a project server on `0.0.0.0`, start the browser service, run a
     Playwright check through `task`, and publish its screenshot to Linear.
-15. Publish a native review Document, start a fresh Agent Session, list the
+16. Publish a native review Document, start a fresh Agent Session, list the
     issue's documents, read and update it by id, then upload a small image and
     embed the returned private asset URL in that document. Finally publish a rich
     preview or pull-request attachment to the issue.
-16. Ask the agent to create a small issue, update one property, attach it as a
+17. Ask the agent to create a small issue, update one property, attach it as a
     subissue, add and remove a relationship, and create/update a test project.
     Confirm each result returns a native Linear id and URL where applicable.
-17. Mention Straylight, add an ordinary issue comment, and react to an agent
+18. Mention Straylight, add an ordinary issue comment, and react to an agent
     message. Confirm only the Agent Session mention starts work; the comment is
     context-only and the reaction is recorded as an acknowledgement in
     `/healthz`.
-18. On the Pi fallback, delegate one routine and one deliberately hard issue.
+19. On the Pi fallback, delegate one routine and one deliberately hard issue.
     Confirm the classifier choice appears after workspace setup, then ask the
     hard run to size up and confirm it moves exactly one allowlisted tier without
     losing session history.
-19. Give an issue an obsolete description, then mention Straylight in a new
+20. Give an issue an obsolete description, then mention Straylight in a new
     comment with a different request. Confirm the agent acts on the mention while
     retaining the issue description only as supporting context.
-20. On the Pi fallback, run representative Git, search, and test commands,
+21. On the Pi fallback, run representative Git, search, and test commands,
     inspect `rtk gain`, then repeat one with `RTK_RAW=1` and confirm the raw
     escape is unfiltered.
-21. Attach a PNG and a text or PDF file to the initial request, then attach
+22. Attach a PNG and a text or PDF file to the initial request, then attach
     another PNG in an active-session follow-up. Confirm the activity reports
     accepted inputs, Claude inspects the image through `view_image`, and all files appear
     only under the matching session's `.linear-inputs` directory. Try an
     oversized or unsupported file and confirm it is skipped without failing the
     run or sending Linear authorization to another host.
-22. Start a multi-step plan, leave implementation complete but deployment
+23. Start a multi-step plan, leave implementation complete but deployment
     pending, and ask the agent to close the turn. Confirm every plan item displays
     an explicit disposition, the deployment item names its owner and next
     action, and the final response does not claim customer-visible completion.
-23. Link an existing Document from an issue-backed Agent Session and ask the
+24. Link an existing Document from an issue-backed Agent Session and ask the
     agent to process its inline review threads. Confirm it receives the selected
     text plus bounded Document/thread context, revises the same Document id,
     replies `Applied`, `Declined`, or `Needs decision`, and resolves only fully
