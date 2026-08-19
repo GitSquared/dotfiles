@@ -191,6 +191,58 @@ first live trial:
   This determines whether "thought logs I can uncover" already exists or
   needs new durable-but-non-notifying checkpoint activities.
 
+### Second real run - checked against Linear's actual docs, not just logs
+
+The second live test reported the run "still shows as running" in Linear
+even after our own system correctly recorded `awaiting_qa`/`awaitingInput:
+true`, and no approve/deny buttons were visible anywhere. Confirmed via
+Linear's developer docs rather than guessing:
+
+- Linear docs, verbatim: "Ephemeral activities are displayed temporarily,
+  and will be replaced when the next activity arrives from the agent" and
+  "Linear tracks session lifecycle automatically based on the last emitted
+  activity." Session status is a pure function of whichever activity
+  landed last - there is no separate "mark as awaiting input" call.
+- The bug: `assertAgentMayAct` only rejects a further tool call *inside*
+  its handler, which runs *after* the Claude SDK has already emitted the
+  tool-call-start stream event the capsule turns into a fresh ephemeral
+  progress activity. So if Claude attempts even one more tool call right
+  after a blocking `request_attention` succeeds - which nothing prevents,
+  since `permissionMode: bypassPermissions` only stops it from acting, not
+  from trying - a new activity lands after the elicitation and Linear's
+  own session status (and likely the select-signal button UI riding on
+  that same elicitation) gets superseded before the human ever sees it.
+  Fixed: `agent-request.mjs` stops projecting SDK progress into activities
+  entirely once `context.awaitingInput` is true.
+- Residual, not fixed this pass: `ProgressReporter`'s own heartbeat (a
+  local timer in the TS controller, independent of the capsule) still
+  posts "still working" if the model takes over a minute to actually stop
+  after the tool call succeeds. Fixing that needs a signal to cross the
+  capsule/controller HTTP boundary during the stream, not just in the
+  final result - a real but smaller-probability contributor, deferred
+  until we know whether the first fix was enough.
+- The `select` signal doc includes a screenshot description placing the
+  option buttons "in a row below" the triggering comment - i.e. inline in
+  the same conversational area as comments, not hidden in a genuinely
+  separate panel as assumed earlier. The "silent, hidden" complaint about
+  Activities is more about visual weight and no-notification than
+  physical separation - worth re-examining once the race above is fixed.
+- Linear's own `promptContext` XML already models multiple concurrent
+  comment threads explicitly (`<primary-directive-thread>` vs
+  `<other-thread>`, each with a `comment-id` and full author/timestamp
+  history) - "topics" as separate threads is already a first-class part
+  of the data Straylight receives, not something needing new plumbing to
+  represent. What's missing is on the output side: prompting the agent to
+  actually reply within/reference the right thread (the generic
+  `manage_linear` comment `reply` operation already supports this) rather
+  than flattening everything into whichever comment `request_attention`
+  happens to create.
+- Linear's own best-practices doc: "Comments may not be reliable to read
+  from, as they are editable... rely on Agent Activities as these are
+  frozen-in-time snapshots." Confirms the existing recovery design
+  (rebuilding context from Activities, not Comments) is the platform's own
+  recommended pattern, not an idiosyncratic choice.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any

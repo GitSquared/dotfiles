@@ -626,7 +626,13 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
           elapsedMs: Date.now() - startedAt,
         });
       }
-      await projectProgress(message);
+      // Once a blocking attention is recorded, Linear's own session status is
+      // driven by the last activity it received - which must stay the
+      // elicitation. Any further progress activity (even from a tool call
+      // the model shouldn't have attempted, since assertAgentMayAct only
+      // rejects it *after* the SDK already emitted this progress event)
+      // would flip the session back to looking active while we wait.
+      if (!context.awaitingInput) await projectProgress(message);
       if (message.type === "assistant" && Array.isArray(message.message?.content)) {
         const messageId = message.message?.id;
         if (!messageId || !seenAssistantMessages.has(messageId)) {
