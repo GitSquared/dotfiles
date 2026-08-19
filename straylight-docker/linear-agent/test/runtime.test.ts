@@ -13,3 +13,11 @@ test("reports a captured subprocess exit code", async () => {
   assert.equal(result.exitCode, 7);
   assert.match(result.stderr, /expected/);
 });
+
+test("writes bounded command input through stdin", async () => {
+  const result = await captureCommand("bun", ["-e", "process.stdin.pipe(process.stdout)"], {
+    input: "patch-body",
+  });
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, "patch-body");
+});

@@ -21,6 +21,18 @@ test("projects Claude SDK reasoning and useful tool targets", async () => {
   });
   await project({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"rg -n TODO src"}' } } });
   await project({ type: "stream_event", event: { type: "content_block_stop", index: 1 } });
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "tool-2", name: "mcp__straylight__manage_plan", input: {} } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"action":"replace","steps":[{"content":"Implement","status":"inProgress"},{"content":"Verify","status":"pending"}]}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 2 } });
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 3, content_block: { type: "tool_use", id: "tool-3", name: "mcp__straylight__apply_patch", input: {} } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 3, delta: { type: "input_json_delta", partial_json: '{"directory":"carbonfact","patch":"diff"}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 3 } });
   now = 1_000;
   await project({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "private chain of thought" } } });
   now = 2_000;
@@ -31,6 +43,8 @@ test("projects Claude SDK reasoning and useful tool targets", async () => {
   assert.deepEqual(events, [
     { type: "thought", body: "Claude Code connected using claude-sonnet-5; the agent turn is running." },
     { type: "action", action: "Running command", parameter: "rg -n TODO src" },
+    { type: "action", action: "Updating plan", parameter: "replace · 2 steps" },
+    { type: "action", action: "Applying patch", parameter: "carbonfact" },
     { type: "thought", body: "Thinking: private chain of thought" },
     { type: "thought", body: "I found the relevant module." },
     { type: "action", action: "Running command", parameter: "rg -n TODO src", result: "12s elapsed" },

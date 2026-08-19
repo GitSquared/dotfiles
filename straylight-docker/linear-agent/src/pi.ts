@@ -19,6 +19,7 @@ import type { RunnerConfig } from "./config.js";
 import { decodeLinearInput, MAX_LINEAR_INPUTS, MAX_LINEAR_INPUT_TOTAL_BYTES } from "./linear-inputs.js";
 import { LinearToolClient } from "./linear-tool-client.js";
 import { loadModelPolicy, selectedModelName, type AllowedModel } from "./model-policy.js";
+import { applyPlanRequest, emptyPlan, type PlanDetails, type PlanItem } from "./plan.js";
 import { visualExplainerResourcePaths, webAccessExtensionPath } from "./pi-resources.js";
 import { ProgressReporter } from "./progress.js";
 import { followUpPrompt, initialPrompt, modelSelectionPrompt } from "./prompts.js";
@@ -170,56 +171,6 @@ async function qmdSearch(memoryDirectory: string, query: string, limit: number):
   }
 }
 
-type PlanItem = {
-  id: number;
-  content: string;
-  status: "pending" | "inProgress" | "completed" | "canceled";
-};
-
-export type PlanDetails = { items: PlanItem[]; nextId: number };
-
-export type PlanDisposition = {
-  id: number;
-  disposition: "done" | "blocked" | "deferred" | "abandoned";
-  note: string;
-  owner?: string;
-  nextAction?: string;
-};
-
-export function reconcilePlan(plan: PlanDetails, dispositions: PlanDisposition[]): PlanDetails {
-  const byId = new Map<number, PlanDisposition>();
-  for (const disposition of dispositions) {
-    if (byId.has(disposition.id)) throw new Error(`Plan item ${disposition.id} has more than one closure disposition`);
-    byId.set(disposition.id, disposition);
-  }
-  const knownIds = new Set(plan.items.map((item) => item.id));
-  const unknown = dispositions.find((disposition) => !knownIds.has(disposition.id));
-  if (unknown) throw new Error(`Plan item ${unknown.id} does not exist`);
-  const missing = plan.items.filter((item) => !byId.has(item.id)).map((item) => item.id);
-  if (missing.length) throw new Error(`Closure must disposition every plan item; missing: ${missing.join(", ")}`);
-
-  return {
-    nextId: plan.nextId,
-    items: plan.items.map((item) => {
-      const closure = byId.get(item.id);
-      if (!closure) throw new Error(`Closure disposition missing for plan item ${item.id}`);
-      if (["blocked", "deferred"].includes(closure.disposition) && !closure.nextAction?.trim()) {
-        throw new Error(`${closure.disposition} plan item ${item.id} requires nextAction`);
-      }
-      const suffix = [
-        `${closure.disposition.charAt(0).toUpperCase()}${closure.disposition.slice(1)}: ${finalText(closure.note).slice(0, 140)}`,
-        closure.owner?.trim() ? `Owner: ${finalText(closure.owner).slice(0, 60)}` : undefined,
-        closure.nextAction?.trim() ? `Next: ${finalText(closure.nextAction).slice(0, 120)}` : undefined,
-      ].filter(Boolean).join("; ");
-      return {
-        ...item,
-        content: `${item.content.slice(0, 160)} — ${suffix}`.slice(0, 500),
-        status: closure.disposition === "done" ? "completed" as const : "canceled" as const,
-      };
-    }),
-  };
-}
-
 const SUBAGENT_ROLES = {
   explore: {
     tools: "read,grep,find,ls,bash,web_search,source_check,fetch_content,get_search_content",
@@ -266,7 +217,7 @@ function latestAssistantText(messages: unknown): string {
 }
 
 function planFromSession(manager: SessionManager): PlanDetails {
-  let state: PlanDetails = { items: [], nextId: 1 };
+  let state: PlanDetails = emptyPlan();
   for (const entry of manager.getBranch()) {
     if (entry.type !== "message") continue;
     const message = entry.message as { role?: string; toolName?: string; details?: unknown };
@@ -1254,40 +1205,7 @@ export class PiHarness {
               : "Plan is empty.";
             return { content: [{ type: "text", text }], details: structuredClone(plan) };
           }
-          if (params.action === "reconcile") {
-            if (!params.dispositions) throw new Error("reconcile requires dispositions");
-            plan = reconcilePlan(plan, params.dispositions);
-          } else if (params.action === "replace") {
-            if (!params.steps) throw new Error("replace requires steps");
-            plan = {
-              items: params.steps.map((step, index) => ({
-                id: index + 1,
-                content: finalText(step.content).slice(0, 500),
-                status: step.status,
-              })),
-              nextId: params.steps.length + 1,
-            };
-          } else if (params.action === "add") {
-            if (!params.content) throw new Error("add requires content");
-            plan.items.push({
-              id: plan.nextId++,
-              content: finalText(params.content).slice(0, 500),
-              status: params.status ?? "pending",
-            });
-          } else {
-            if (params.id === undefined) throw new Error(`${params.action} requires id`);
-            const index = plan.items.findIndex((item) => item.id === params.id);
-            if (index < 0) throw new Error(`Plan item ${params.id} does not exist`);
-            if (params.action === "remove") {
-              plan.items.splice(index, 1);
-            } else {
-              const item = plan.items[index];
-              if (!item) throw new Error(`Plan item ${params.id} does not exist`);
-              if (params.content) item.content = finalText(params.content).slice(0, 500);
-              if (params.status) item.status = params.status;
-              if (!params.content && !params.status) throw new Error("update requires content or status");
-            }
-          }
+          plan = applyPlanRequest(plan, params);
           const mirror = await linear.collaborate({
             action: "plan",
             steps: plan.items.map(({ content, status }) => ({ content, status })),

@@ -318,8 +318,9 @@ The default runner invokes the official Claude Agent SDK inside this authenticat
 capsule and resumes its Claude session id from the task's private workspace. Its
 built-in shell and filesystem tools are disabled. Instead, in-process Straylight
 MCP tools cross the authenticated control channel and operate inside the current
-task jail: `bash`, `view_image`, `share_artifact`, `request_attention`, `finish_work`,
-  `manage_linear`, `linear_activity`, and `manage_service`. The capsule therefore holds inference
+task jail: `bash`, `apply_patch`, `manage_plan`, `view_image`, `share_artifact`,
+`request_attention`, `finish_work`, `manage_linear`, `linear_activity`, and
+`manage_service`. The capsule therefore holds inference
 identity but not source code; the task holds source code but not inference or
 Linear credentials.
 
@@ -328,7 +329,33 @@ wall-clock deadline (`PI_TIMEOUT_MS`, one hour by default) and tells Claude that
 budget in its system prompt. If Claude returns a non-success result with a session
 id, Straylight still saves the pointer so a later turn can resume the conversation;
 the raw Claude transcript remains in the persistent capsule profile for private
-forensics.
+forensics. Failure logs include model-turn, tool-call, and observed token/cache
+usage so an expensive loop can be distinguished from a quiet transport failure.
+
+Claude receives the same incremental `manage_plan` semantics as Pi plus a
+dedicated `apply_patch` tool alongside its isolated shell. Its plan is persisted
+inside the task workspace and mirrored into Linear's native Agent Plan. The
+workspace instructions ask it to batch independent reads, switch from bounded
+orientation to a durable plan, load applicable scoped repository instructions,
+and use reviewable unified diffs for multi-line edits.
+Nonzero shell exits are returned with their exit code and diagnostic instead of
+being collapsed into an opaque MCP error.
+
+To export one private transcript without printing it to the terminal, take the
+`sessionId` from the capsule log or the task workspace's
+`.straylight/claude-session.json`, then run from the compose directory:
+
+```sh
+CLAUDE_SESSION_ID=<uuid>
+docker compose exec -T linear-agent-claude-capsule sh -lc '
+  transcript="$(find /home/node/.claude/projects -type f -name "$1.jsonl" -print -quit)"
+  test -n "$transcript" || exit 1
+  cat "$transcript"
+' sh "$CLAUDE_SESSION_ID" | gzip -9 > "/home/gaby/claude-$CLAUDE_SESSION_ID.jsonl.gz"
+```
+
+Treat that export as private source material and remove it when the forensic work
+is finished; raw transcripts do not belong in Git or shared memory.
 
 Neither the default Claude runner nor the Pi fallback can declare delegated work
 complete. A normal turn must continue after a Signal, pause in Steering, or pause

@@ -4,6 +4,7 @@ import { CapsuleClient } from "./capsule-client.js";
 import type { RunnerConfig } from "./config.js";
 import { LinearToolClient } from "./linear-tool-client.js";
 import { materializeLinearInputs } from "./pi.js";
+import { applyPlanRequest, emptyPlan, parsePlan, type PlanDetails, type PlanRequest } from "./plan.js";
 import { ProgressReporter } from "./progress.js";
 import { claudeFollowUpPrompt, claudeInitialPrompt } from "./prompts.js";
 import { finalText, progressText, redact } from "./redaction.js";
@@ -152,16 +153,9 @@ export class ClaudeHarness {
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }> {
     const timeout = Math.max(1_000, Math.min(request.timeoutMs ?? 120_000, 300_000));
-    const environment = { ...process.env };
-    for (const name of [
-      "PI_RUNNER_TOKEN",
-      "ANTHROPIC_API_KEY",
-      "ANTHROPIC_AUTH_TOKEN",
-      "CAPSULE_CONTROL_TOKEN",
-    ]) delete environment[name];
     const result = await captureCommand("bash", ["-lc", request.command], {
       cwd: this.config.piWorkdir,
-      env: environment,
+      env: brokerlessEnvironment(),
       timeout,
       maxBuffer: 256 * 1024,
       ...(signal ? { signal } : {}),
@@ -171,6 +165,56 @@ export class ClaudeHarness {
       exitCode: result.exitCode,
       stdout: redact(result.stdout).slice(-128 * 1024),
       stderr: redact(result.stderr).slice(-128 * 1024),
+    };
+  }
+
+  async applyPatch(
+    request: { patch: string; directory?: string },
+    signal?: AbortSignal,
+  ): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }> {
+    const cwd = await workspaceDirectory(this.config.piWorkdir, request.directory);
+    const result = await captureCommand("git", ["apply", "--whitespace=nowarn", "-"], {
+      cwd,
+      env: brokerlessEnvironment(),
+      input: request.patch,
+      timeout: 120_000,
+      maxBuffer: 256 * 1024,
+      ...(signal ? { signal } : {}),
+    });
+    return {
+      ok: result.exitCode === 0,
+      exitCode: result.exitCode,
+      stdout: redact(result.stdout).slice(-128 * 1024),
+      stderr: redact(result.stderr).slice(-128 * 1024),
+    };
+  }
+
+  async managePlan(
+    request: PlanRequest,
+    signal?: AbortSignal,
+  ): Promise<{ ok: true; plan: PlanDetails; mirrored?: boolean; message: string }> {
+    const current = await this.readPlan();
+    if (request.action === "list") {
+      return {
+        ok: true,
+        plan: current,
+        message: current.items.length ? "Durable plan loaded." : "Plan is empty.",
+      };
+    }
+    const plan = applyPlanRequest(current, request);
+    await this.writePlan(plan);
+    const mirror = await this.linear.collaborate({
+      action: "plan",
+      steps: plan.items.map(({ content, status }) => ({ content, status })),
+    }, signal);
+    const mirrored = (mirror.data as { mirrored?: unknown } | undefined)?.mirrored === true;
+    return {
+      ok: true,
+      plan,
+      mirrored,
+      message: mirrored
+        ? "Durable plan updated and mirrored to Linear."
+        : "Durable plan updated; Linear's native plan surface is currently unavailable.",
     };
   }
 
@@ -208,6 +252,27 @@ export class ClaudeHarness {
 
   private sessionFilename(): string {
     return path.join(this.config.piWorkdir, ".straylight", "claude-session.json");
+  }
+
+  private planFilename(): string {
+    return path.join(this.config.piWorkdir, ".straylight", "plan.json");
+  }
+
+  private async readPlan(): Promise<PlanDetails> {
+    try {
+      return parsePlan(JSON.parse(await fs.readFile(this.planFilename(), "utf8")));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyPlan();
+      throw error;
+    }
+  }
+
+  private async writePlan(plan: PlanDetails): Promise<void> {
+    const filename = this.planFilename();
+    await fs.mkdir(path.dirname(filename), { recursive: true, mode: 0o700 });
+    const temporary = `${filename}.${process.pid}.tmp`;
+    await fs.writeFile(temporary, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
+    await fs.rename(temporary, filename);
   }
 
   private async readSession(linearSessionId: string): Promise<string | undefined> {
@@ -280,4 +345,27 @@ async function workspaceArtifact(workdir: string, filename: string): Promise<{ d
   if (!stat.isFile()) throw new Error("Review artifact is not a regular file");
   if (!stat.size || stat.size > 10 * 1024 * 1024) throw new Error("Review artifacts must be between 1 byte and 10 MB");
   return { data: await fs.readFile(resolved), filename: path.basename(resolved) };
+}
+
+async function workspaceDirectory(workdir: string, directory?: string): Promise<string> {
+  const root = await fs.realpath(workdir);
+  const resolved = await fs.realpath(path.resolve(workdir, directory || "."));
+  const relative = path.relative(root, resolved);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Patch directories must stay inside /workspace");
+  }
+  const stat = await fs.stat(resolved);
+  if (!stat.isDirectory()) throw new Error("Patch target is not a directory");
+  return resolved;
+}
+
+function brokerlessEnvironment(): NodeJS.ProcessEnv {
+  const environment = { ...process.env };
+  for (const name of [
+    "PI_RUNNER_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "CAPSULE_CONTROL_TOKEN",
+  ]) delete environment[name];
+  return environment;
 }

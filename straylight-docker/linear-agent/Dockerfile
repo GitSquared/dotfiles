@@ -9,6 +9,10 @@ FROM oven/bun:1 AS build
 
 WORKDIR /source
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 

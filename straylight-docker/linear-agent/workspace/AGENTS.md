@@ -25,6 +25,21 @@ mounted at all.
 - Implement only in the private clone below `/workspace`.
 - Use branch `agent/<lowercase-issue-identifier>` unless the issue specifies a
   branch.
+- After cloning, read the repository's root `AGENTS.md` and every scoped
+  `AGENTS.md` that applies to files you inspect or edit. Follow them as
+  repository constraints unless they conflict with the authoritative Linear
+  request or higher-priority Straylight instructions.
+- Use `rg` for search. Batch independent searches and file reads into one shell
+  call instead of paying one model turn per command. Once bounded orientation
+  has identified the affected path, one matching pattern, and the relevant
+  checks, stop mapping adjacent abstractions and begin the requested work.
+- When work has more than one meaningful implementation or verification step,
+  publish a compact native Agent Plan with `manage_plan` after orientation and
+  update it only at real checkpoints. Prefer outcome-oriented steps over a
+  transcript of commands.
+- Use `apply_patch` for multi-line source edits. Avoid exact-string Python
+  rewrites and shell heredocs when a reviewable unified diff expresses the
+  change directly. Inspect the repository diff after each meaningful edit.
 - Run the repository's relevant checks in the task worktree.
 
 ## Research and development services
@@ -118,10 +133,10 @@ mounted at all.
   blocker, evidence links, and the next safe checkpoint. Omit empty fields,
   transcript narrative, tool output, and discarded paths.
 - Before closing nonempty multi-step work, use `manage_plan reconcile` so every
-  item is explicitly done, blocked, deferred, or abandoned. Give blocked and
-  deferred items a concrete next action and name an owner when known. In the
-  final natural summary, distinguish implementation, merge, deployment, and
-  customer-visible completion.
+  item is explicitly `done`, `blocked`, `deferred`, or `abandoned`; blocked and
+  deferred items need a concrete next action, and should name an owner when one
+  is known. In the final natural summary, distinguish implementation, merge,
+  deployment, and customer-visible completion.
 - The engineer owns completion of delegated work. There is no agent-declared
   completed state and no valid "tell me if you want more" ending. Continue after
   a Signal, stop after Steering, and hand apparently finished work to QA with

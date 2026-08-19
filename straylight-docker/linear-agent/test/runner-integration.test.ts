@@ -12,6 +12,8 @@ test("streams structured events across the controller-runner boundary", async ()
   let collaboration: unknown;
   let sharedArtifact: unknown;
   let viewedImage: unknown;
+  let appliedPatch: unknown;
+  let managedPlan: unknown;
   const harness = {
     async askClaude(taskCredential: string, request: string) {
       return taskCredential === "one-time-task-token" && request === "Find the context"
@@ -27,6 +29,19 @@ test("streams structured events across the controller-runner boundary", async ()
     },
     async shell(request: { command: string }) {
       return { ok: true, exitCode: 0, stdout: request.command, stderr: "" };
+    },
+    async applyPatch(request: { patch: string; directory?: string }) {
+      appliedPatch = request;
+      return { ok: true, exitCode: 0, stdout: "applied", stderr: "" };
+    },
+    async managePlan(request: unknown) {
+      managedPlan = request;
+      return {
+        ok: true as const,
+        plan: { nextId: 2, items: [{ id: 1, content: "Implement", status: "inProgress" as const }] },
+        mirrored: true,
+        message: "Durable plan updated and mirrored to Linear.",
+      };
     },
     async shareArtifact(request: { path: string; title?: string }) {
       sharedArtifact = request;
@@ -102,6 +117,38 @@ test("streams structured events across the controller-runner boundary", async ()
       body: JSON.stringify({ command: "pwd" }),
     });
     assert.deepEqual(await shell.json(), { ok: true, exitCode: 0, stdout: "pwd", stderr: "" });
+    const patch = await fetch(`${baseUrl}/v1/patch`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        directory: "carbonfact",
+        patch: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n",
+      }),
+    });
+    assert.deepEqual(await patch.json(), { ok: true, exitCode: 0, stdout: "applied", stderr: "" });
+    assert.deepEqual(appliedPatch, {
+      directory: "carbonfact",
+      patch: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-a\n+b\n",
+    });
+    const plan = await fetch(`${baseUrl}/v1/plan`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "add", content: "Implement", status: "inProgress" }),
+    });
+    assert.equal(plan.status, 200);
+    assert.deepEqual(await plan.json(), {
+      ok: true,
+      plan: { nextId: 2, items: [{ id: 1, content: "Implement", status: "inProgress" }] },
+      mirrored: true,
+      message: "Durable plan updated and mirrored to Linear.",
+    });
+    assert.deepEqual(managedPlan, { action: "add", content: "Implement", status: "inProgress" });
+    const invalidPlan = await fetch(`${baseUrl}/v1/plan`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ action: "update", id: 1 }),
+    });
+    assert.equal(invalidPlan.status, 400);
     const artifact = await fetch(`${baseUrl}/v1/artifact`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },

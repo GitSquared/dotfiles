@@ -14,6 +14,7 @@ import type {
 } from "./linear-actions.js";
 import type { ServiceRequest, ServiceResult } from "./service-client.js";
 import type { LinearInputFile, RepositoryCandidate } from "./types.js";
+import type { PlanDetails, PlanRequest } from "./plan.js";
 import { finalText } from "./redaction.js";
 
 export const RUNNER_MAX_BODY_BYTES = 30 * 1024 * 1024;
@@ -45,6 +46,8 @@ type RunnerHarness = {
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
   runClaude?(token: string, request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
   shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  applyPatch?(request: { patch: string; directory?: string }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  managePlan?(request: PlanRequest, signal?: AbortSignal): Promise<{ ok: true; plan: PlanDetails; mirrored?: boolean; message: string }>;
   shareArtifact?(request: { path: string; title?: string; body?: string }, signal?: AbortSignal): Promise<{ ok: true; assetUrl: string; contentType: string; filename: string }>;
   viewImage?(request: { path: string }): Promise<{ ok: true; dataBase64: string; mimeType: string }>;
   manageService?(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult>; // yadm-secret-scan: ignore
@@ -191,6 +194,28 @@ export function createRunnerServer(
       }, request.signal));
     }
 
+    if (method === "POST" && pathname === "/v1/patch") {
+      const input = await body<{ patch?: string; directory?: string }>(request);
+      if (!pi.applyPatch || typeof input.patch !== "string" || !input.patch.trim() || input.patch.length > 200_000
+        || (input.directory !== undefined && (typeof input.directory !== "string" || !input.directory.trim() || input.directory.length > 4_096))) {
+        return json(400, { ok: false, error: "invalid_patch_request" });
+      }
+      server?.timeout(request, 0);
+      return json(200, await pi.applyPatch({
+        patch: input.patch,
+        ...(input.directory ? { directory: input.directory } : {}),
+      }, request.signal));
+    }
+
+    if (method === "POST" && pathname === "/v1/plan") {
+      const input = await body<PlanRequest>(request);
+      if (!pi.managePlan || !validPlanRequest(input)) {
+        return json(400, { ok: false, error: "invalid_plan_request" });
+      }
+      server?.timeout(request, 0);
+      return json(200, await pi.managePlan(input, request.signal));
+    }
+
     if (method === "POST" && pathname === "/v1/artifact") {
       const input = await body<{ path?: string; title?: string; body?: string }>(request);
       if (!pi.shareArtifact || typeof input.path !== "string" || !input.path.trim() || input.path.length > 4_096
@@ -242,6 +267,30 @@ export function createRunnerServer(
 
     return json(404, { ok: false, error: "not_found" });
   }
+}
+
+function validPlanRequest(input: PlanRequest): boolean {
+  if (!input || typeof input !== "object" || !["list", "replace", "add", "update", "remove", "reconcile"].includes(input.action)) {
+    return false;
+  }
+  if (input.steps !== undefined && (!Array.isArray(input.steps) || input.steps.length > 20
+    || input.steps.some((step) => !step || typeof step.content !== "string" || !step.content.trim() || step.content.length > 500
+      || !["pending", "inProgress", "completed", "canceled"].includes(step.status)))) return false;
+  if (input.id !== undefined && (!Number.isSafeInteger(input.id) || input.id < 1)) return false;
+  if (input.content !== undefined && (typeof input.content !== "string" || !input.content.trim() || input.content.length > 500)) return false;
+  if (input.status !== undefined && !["pending", "inProgress", "completed", "canceled"].includes(input.status)) return false;
+  if (input.dispositions !== undefined && (!Array.isArray(input.dispositions) || input.dispositions.length > 20
+    || input.dispositions.some((item) => !item || !Number.isSafeInteger(item.id) || item.id < 1
+      || !["done", "blocked", "deferred", "abandoned"].includes(item.disposition)
+      || typeof item.note !== "string" || !item.note.trim() || item.note.length > 500
+      || (item.owner !== undefined && (typeof item.owner !== "string" || !item.owner.trim() || item.owner.length > 200))
+      || (item.nextAction !== undefined && (typeof item.nextAction !== "string" || !item.nextAction.trim() || item.nextAction.length > 500))))) return false;
+  if (input.action === "replace") return input.steps !== undefined;
+  if (input.action === "add") return input.content !== undefined;
+  if (input.action === "update") return input.id !== undefined && (input.content !== undefined || input.status !== undefined);
+  if (input.action === "remove") return input.id !== undefined;
+  if (input.action === "reconcile") return input.dispositions !== undefined;
+  return input.action === "list";
 }
 
 function streamClaudeAgent(

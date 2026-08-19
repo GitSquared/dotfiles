@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { reconcilePlan } from "../src/pi.js";
+import { applyPlanRequest, parsePlan, reconcilePlan } from "../src/plan.js";
 
 test("reconciles every plan item into an explicit native terminal state", () => {
   const plan = reconcilePlan({
@@ -54,4 +54,23 @@ test("keeps the closure disposition visible when plan prose is long", () => {
   assert.ok((plan.items[0]?.content.length ?? 501) <= 500);
   assert.match(plan.items[0]?.content ?? "", /Deferred: Await the rollout window/);
   assert.match(plan.items[0]?.content ?? "", /Next: Deploy and run the Document review smoke test/);
+});
+
+test("applies incremental plan operations without mutating the prior state", () => {
+  const initial = { nextId: 2, items: [{ id: 1, content: "Inspect", status: "inProgress" as const }] };
+  const added = applyPlanRequest(initial, { action: "add", content: "Implement" });
+  const completed = applyPlanRequest(added, { action: "update", id: 1, status: "completed" });
+  assert.deepEqual(initial, { nextId: 2, items: [{ id: 1, content: "Inspect", status: "inProgress" }] });
+  assert.deepEqual(completed, {
+    nextId: 3,
+    items: [
+      { id: 1, content: "Inspect", status: "completed" },
+      { id: 2, content: "Implement", status: "pending" },
+    ],
+  });
+});
+
+test("rejects corrupt persisted plan state", () => {
+  assert.throws(() => parsePlan({ nextId: 1, items: [{ id: 1, content: "Invalid", status: "pending" }] }), /nextId/);
+  assert.throws(() => parsePlan({ nextId: 2, items: [{ id: 1, content: "Invalid", status: "mystery" }] }), /invalid item/);
 });

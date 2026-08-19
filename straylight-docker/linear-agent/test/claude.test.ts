@@ -228,6 +228,74 @@ test("runs shell commands in the task workspace and strips broker credentials", 
   }
 });
 
+test("applies a unified diff inside the selected workspace directory", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-patch-"));
+  try {
+    const repository = path.join(workdir, "repository");
+    await fs.mkdir(repository);
+    await fs.writeFile(path.join(repository, "note.txt"), "before\n");
+    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); } });
+    const result = await harness.applyPatch({
+      directory: "repository",
+      patch: [
+        "diff --git a/note.txt b/note.txt",
+        "--- a/note.txt",
+        "+++ b/note.txt",
+        "@@ -1 +1 @@",
+        "-before",
+        "+after",
+        "",
+      ].join("\n"),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(await fs.readFile(path.join(repository, "note.txt"), "utf8"), "after\n");
+    await assert.rejects(
+      harness.applyPatch({ directory: "..", patch: "not a patch" }),
+      /inside \/workspace/,
+    );
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("persists and incrementally mirrors Claude's durable task plan", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-plan-"));
+  try {
+    const collaborations: unknown[] = [];
+    const linear = {
+      async upload() { throw new Error("unused"); },
+      async collaborate(request: unknown) {
+        collaborations.push(request);
+        return { ok: true as const, action: "plan" as const, data: { mirrored: true } };
+      },
+    };
+    const harness = new ClaudeHarness(
+      config(workdir),
+      { async runBrokeredAgent() { throw new Error("unused"); } },
+      linear,
+    );
+    const replaced = await harness.managePlan({
+      action: "replace",
+      steps: [
+        { content: "Inspect the affected path", status: "completed" },
+        { content: "Implement and verify", status: "inProgress" },
+      ],
+    });
+    assert.equal(replaced.mirrored, true);
+    await harness.managePlan({ action: "add", content: "Prepare QA evidence" });
+    const listed = await harness.managePlan({ action: "list" });
+    assert.deepEqual(listed.plan.items.map(({ id, content, status }) => ({ id, content, status })), [
+      { id: 1, content: "Inspect the affected path", status: "completed" },
+      { id: 2, content: "Implement and verify", status: "inProgress" },
+      { id: 3, content: "Prepare QA evidence", status: "pending" },
+    ]);
+    assert.equal(collaborations.length, 2);
+    assert.deepEqual(JSON.parse(await fs.readFile(path.join(workdir, ".straylight", "plan.json"), "utf8")), listed.plan);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
 test("uploads a workspace artifact through the Linear broker and shares it for review", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-artifact-"));
   try {
