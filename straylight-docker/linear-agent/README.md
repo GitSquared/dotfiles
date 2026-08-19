@@ -145,10 +145,10 @@ comments:
   is left terminal without replaying completed actions
 
 The Pi fallback has a dedicated `request_access` flow for login, connection,
-approval, or permission failures. Default Claude runs should put developer-access
-failures into a blocking Steering child with a precise repair request; capsule
-authentication failures are repaired from the interactive workbench described
-below.
+approval, or permission failures. It creates a blocking Steering child with the
+trusted workbench link and a precise repair request. Default Claude runs use the
+same child-issue transition for developer-access failures; capsule authentication
+failures are repaired from the interactive workbench described below.
 
 ## Host data layout
 
@@ -323,17 +323,22 @@ MCP tools cross the authenticated control channel and operate inside the current
 identity but not source code; the task holds source code but not inference or
 Linear credentials.
 
-Claude cannot declare delegated work complete. A normal turn must continue after
-a Signal, pause in Steering, or pause in QA. `finish_work` exists only for a
-non-human external dependency with a concrete retry condition or an explicitly
-authorized deferral. The Stop hook repairs one invalid transition, and the
-capsule rejects any terminal summary that still contains an informal request such
-as "let me know" outside the attention state machine.
+Neither the default Claude runner nor the Pi fallback can declare delegated work
+complete. A normal turn must continue after a Signal, pause in Steering, or pause
+in QA. `finish_work` exists only for a non-human external dependency with a
+concrete retry condition or an explicitly authorized deferral. Claude's Stop hook
+repairs one invalid transition. Pi runs one bounded repair turn, blocks later
+tools after a terminal transition, and then fails closed. Both reject terminal
+prose that still contains an informal request such as "let me know" outside the
+attention state machine.
 
 The controller-to-runner NDJSON response emits blank transport heartbeats every
 15 seconds and disables Bun's native fetch timeout where supported. Quiet Claude
 turns also replace their ephemeral Linear activity every configured progress
 interval, so a long inference neither looks dead nor loses its control stream.
+That visible activity is currently only synthetic proof-of-life: the Claude
+capsule does not yet forward the Agent SDK's semantic text, tool-progress,
+rate-limit, or usage events to Linear.
 
 ## Linear workflow setup
 

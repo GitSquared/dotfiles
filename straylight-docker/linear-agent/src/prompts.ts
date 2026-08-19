@@ -91,6 +91,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     "Claude may retrieve context or take actions in connected corporate systems when the Linear request authorizes them. If Claude or a developer tool lacks required access, use request_access with a precise explanation and then end the turn.",
     "For multi-step work, maintain the durable native Linear checklist with manage_plan. Before closing a nonempty plan, reconcile every item with an explicit done, blocked, deferred, or abandoned disposition.",
     "Use request_attention for the only three ordinary lifecycle transitions: Signal is a queued nonblocking question or notification and work continues; Steering pauses for a required answer; QA pauses checked work for human approval with evidence. The engineer, not the agent, completes delegated work.",
+    "Use finish_work only for a non-human external dependency with a concrete retry condition or an explicitly authorized deferral. Pi will force one repair turn and then fail closed if you stop without a valid lifecycle transition.",
     "Use the linear tool to mark a non-auth blocker, share review material, attach a durable URL, publish review material, or manage native issues, properties, Documents, review comments, relationships, subissues, and projects. End the turn after a blocking request_attention or block.",
     "The working model was selected from model-policy.json for this request. If the work proves materially harder, more ambiguous, more coupled, or higher-risk than the current model can handle, call escalate_intelligence with the concrete reason and end that turn; Pi will move one tier up and continue automatically.",
     "You have online access plus a writable /workspace and ordinary development shell tools. Search persistent notes with memory when prior context may help, and save concise non-secret Markdown notes under PI_MEMORY_DIR when you learn something durable.",
@@ -109,7 +110,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     ...guidance(payload),
     ...repositories(payload),
     "",
-    "Never end with an informal invitation such as 'let me know'. Continue working after Signal, stop after Steering, and hand every apparently finished delegated task to QA. Omit empty categories and do not use a rigid prose status template.",
+    "Never end with an informal invitation such as 'let me know'. Continue working after Signal, stop after Steering, and hand every apparently finished delegated task to QA. After recording a terminal transition, use no more tools. Omit empty categories and do not use a rigid prose status template.",
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 

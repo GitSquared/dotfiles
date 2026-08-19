@@ -18,6 +18,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /Keep the change targeted/);
   assert.match(prompt, /Do not push/);
   assert.match(prompt, /request_access/);
+  assert.match(prompt, /finish_work/);
+  assert.match(prompt, /fail closed/);
   assert.match(prompt, /manage_plan/);
   assert.match(prompt, /take actions in connected corporate systems/);
   assert.match(prompt, /persistent notes with memory/);

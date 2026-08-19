@@ -480,6 +480,10 @@ Status: implemented locally; deployed acceptance pending.
 - Require QA evidence, force external blockers and deferrals to name a next
   action, and fail closed if terminal prose still asks the engineer to "let me
   know", review, or confirm outside an attention transition.
+- Give the Pi fallback the same lifecycle contract: one bounded repair turn when
+  it stops without a disposition, an inline tool guard after any terminal
+  transition, and `finish_work` only for external blockers or deferrals. Route
+  its missing-access path through a blocking Steering child too.
 - Emit an invisible NDJSON heartbeat every 15 seconds, suppress Bun's native
   long-fetch timeout where supported, and send replacement-style visible progress
   for quiet Claude turns.
@@ -498,12 +502,16 @@ Acceptance:
    approval controls, and cannot degrade into "tell me if you want more" prose.
 5. Approve QA and confirm parent and child complete without inference; request
    changes instead and confirm the same parent resumes and later returns to QA.
+6. On the Pi fallback, omit a terminal transition and confirm one repair turn is
+   forced; omit it again and confirm the run fails instead of publishing an
+   ordinary completion.
 
 ## Later hardening
 
-- Give the Pi fallback the same fail-closed terminal hook as the default Claude
-  runner. Its attention tool already speaks Signal/Steering/QA, but Pi can still
-  end without choosing one of those dispositions.
+- Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit
+  state, and aggregate usage through the existing subscription-authenticated
+  capsule. Replace synthetic proof-of-life with semantic activity when available
+  while keeping a transport-only heartbeat for truly silent intervals.
 - Replace the Pi fallback task's reusable Codex credential copy with a model
   broker before broadening that route beyond the personal pilot.
 - Move from shared-kernel Docker isolation to gVisor, Kata, or a microVM backend

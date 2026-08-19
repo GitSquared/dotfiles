@@ -125,9 +125,10 @@ mounted at all.
 - The engineer owns completion of delegated work. There is no agent-declared
   completed state and no valid "tell me if you want more" ending. Continue after
   a Signal, stop after Steering, and hand apparently finished work to QA with
-  evidence. Claude may call `finish_work` only for `blocked_external` when a
+  evidence. A runner may call `finish_work` only for `blocked_external` when a
   non-human dependency has a concrete retry condition, or `deferred` when the
-  authoritative request permits postponement.
+  authoritative request permits postponement. After any terminal transition,
+  use no more tools.
 - A quick classifier selects the cheapest suitable model when a new session
   starts. If the current model is clearly undersized, call
   `escalate_intelligence` with the concrete reason and end the turn so the next

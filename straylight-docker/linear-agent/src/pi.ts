@@ -10,6 +10,7 @@ import {
   SessionManager,
   type ToolDefinition,
   type AgentSession,
+  type InlineExtension,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CapsuleClient } from "./capsule-client.js";
@@ -58,6 +59,57 @@ type ModelChoice = {
 type RunnerSender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 type PiImage = { type: "image"; data: string; mimeType: string };
 type MaterializedInputs = { prompt: string; images: PiImage[] };
+
+const HUMAN_BLOCKER_LANGUAGE = /\b(?:cannot|can't|unable to|nothing further\b[^.]{0,120}\buntil|waiting for (?:you|the engineer|a human)|requires? (?:your|developer|human) (?:input|access|permission)|need(?:s|ed)? (?:you|the engineer|a human) to)\b/i;
+const INFORMAL_ATTENTION_LANGUAGE = /\b(?:let me know|tell me if|please (?:review|confirm|check)|confirm whether|what would you like|when you(?:'re| are) ready)\b/i;
+
+export const PI_LIFECYCLE_REPAIR_PROMPT = [
+  "You attempted to stop without choosing a valid Straylight lifecycle transition.",
+  "Do not perform more implementation work merely to avoid the transition.",
+  "If checked work is ready, call request_attention with kind qa and reviewable HTTPS evidence.",
+  "If an engineer answer is required, call request_attention with kind steering.",
+  "If only a nonblocking notification is useful, send a signal and continue to another terminal transition.",
+  "Call finish_work only for a non-human external blocker with a concrete retry condition or an explicitly authorized deferral.",
+  "The agent may not declare delegated work complete.",
+].join(" ");
+
+export function piTerminalToolBlock(disposition: WorkDisposition | undefined): { block: true; reason: string } | undefined {
+  if (!disposition) return undefined;
+  return {
+    block: true,
+    reason: "A terminal Straylight lifecycle disposition is already recorded. Return the concise final summary without using more tools.",
+  };
+}
+
+export function assertPiTerminalSummary(disposition: WorkDisposition, summary: string): void {
+  if (["awaiting_steering", "awaiting_qa"].includes(disposition.status)) return;
+  if (HUMAN_BLOCKER_LANGUAGE.test(summary) || INFORMAL_ATTENTION_LANGUAGE.test(summary)) {
+    throw new Error("Pi ended with an informal or human-owned next action outside the Linear attention state machine");
+  }
+}
+
+export async function enforcePiLifecycleTransition(
+  initialTurn: () => Promise<void>,
+  repairTurn: () => Promise<void>,
+  disposition: () => WorkDisposition | undefined,
+): Promise<void> {
+  await initialTurn();
+  if (disposition()) return;
+  await repairTurn();
+  if (!disposition()) {
+    throw new Error("Pi ended without a structured work disposition after one repair turn");
+  }
+}
+
+function piLifecycleExtension(runState: ManagedSession["runState"]): InlineExtension {
+  return {
+    name: "straylight-lifecycle-guard",
+    hidden: true,
+    factory(pi) {
+      pi.on("tool_call", () => piTerminalToolBlock(runState.current?.disposition));
+    },
+  };
+}
 
 async function acquireMemoryLock(memoryDirectory: string): Promise<() => Promise<void>> {
   const lockDirectory = path.join(memoryDirectory, ".qmd.lock");
@@ -391,7 +443,7 @@ export class PiHarness {
         : "";
       const prompt = `${payload.action === "prompted" ? followUpPrompt(payload) : initialPrompt(payload)}${linearInputs.prompt}${imageNote}`;
       await Promise.race([
-        this.promptWithReload(managed, prompt, runState, supportsImages ? linearInputs.images : []),
+        this.promptWithLifecycle(managed, prompt, runState, supportsImages ? linearInputs.images : []),
         new Promise<never>((_resolve, reject) => {
           timeout = setTimeout(() => {
             timedOut = true;
@@ -401,13 +453,16 @@ export class PiHarness {
         }),
       ]);
       await reporter.flush();
+      const disposition = runState.disposition;
+      if (!disposition) throw new Error("Pi ended without a structured work disposition after one repair turn");
+      assertPiTerminalSummary(disposition, output);
       return {
-        ok: true,
+        ok: runState.awaitingInput,
         timedOut: false,
         awaitingInput: runState.awaitingInput,
-        summary: finalText(output || "Pi completed without a textual summary."),
+        summary: finalText(output || "Pi ended the turn without a textual summary."),
         elapsedMs: Math.round(performance.now() - startedAt),
-        ...(runState.disposition ? { disposition: runState.disposition } : {}),
+        disposition,
       };
     } catch (error) {
       await reporter.flush();
@@ -583,6 +638,19 @@ export class PiHarness {
     }
   }
 
+  private async promptWithLifecycle(
+    managed: ManagedSession,
+    prompt: string,
+    runState: ActiveRunState,
+    images: PiImage[],
+  ): Promise<void> {
+    await enforcePiLifecycleTransition(
+      () => this.promptWithReload(managed, prompt, runState, images),
+      () => this.promptWithReload(managed, PI_LIFECYCLE_REPAIR_PROMPT, runState, []),
+      () => runState.disposition,
+    );
+  }
+
   private async session(sessionId: string, choice?: ModelChoice): Promise<ManagedSession> {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing;
@@ -602,6 +670,7 @@ export class PiHarness {
       cwd: this.config.piWorkdir,
       agentDir: this.config.piConfigDirectory,
       additionalExtensionPaths: [webAccessExtensionPath(), visualExplainer.extension],
+      extensionFactories: [piLifecycleExtension(runState)],
       additionalSkillPaths: [visualExplainer.skill],
       additionalPromptTemplatePaths: [visualExplainer.prompts],
     });
@@ -778,23 +847,60 @@ export class PiHarness {
           const providerName = params.providerName
             ? finalText(params.providerName).slice(0, 200)
             : params.workspace === "claude" ? "Claude workbench" : "Developer tools";
-          await linear.collaborate({
-            action: "activity",
-            content: {
-              type: "elicitation",
-              body: `${message}\n\nOpen the workbench instructions, fix the access, then reply \`resume\` here.`,
-            },
-            signal: "auth" as const,
-            signalMetadata: { url: params.workspace === "claude" ? capsuleAuthUrl : toolAuthUrl, providerName },
-          });
+          const accessUrl = params.workspace === "claude" ? capsuleAuthUrl : toolAuthUrl;
+          const request: AttentionRequest = {
+            kind: "steering",
+            delivery: "queue",
+            priority: "high",
+            title: `Restore ${providerName} access`.slice(0, 160),
+            action: `${message}\n\nOpen the trusted workbench instructions, restore access, then reply on this child issue.`.slice(0, 1_000),
+            originalIntent: `Resume the delegated Linear task that requires ${providerName}.`,
+            delta: `${providerName} is unavailable inside the current isolated agent workspace.`,
+            recommendation: "Use the trusted workbench link below to repair the existing login or permission; never paste credentials into Linear.",
+            impact: "The parent agent run cannot continue until this access is restored.",
+            timing: "Before the parent agent run can resume.",
+            evidence: [{ label: `Open ${providerName} workbench`, url: accessUrl }],
+          };
+          await linear.collaborate({ action: "attention", request });
           current.awaitingInput = true;
           current.disposition = {
             status: "awaiting_steering",
             reason: message,
-            nextAction: "Restore the requested workbench access and resume the parent session.",
+            nextAction: `Restore ${providerName} access on the Steering child issue and resume the parent session.`,
           };
           reporter.current?.stop();
-          return { content: [{ type: "text" as const, text: "Specific access request sent to Linear. End this turn and wait for the engineer's follow-up." }], details: {} };
+          return { content: [{ type: "text" as const, text: "Blocking access Steering child sent to Linear. End this turn and wait for the engineer's response there." }], details: {} };
+        },
+      }),
+      defineTool({
+        name: "finish_work",
+        label: "Finish exceptional work",
+        description: "Record an exceptional non-human terminal state. Normal delegated work must go to QA; the agent cannot declare it complete.",
+        promptSnippet: "End only for a concrete external blocker or authorized deferral",
+        promptGuidelines: [
+          "Use blocked_external only when a non-human dependency prevents further work and name the concrete retry condition in nextAction.",
+          "Use deferred only when the authoritative request explicitly permits postponement and name the concrete next action.",
+          "Never use this tool for work that is ready for ownership or for a human-resolvable blocker. Use QA or Steering instead.",
+          "After this tool succeeds, return one concise summary and use no more tools.",
+        ],
+        parameters: Type.Object({
+          status: Type.Union([Type.Literal("blocked_external"), Type.Literal("deferred")]),
+          reason: Type.String({ minLength: 1, maxLength: 2_000 }),
+          nextAction: Type.String({ minLength: 1, maxLength: 1_000 }),
+        }),
+        async execute(_toolCallId, params) {
+          const current = runState.current;
+          if (!current) throw new Error("No active Linear run");
+          if (current.disposition) throw new Error("A terminal work disposition is already recorded");
+          current.disposition = {
+            status: params.status,
+            reason: finalText(params.reason).slice(0, 2_000),
+            nextAction: finalText(params.nextAction).slice(0, 1_000),
+          };
+          return {
+            content: [{ type: "text", text: "Terminal work disposition recorded. Return the concise final summary now without using more tools." }],
+            details: {},
+          };
         },
       }),
       defineTool({
