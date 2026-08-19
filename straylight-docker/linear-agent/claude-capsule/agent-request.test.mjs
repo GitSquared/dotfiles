@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, stopDispositionGuard } from "./agent-request.mjs";
 
-test("projects Claude SDK reasoning and activity without exposing tool arguments", async () => {
+test("projects Claude SDK reasoning and useful tool targets", async () => {
   const events = [];
   let now = 0;
   const project = createProgressProjector(async (event) => events.push(event), () => now);
@@ -10,35 +10,24 @@ test("projects Claude SDK reasoning and activity without exposing tool arguments
   await project({ type: "stream_event", event: { type: "message_start" } });
   await project({
     type: "stream_event",
-    event: { type: "content_block_start", content_block: { type: "tool_use", name: "mcp__straylight__bash", input: { command: "secret" } } },
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-1", name: "mcp__straylight__bash", input: {} } },
   });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"rg -n TODO src"}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 1 } });
   now = 1_000;
   await project({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "private chain of thought" } } });
   now = 2_000;
   await project({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "I found the relevant module." } } });
-  await project({ type: "system", subtype: "thinking_tokens", estimated_tokens: 300, estimated_tokens_delta: 300 });
   await project({ type: "tool_progress", tool_use_id: "tool-1", tool_name: "mcp__straylight__bash", elapsed_time_seconds: 12 });
   await project({ type: "system", subtype: "api_retry", attempt: 2, max_retries: 4, error_status: 529 });
 
   assert.deepEqual(events, [
     { type: "thought", body: "Claude Code connected using claude-sonnet-5; the agent turn is running." },
-    { type: "action", action: "Running bash", parameter: "mcp__straylight__bash" },
+    { type: "action", action: "Running command", parameter: "rg -n TODO src" },
     { type: "thought", body: "Thinking: private chain of thought" },
     { type: "thought", body: "I found the relevant module." },
-    { type: "action", action: "Running bash", parameter: "12s elapsed" },
+    { type: "action", action: "Running command", parameter: "rg -n TODO src", result: "12s elapsed" },
     { type: "thought", body: "Claude is retrying a model request (2/4, HTTP 529)." },
-  ]);
-  assert.doesNotMatch(JSON.stringify(events), /secret/);
-});
-
-test("falls back to thinking-token progress when Claude exposes no reasoning text", async () => {
-  const events = [];
-  const project = createProgressProjector(async (event) => events.push(event));
-  await project({ type: "stream_event", event: { type: "message_start" } });
-  await project({ type: "system", subtype: "thinking_tokens", estimated_tokens: 300, estimated_tokens_delta: 300 });
-
-  assert.deepEqual(events, [
-    { type: "thought", body: "Claude is thinking (about 300 tokens so far)." },
   ]);
 });
 

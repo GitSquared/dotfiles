@@ -21,9 +21,70 @@ function safeLogMessage(value) {
     .replace(/(--(?:token|api-key|key|secret|password|auth)(?:\s+|=))\S+/gi, "$1[redacted]");
 }
 
+function toolName(name) {
+  return String(name ?? "").replace(/^mcp__straylight__/, "").trim();
+}
+
 function progressAction(name) {
-  const clean = boundedProgress(name).replace(/^mcp__straylight__/, "").replace(/[_-]+/g, " ");
-  return clean ? `Running ${clean}` : "Running tool";
+  switch (toolName(name)) {
+    case "bash": return "Running command";
+    case "view_image": return "Inspecting image";
+    case "share_artifact": return "Sharing artifact";
+    case "request_attention": return "Requesting attention";
+    case "finish_work": return "Recording work disposition";
+    case "manage_linear": return "Updating Linear";
+    case "linear_activity": return "Publishing Linear activity";
+    case "manage_service": return "Managing task service";
+    default: {
+      const clean = boundedProgress(name).replace(/^mcp__straylight__/, "").replace(/[_-]+/g, " ");
+      return clean ? `Running ${clean}` : "Running tool";
+    }
+  }
+}
+
+function progressParameter(name, input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return undefined;
+  const values = input;
+  let parameter;
+  switch (toolName(name)) {
+    case "bash":
+      parameter = values.command;
+      break;
+    case "view_image":
+    case "share_artifact":
+      parameter = values.path;
+      break;
+    case "request_attention":
+      parameter = values.title;
+      break;
+    case "finish_work":
+      parameter = [values.status, values.reason].filter(Boolean).join(": ");
+      break;
+    case "manage_linear":
+      parameter = [values.operation, values.resource, values.id].filter(Boolean).join(" ");
+      break;
+    case "linear_activity":
+      parameter = values.request?.action ?? values.request?.type ?? values.request?.title;
+      break;
+    case "manage_service":
+      parameter = [values.action, values.service].filter(Boolean).join(" ");
+      break;
+    default:
+      parameter = values.path ?? values.command ?? values.query ?? values.url ?? values.name;
+      break;
+  }
+  return typeof parameter === "string" && parameter.trim() ? safeLogMessage(parameter) : undefined;
+}
+
+function parsedToolInput(entry) {
+  if (entry.input && Object.keys(entry.input).length > 0) return entry.input;
+  if (!entry.partialJson) return undefined;
+  try {
+    const value = JSON.parse(entry.partialJson);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function assistantText(message) {
@@ -41,12 +102,12 @@ export function createProgressProjector(report, clock = Date.now) {
   let lastTextLength = 0;
   let lastTextAt = 0;
   let partialThinking = "";
-  let thinkingTextSeen = false;
   let totalThinkingLength = 0;
   let lastThinkingLength = 0;
   let lastThinkingAt = 0;
-  let thinkingBucket = -1;
   const toolBuckets = new Map();
+  const streamedToolCalls = new Map();
+  const toolTargets = new Map();
 
   return async (message) => {
     let progress;
@@ -59,19 +120,43 @@ export function createProgressProjector(report, clock = Date.now) {
         lastTextLength = 0;
         lastTextAt = clock();
         partialThinking = "";
-        thinkingTextSeen = false;
         totalThinkingLength = 0;
         lastThinkingLength = 0;
         lastThinkingAt = clock();
+        streamedToolCalls.clear();
       } else if (event?.type === "content_block_start" && event.content_block?.type === "tool_use") {
-        progress = {
-          type: "action",
-          action: progressAction(event.content_block.name),
-          parameter: boundedProgress(event.content_block.name) || "tool",
+        const key = event.index ?? event.content_block.id;
+        const entry = {
+          id: event.content_block.id,
+          name: event.content_block.name,
+          input: event.content_block.input,
+          partialJson: "",
+          reportedParameter: undefined,
         };
+        streamedToolCalls.set(key, entry);
+        const parameter = progressParameter(entry.name, parsedToolInput(entry));
+        if (parameter) {
+          entry.reportedParameter = parameter;
+          if (entry.id) toolTargets.set(entry.id, parameter);
+          progress = { type: "action", action: progressAction(entry.name), parameter };
+        }
+      } else if (event?.type === "content_block_delta" && event.delta?.type === "input_json_delta") {
+        const entry = streamedToolCalls.get(event.index);
+        if (entry) entry.partialJson = `${entry.partialJson}${event.delta.partial_json ?? ""}`;
+      } else if (event?.type === "content_block_stop") {
+        const entry = streamedToolCalls.get(event.index);
+        if (entry) {
+          const parameter = progressParameter(entry.name, parsedToolInput(entry));
+          if (parameter) {
+            if (entry.id) toolTargets.set(entry.id, parameter);
+            if (parameter !== entry.reportedParameter) {
+              progress = { type: "action", action: progressAction(entry.name), parameter };
+            }
+          }
+          streamedToolCalls.delete(event.index);
+        }
       } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
         const delta = event.delta.thinking ?? "";
-        if (delta) thinkingTextSeen = true;
         partialThinking = `${partialThinking}${delta}`.slice(-MAX_PROGRESS_TEXT);
         totalThinkingLength += delta.length;
         const now = clock();
@@ -103,11 +188,14 @@ export function createProgressProjector(report, clock = Date.now) {
       const bucket = Math.floor(Math.max(0, message.elapsed_time_seconds ?? 0) / 10);
       if (toolBuckets.get(message.tool_use_id) !== bucket) {
         toolBuckets.set(message.tool_use_id, bucket);
+        const parameter = toolTargets.get(message.tool_use_id) ?? "In progress";
         progress = {
           type: "action",
           action: progressAction(message.tool_name),
-          parameter: `${Math.max(0, Math.round(message.elapsed_time_seconds ?? 0))}s elapsed`,
-          ...(message.subagent_retry ? { result: `Retry ${message.subagent_retry.attempt}/${message.subagent_retry.max_retries}` } : {}),
+          parameter,
+          result: message.subagent_retry
+            ? `Retry ${message.subagent_retry.attempt}/${message.subagent_retry.max_retries}`
+            : `${Math.max(0, Math.round(message.elapsed_time_seconds ?? 0))}s elapsed`,
         };
       }
     } else if (message?.type === "system" && message.subtype === "init") {
@@ -115,12 +203,6 @@ export function createProgressProjector(report, clock = Date.now) {
         type: "thought",
         body: `Claude Code connected${message.model ? ` using ${boundedProgress(message.model)}` : ""}; the agent turn is running.`,
       };
-    } else if (message?.type === "system" && message.subtype === "thinking_tokens") {
-      const bucket = Math.floor(Math.max(0, message.estimated_tokens ?? 0) / 256);
-      if (!thinkingTextSeen && bucket !== thinkingBucket) {
-        thinkingBucket = bucket;
-        progress = { type: "thought", body: `Claude is thinking (about ${Math.max(0, Math.round(message.estimated_tokens ?? 0))} tokens so far).` };
-      }
     } else if (message?.type === "system" && message.subtype === "status" && message.status === "compacting") {
       progress = { type: "thought", body: "Claude is compacting its working context before continuing." };
     } else if (message?.type === "system" && message.subtype === "api_retry") {

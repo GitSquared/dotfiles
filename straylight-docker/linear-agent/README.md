@@ -339,9 +339,10 @@ interval, so a long inference neither looks dead nor loses its control stream.
 The authenticated capsule and both workbench hops use the same bounded NDJSON
 protocol. Claude reasoning deltas, assistant text, tool starts and elapsed time,
 compaction, retries, and subscription-limit warnings become inspectable
-replacement-style Linear activity. Thinking-token estimates remain a fallback
-when Claude exposes no reasoning text. Tool arguments are never serialized as
-progress; all streamed text is bounded and recognized credentials are redacted
+replacement-style Linear activity. Thinking-token estimates are intentionally
+ignored. Tool activity includes a bounded useful target such as the command,
+file, Linear operation, or service action instead of exposing MCP implementation
+names. All streamed text is bounded and recognized credentials are redacted
 before Linear. The capsule logs request boundaries,
 terminal disposition, tool names, estimated token usage, and SDK-estimated cost
 without logging prompts or task tokens.
@@ -572,9 +573,9 @@ Useful Linear smoke tests:
    complete** / **Not approved**. Approval completes parent and child without a
    new agent turn; free-text changes resume the parent and eventually return to QA.
 5. Run a task with reasoning and a longer tool call. Confirm Linear replaces the
-   activity with safe assistant text, thinking-token proof-of-life, and tool
-   elapsed time; then keep Claude genuinely quiet longer than five minutes and
-   confirm synthetic progress, no runner-stream timeout, and one eventual
+   activity with inspectable reasoning, assistant text, and a useful tool target
+   plus elapsed time; then keep Claude genuinely quiet longer than five minutes
+   and confirm synthetic progress, no runner-stream timeout, and one eventual
    lifecycle transition.
 6. Start a longer command and choose **Send stop request**. Confirm the session
    reports that it stopped and the task container disappears.
