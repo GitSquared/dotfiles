@@ -140,7 +140,7 @@ export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
     stateDirectory: env.LINEAR_AGENT_STATE_DIR?.trim() || "/app/state",
     runnerUrl: serviceUrl(env, "PI_RUNNER_URL", "http://linear-agent-runner:8788"),
     runnerToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
-    attentionStateName: env.LINEAR_ATTENTION_STATE_NAME?.trim() || "Blocked",
+    attentionStateName: env.LINEAR_ATTENTION_STATE_NAME?.trim() || "In Review",
   };
 }
 

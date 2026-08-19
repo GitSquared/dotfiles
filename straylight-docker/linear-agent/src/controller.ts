@@ -89,7 +89,7 @@ export class AgentController {
     private readonly linear: LinearClient,
     private readonly runner: AgentRunner,
     stateDirectory?: string,
-    private readonly attentionStateName: string = "Blocked",
+    private readonly attentionStateName: string = "In Review",
   ) {
     this.stateStore = stateDirectory ? new ControllerStateStore(stateDirectory) : undefined;
   }

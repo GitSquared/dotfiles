@@ -102,7 +102,7 @@ comments:
   issue, no separate issue or label. Steering and QA always pause for a
   required answer or approval, and are exclusive per session; a blocking
   request flips the issue to a configured workflow state (`LINEAR_ATTENTION_STATE_NAME`,
-  default `Blocked`) and posts the request as a comment on that same issue.
+  default `In Review`) and posts the request as a comment on that same issue.
   Because Linear resumes an Agent Session natively from a comment on its own
   issue, the reply lands directly back on the paused run - no child issue,
   no second session, no cross-session routing. QA is refused without a
@@ -399,15 +399,17 @@ A delegated parent moves into the team's first Started state, remains there
 while working, and moves to the team's first Completed state only when the
 engineer chooses **Approve and complete** on a QA attention.
 
-One additional named workflow state is required per team: a "needs human
-input" state (`LINEAR_ATTENTION_STATE_NAME`, default `Blocked`) that the issue
-flips to for the duration of a blocking Steering or QA request, then away from
-on resolution or dismissal. Linear's `WorkflowState.type` enum has no generic
-`blocked` type to look up, so this is resolved by configured name and is not
-created automatically - create it once per team (any `started`-type state
-works) and the controller will use it; if a team is missing it, a blocking
-attention request fails with an actionable error naming the missing state
-rather than silently degrading or attempting to create one.
+A named workflow state marks a "needs human input" pause
+(`LINEAR_ATTENTION_STATE_NAME`, default `In Review` - one of Linear's default
+states, so most teams need no setup) that the issue flips to for the duration
+of a blocking Steering or QA request, then away from on resolution or
+dismissal. Linear's `WorkflowState.type` enum has no generic `blocked` type to
+look up, so this is resolved by configured name and is not created
+automatically; a team that renamed or removed its `In Review` state can point
+`LINEAR_ATTENTION_STATE_NAME` at any other `started`-type state instead. If
+the configured name is missing entirely, a blocking attention request fails
+with an actionable error naming it, rather than silently degrading or
+attempting to create one.
 
 An optional saved view can filter issues currently in that state, sorted by
 native priority, as the engineer's attention queue. Keep this as a view over
