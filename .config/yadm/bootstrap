@@ -14,6 +14,7 @@ readonly SSH_PUBLIC_KEY="$STRAYLIGHT_HOME/.ssh/id_ed25519.pub"
 readonly EXPECTED_HOST=straylight
 readonly EXPECTED_USER=gaby
 readonly EXPECTED_UID=1000
+readonly EXPECTED_LINEAR_AGENT_PUBLIC_URL=https://agent.gaby.dev
 readonly DRY_RUN=${STRAYLIGHT_DRY_RUN:-0}
 
 log() {
@@ -77,7 +78,7 @@ env_value() {
 }
 
 preflight() {
-  local current_branch distro version path source tailscale_dns linear_agent_url linear_agent_install_secret linear_agent_runner_secret
+  local current_branch distro version path source linear_agent_url linear_agent_install_secret linear_agent_runner_secret
 
   [[ $(id -u) -ne 0 ]] || die 'run as gaby, not root'
   [[ $(id -un) == "$EXPECTED_USER" ]] || die "expected user $EXPECTED_USER"
@@ -110,11 +111,9 @@ preflight() {
   [[ ${#linear_agent_install_secret} -ge 32 ]] || die 'LINEAR_AGENT_INSTALL_SECRET must contain at least 32 characters'
   linear_agent_runner_secret=$(env_value LINEAR_AGENT_RUNNER_SECRET) # yadm-secret-scan: ignore
   [[ ${#linear_agent_runner_secret} -ge 32 ]] || die 'LINEAR_AGENT_RUNNER_SECRET must contain at least 32 characters'
-  command -v tailscale >/dev/null 2>&1 || die 'the existing Straylight Tailscale installation is unavailable'
-  tailscale_dns=$(tailscale status --json | jq -r '.Self.DNSName // empty' | sed 's/\.$//')
-  [[ -n "$tailscale_dns" ]] || die 'Tailscale is not connected or has no MagicDNS name'
   linear_agent_url=$(env_value LINEAR_AGENT_PUBLIC_URL)
-  [[ "$linear_agent_url" == "https://$tailscale_dns" ]] || die "LINEAR_AGENT_PUBLIC_URL must be https://$tailscale_dns"
+  [[ "$linear_agent_url" == "$EXPECTED_LINEAR_AGENT_PUBLIC_URL" ]] \
+    || die "LINEAR_AGENT_PUBLIC_URL must be $EXPECTED_LINEAR_AGENT_PUBLIC_URL"
 
   require_regular_owned_file "$LINEAR_AGENT_DIR/pi-config/auth.json"
   [[ $(stat -c '%a' "$LINEAR_AGENT_DIR/pi-config/auth.json") == 600 ]] \
@@ -407,20 +406,6 @@ reconcile_services() {
   ((${#missing[@]} == 0)) || die "Compose services are not running: ${missing[*]}"
 }
 
-configure_linear_agent_funnel() {
-  run sudo tailscale funnel \
-    --bg \
-    --yes \
-    --https=443 \
-    --set-path=/linear \
-    http://127.0.0.1:8787
-
-  if [[ "$DRY_RUN" != 1 ]]; then
-    sudo tailscale funnel status --json >/dev/null || die 'Tailscale Funnel status is unavailable'
-    log 'Tailscale Funnel routes /linear to the local agent'
-  fi
-}
-
 main() {
   if [[ "$DRY_RUN" != 0 && "$DRY_RUN" != 1 ]]; then
     die 'STRAYLIGHT_DRY_RUN must be 0 or 1'
@@ -449,7 +434,6 @@ main() {
   prepare_linear_agent
   validate_compose
   reconcile_services
-  configure_linear_agent_funnel
   log "$([[ "$DRY_RUN" == 1 ]] && printf 'dry-run audit' || printf 'full convergence') completed successfully"
 }
 

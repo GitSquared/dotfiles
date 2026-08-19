@@ -105,6 +105,7 @@ services:
     networks:
       caddy_proxy:
         ipv4_address: 172.30.10.2
+      linear_agent_ingress:
     environment:
       - TZ=Europe/Paris
     labels:
@@ -248,6 +249,7 @@ services:
       - ./linear-agent/data:/app/state
     networks:
       - linear_agent_control
+      - linear_agent_ingress
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=64m,mode=1777
@@ -409,6 +411,10 @@ networks:
   linear_agent_control:
     name: linear-agent-control
     driver: bridge
+  linear_agent_ingress:
+    name: linear-agent-ingress
+    driver: bridge
+    internal: true
   linear_agent_tasks:
     name: linear-agent-tasks
     driver: bridge

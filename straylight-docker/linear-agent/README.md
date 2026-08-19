@@ -32,7 +32,8 @@ the capsule at `linear-agent/claude-capsule`. The stable public route remains
 There are four roles:
 
 - `linear-agent-controller` is the trusted controller. It owns Linear OAuth and webhook
-  secrets, accepts Funnel traffic, and is the only component that calls Linear.
+  secrets, accepts Caddy-proxied traffic over a dedicated private ingress network,
+  and is the only component that calls Linear.
   It has no Pi configuration, repository, Docker socket, or task workspace.
 - `linear-agent-runner` is a narrow workbench supervisor. It receives
   authenticated run/follow-up/abort requests from the controller and is the only
@@ -534,8 +535,9 @@ The tracked capability slices and acceptance checks live in `ROADMAP.md`.
 
 The application should have:
 
-- redirect URI: `<LINEAR_AGENT_PUBLIC_URL>/linear/oauth/callback`
-- webhook URL: `<LINEAR_AGENT_PUBLIC_URL>/linear/webhook`
+- public URL: `https://agent.gaby.dev`
+- redirect URI: `https://agent.gaby.dev/linear/oauth/callback`
+- webhook URL: `https://agent.gaby.dev/linear/webhook`
 - scopes: `read`, `write`, `app:assignable`, `app:mentionable`
 - webhook categories: **Agent session events**, **Inbox notifications**, and
   **Permission changes**
@@ -549,6 +551,10 @@ Do not enable public distribution or client credentials for this personal pilot.
 
 Deployments remain intentionally manual on Straylight:
 
+- point the public `agent.gaby.dev` A record at Straylight's static IPv4
+- set `LINEAR_AGENT_PUBLIC_URL=https://agent.gaby.dev` in `straylight-docker/.env`
+- update the Linear application redirect and webhook URLs shown above
+
 ```sh
 cd /home/gaby/straylight-docker
 yadm pull
@@ -557,8 +563,9 @@ yadm bootstrap
 
 Bootstrap validates the new secrets, derives the live Docker socket group,
 prepares task state and memory directories, builds the owned controller, runner,
-Claude capsule, and Playwright images, reconciles the Compose stack, and retains
-the existing Tailscale Funnel mapping.
+Claude capsule, and Playwright images, and reconciles the Compose stack. Caddy
+routes only `https://agent.gaby.dev/linear/*` to the controller; other paths on
+that hostname return 404, and `media.gaby.dev` remains dedicated to Jellyfin.
 
 ## Verify
 
@@ -568,8 +575,8 @@ healthy and no task container should exist:
 ```sh
 ./compose ps linear-agent-controller linear-agent-runner linear-agent-claude-capsule
 curl -fsS http://127.0.0.1:8787/healthz | jq
+curl -fsS https://agent.gaby.dev/linear/capsule/auth >/dev/null
 docker ps --filter label=dev.straylight.linear-agent.task=true
-sudo tailscale funnel status
 ```
 
 The health response reports controller session counts, whether native plans are

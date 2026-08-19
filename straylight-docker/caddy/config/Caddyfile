@@ -15,3 +15,23 @@ media.gaby.dev {
 
 	reverse_proxy host.docker.internal:8096
 }
+
+agent.gaby.dev {
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	log {
+		output stdout
+		format console
+	}
+
+	handle /linear/* {
+		reverse_proxy linear-agent-controller:8787
+	}
+
+	handle {
+		respond 404
+	}
+}
