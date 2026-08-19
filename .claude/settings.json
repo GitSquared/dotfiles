@@ -29,12 +29,42 @@
         ]
       }
     ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"/Users/gaby/.claude/hooks/pr-push-nudge.sh\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
           {
             "type": "command",
             "command": "\"/Users/gaby/.claude/hooks/context-mode-cache-heal.mjs\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"/Users/gaby/.claude/hooks/deferral-gate.py\"",
+            "timeout": 15,
+            "statusMessage": "Checking for unowned deferrals"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"/Users/gaby/.claude/hooks/attention-gate.py\"",
+            "timeout": 15,
+            "statusMessage": "Checking attention contract"
           }
         ]
       }

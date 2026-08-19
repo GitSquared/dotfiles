@@ -2,9 +2,9 @@ auto-update = check
 
 theme = Catppuccin Mocha
 
-background-blur-radius = 20
-background-opacity = 0.75
-#background-opacity = 1
+#background-blur-radius = 20
+#background-opacity = 0.75
+background-opacity = 1
 
 window-inherit-font-size = false
 font-family = "JetBrains Mono"

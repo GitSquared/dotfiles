@@ -88,57 +88,7 @@ return {
 				html = {},
 				jsonls = {},
 				svelte = {},
-				tsgo = {
-					-- Workaround: never attach tsgo without a real project root.
-					-- Upstream panics with `vfs: path "tsconfig.json" is not absolute`
-					-- when the root falls back to cwd. See microsoft/typescript-go#1905, #670.
-					root_dir = function(bufnr, on_dir)
-						local root = vim.fs.root(bufnr, {
-							'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
-							'bun.lockb', 'bun.lock', 'package.json',
-						})
-						if root then on_dir(root) end
-					end,
-					-- Workaround: strip completion trigger chars that tsgo panics on
-					-- (`panic handling request textDocument/completion: Unknown trigger character`).
-					on_init = function(client)
-						local cp = client.server_capabilities and client.server_capabilities.completionProvider
-						if cp and cp.triggerCharacters then
-							local bad = { ['-'] = true, [':'] = true, ['!'] = true, ['('] = true, [']'] = true }
-							cp.triggerCharacters = vim.tbl_filter(function(c) return not bad[c] end, cp.triggerCharacters)
-						end
-					end,
-					-- Workaround: nvim sends "file://" (no path) for unnamed buffers — tsgo
-					-- panics in computeConfigFileName(""). Also intercept completion requests
-					-- with trigger chars tsgo panics on (belt-and-suspenders over on_init, since
-					-- blink may not re-read server capabilities after we strip them).
-					-- Root: vim.uri_from_bufnr() → uri_from_fname("") → "file://"
-					on_attach = function(client)
-						local bad_triggers = { ['-'] = true, [':'] = true, ['!'] = true, ['('] = true, [']'] = true }
-						local function should_drop(method, params)
-							if type(params) ~= 'table' then return false end
-							local uri = type(params.textDocument) == 'table' and params.textDocument.uri
-							if uri == 'file://' then return true end
-							if method == 'textDocument/completion' then
-								local ctx = params.context
-								if type(ctx) == 'table' and ctx.triggerKind == 2 and bad_triggers[ctx.triggerCharacter] then
-									return true
-								end
-							end
-							return false
-						end
-						local _notify = client.notify
-						client.notify = function(self, method, params, ...)
-							if should_drop(method, params) then return end
-							return _notify(self, method, params, ...)
-						end
-						local _request = client.request
-						client.request = function(self, method, params, ...)
-							if should_drop(method, params) then return nil end
-							return _request(self, method, params, ...)
-						end
-					end,
-				},
+				tsc = {},
 				tailwindcss = {},
 				prismals = {},
 				vimls = {},
@@ -181,16 +131,16 @@ return {
 
 			local function expanded_ts_hover()
 				local bufnr = vim.api.nvim_get_current_buf()
-				local tsgo
+				local tsc
 
 				for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr })) do
-					if client.name == 'tsgo' then
-						tsgo = client
+					if client.name == 'tsc' then
+						tsc = client
 						break
 					end
 				end
 
-				if not tsgo then
+				if not tsc then
 					return vim.lsp.buf.hover()
 				end
 
@@ -218,10 +168,10 @@ return {
 					winid = continuing and previous.winid or nil,
 				}
 
-				local params = vim.lsp.util.make_position_params(0, tsgo.offset_encoding)
+				local params = vim.lsp.util.make_position_params(0, tsc.offset_encoding)
 				params.verbosityLevel = level
 
-				tsgo:request('textDocument/hover', params, function(err, result, ctx)
+				tsc:request('textDocument/hover', params, function(err, result, ctx)
 					if err then
 						vim.notify(err.message or tostring(err), vim.log.levels.ERROR)
 						return

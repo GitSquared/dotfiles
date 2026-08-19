@@ -19,7 +19,8 @@
 - When reviewing code: prioritize correctness and simplicity over cleverness
 
 ## Workflow
-- **When I start describing a new feature, non-trivial change, or architectural decision**: pause instead of jumping to code. State intent as you understood it, ask 1-3 clarifying questions if anything is ambiguous, sketch 2 approaches (narrowest fix vs. semantically cleanest), recommend one, and wait for go-ahead before editing files. Don't dive in while I'm still explaining.
+- **Intent level is a contract.** How much I delegate is signaled by how I phrase the ask, and I can force it with a prefix: `d:` = fully delegated (skip the pause below, don't offer options, return only the finished verified result, or a blocking Steering question that quotes the instruction it questions and names the default you'll take); `b:` = brainstorm (prose only, touch no files); `p:` = plan (produce the plan, stop before implementation). Never come back at a lower level than I engaged at — option-picking on a delegated task, or reopening "is this a good idea" prose on a reviewed plan, is the failure mode. Every question you do ask ships with a recommended default.
+- **When I start describing a new feature, non-trivial change, or architectural decision** (shaping-level, no marker): pause instead of jumping to code. State intent as you understood it, ask 1-3 clarifying questions if anything is ambiguous, sketch 2 approaches (narrowest fix vs. semantically cleanest), recommend one, and wait for go-ahead before editing files. Don't dive in while I'm still explaining.
 - **Bug fixes: root cause first.** Before editing, state the root cause in one line and how you confirmed it — reproduction, log trace, query, or flagged as unverified hypothesis. Before pushing, re-run the failing reproduction and show it passes; lint/typecheck alone don't count as "validated."
 
 ## Context & Memory
