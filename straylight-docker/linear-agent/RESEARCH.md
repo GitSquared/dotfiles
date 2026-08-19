@@ -32,7 +32,7 @@ For each experiment record:
 - what happened in real tasks;
 - keep, revise, or remove.
 
-## Current experiment — rationalized attention
+## Experiment (2026-08-18) — rationalized attention
 
 **Observed failure:** an ordinary clarification tool gives an agent an open bar
 to interrupt its operator, offers no fleet-level distinction between urgency and
@@ -69,6 +69,87 @@ truth; the controller stores only minimal routing and queue metadata.
 - number of review rounds before ownership;
 - unclassified access or blocker waits that deserve their own contract.
 
+### What happened
+
+Real use (2026-08-19, GAB-7) surfaced two concrete failures rather than the
+anticipated ones:
+
+- **Label creation crashed.** `ensureAttentionLabel` matched existing labels by
+  `team.id`, so a workspace-level label of the same name never matched and the
+  create call hit a duplicate-name rejection every time. Unverified whether an
+  app-actor token can create labels at all; the crash reproduces either way.
+- **Signal was never cheap.** Every request — including a nonblocking Signal
+  meant to let the agent keep working — spawned a full child issue, its own
+  Agent Session, and two labels. A chatty run produced several subissues that
+  were never real decisions ("Idle and ready — awaiting next task"), which is
+  exactly the alarm-flood failure mode a rationalized contract was meant to
+  prevent, just moved to Linear's issue graph instead of a bot's DM history.
+
+**Verdict: revise.** The five-question contract, the interrupt/queue split, and
+the QA evidence requirement are keepers. The uniform child-issue-per-request
+mechanism is not — it never distinguished a truly blocking pause (rare,
+exclusive, worth Linear's most visible surface) from unbounded background
+narration (common, cheap, meant to be ignorable). See the next experiment.
+
+## Current experiment — attention rationalized by consequence, not uniformly
+
+**Observed failure:** see above — a single mechanism (child issue + two
+labels) served every attention kind regardless of whether it blocked the run,
+which is itself an ISA 18.2-shaped alarm-management failure: alarms
+undifferentiated by required action and urgency degrade into noise the
+operator learns to ignore.
+
+**Hypothesis:** matching Linear's own surface hierarchy to the actual
+consequence of each signal — not routing everything through one escalation
+path — carries the same signal at a fraction of the Linear-object cost, and
+makes the genuinely blocking case *more* visible by not competing with
+narration for attention:
+
+1. **Debug / internal monologue** — the existing ephemeral `thought`/`action`
+   activity stream. No tool call, no persisted state.
+2. **Findings and progress worth a durable record** — a plain comment on the
+   issue (new: the broker previously could only comment on Documents).
+   Comments notify by default and carry real UI weight; an Agent Activity does
+   not.
+3. **Blocking Steering or QA** — since a session can only have one unresolved
+   blocking attention at a time (already an enforced invariant, not a new
+   one), a single-valued issue status is a faithful encoding of it. The parent
+   issue flips to a configured "needs input" workflow state
+   (`LINEAR_ATTENTION_STATE_NAME`) and the request posts as a comment on that
+   same issue. Linear resumes an Agent Session natively from a reply comment
+   on its own issue, so the human's answer lands directly back on the paused
+   run — no child issue, no second session, no cross-session routing to get
+   wrong.
+4. **Discovered but out-of-scope follow-up** — a genuine subissue, but gated
+   behind a forced justification (what, why not this task's job, what
+   re-surfaces it) rather than a free-form create, because an agent left to
+   invent "deferred" work will manufacture busywork nobody owns.
+
+The "needs input" state has no generic lookup: Linear's `WorkflowState.type`
+enum has no `blocked` value, so it is resolved by configured name per team and
+fails with an actionable error — naming the missing state — rather than
+attempting to create a workflow state automatically. Label creation is gone
+entirely; nothing in this design needs it.
+
+### Signals to observe
+
+- whether the blocking state actually reads as more urgent now that it isn't
+  competing with Signal-shaped subissue noise;
+- whether Signal-as-comment loses anything real by dropping the formal FYI
+  acknowledgement the prior experiment called for, or whether that
+  requirement was itself overhead the child-issue mechanism imposed rather
+  than a genuine need;
+- whether tier-2 comments (findings/progress) get seen without an explicit
+  ping, or need to escalate to a Signal-shaped notification after all;
+- whether the justification gate on deferred follow-ups actually stops
+  manufactured busywork, or just moves the manufacturing into the
+  justification fields;
+- any team missing the configured attention state, and whether the failure
+  message was actually actionable in practice.
+
+Not yet run against a real task; this is the hypothesis as implemented, not a
+result.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any
@@ -79,6 +160,16 @@ truth; the controller stores only minimal routing and queue metadata.
   Claude's authenticated capsule separate from each writable task jail.
 - A fleet attention view should project current Linear Agent Sessions and issue
   priority, not become a second task database.
+- Evaluated `@linear/sdk` to replace the hand-written GraphQL in `linear.ts`.
+  It is schema-generated and covers the Agent Session/Activity surface, so it
+  would work for simple flat mutations (the new issue comment, status
+  updates). It does not fit the generic `manage_linear` reads: those return a
+  fully denormalized nested tree (issue with state, assignee, team, parent,
+  labels) in one round trip by design, while the SDK's model objects expose
+  relations as separate lazy-loaded calls — adopting it there would mean an
+  N+1 rewrite of the tool-result contract, not a simplification. Not adopted
+  this pass; worth revisiting only for genuinely new flat-shaped calls, not as
+  a wholesale migration of the existing read paths.
 
 ## Research conclusion — intent surfaces, not modes
 
