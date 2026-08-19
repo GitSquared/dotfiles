@@ -150,6 +150,47 @@ entirely; nothing in this design needs it.
 Not yet run against a real task; this is the hypothesis as implemented, not a
 result.
 
+### First real run (2026-08-19, GAB-13)
+
+A "describe your environment" task surfaced concrete findings within the
+first live trial:
+
+- The same-issue comment reused the full five-field template written for a
+  separate child issue with no shared context — heavily redundant when
+  posted on the issue the human already has open. Fixed: a terser
+  `renderAttentionComment` keeps only the decision itself; the full render
+  stays on the sidebar elicitation Activity.
+- `manage_linear`'s comment resource only supported Document comments; an
+  agent wanting to post a plain issue-level note had no path and burned 18
+  tool calls fighting it before falling back to a raw artifact link. Fixed:
+  issue-level comment creation, defaulting to the current issue.
+- Nothing tracked *which* comment thread a blocking attention actually
+  lives in, so a reply to an unrelated thread on the same issue would have
+  been misread as answering the pending Steering/QA. Fixed: the attention
+  now records its own comment id, and a reply elsewhere is ignored rather
+  than treated as resolving it - a prerequisite for genuine multi-topic
+  threads, not just a bug fix.
+- Gaby wants more of Linear's structural hierarchy in active use, not just
+  the mechanism that shipped: distinct topics as separate threads, genuine
+  back-and-forth within a thread before a decision counts as final, and a
+  real uncoverable log of what the agent did (which ephemeral activities
+  may or may not actually provide - unverified, see below). This goes
+  beyond "attention," toward using Linear's structure to solve the same
+  problem a flat chat transcript can't: making concurrent, asynchronous
+  work legible without forcing it through one linear scroll.
+- Added prompt guidance (both runners) so a resumed agent that gets a
+  clarifying reply instead of a real decision answers it and re-opens the
+  same attention rather than proceeding as if resolved. This reuses the
+  existing resume path rather than adding a new one - functionally
+  delivers "ask a follow-up before deciding," but does a full clear/reopen
+  cycle rather than genuinely holding one continuous thread open. Whether
+  that's good enough or needs the real sub-turn version is next to
+  observe.
+- Open and unverified: does Linear's Agent Session panel let you scroll
+  back through past ephemeral activities, or only show the current one?
+  This determines whether "thought logs I can uncover" already exists or
+  needs new durable-but-non-notifying checkpoint activities.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any

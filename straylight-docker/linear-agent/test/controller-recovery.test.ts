@@ -92,6 +92,7 @@ test("restores an attention wait without replaying work after a controller resta
         kind: "qa",
         priority: "medium",
         previousStateId: "state-in-progress",
+        commentId: "comment-1",
         requestedAt: Date.now() - 1_000,
       }],
       updatedAt: Date.now(),
@@ -308,6 +309,78 @@ test("resumes the paused parent run directly when the engineer replies on the sa
     { issueId: "parent-issue", stateId: "state-blocked" },
     { issueId: "parent-issue", stateId: "state-in-progress" },
   ]);
+});
+
+test("ignores a reply on an unrelated comment thread while a blocking attention is open", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  let finishFirst!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const first = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishFirst = resolve;
+  });
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      return runs.length === 1 ? first : { ok: true as const, timedOut: false as const, awaitingInput: false, summary: "Resumed.", elapsedMs: 1 };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "parent-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("parent-session", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "high",
+      blocking: true,
+      title: "Choose the boundary",
+      action: "Choose the safe migration boundary.",
+      originalIntent: "Migrate without losing writes.",
+      delta: "Both boundaries are now technically viable.",
+      recommendation: "Keep the old writer authoritative.",
+      impact: "Implementation cannot safely choose ownership without this.",
+      timing: "Before implementation resumes.",
+    },
+  });
+  finishFirst({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  // A reply lands on an earlier, unrelated comment thread on the same issue.
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "What's the migration deadline again?" } },
+    agentSession: {
+      id: "parent-session",
+      issueId: "parent-issue",
+      comment: { id: "reply-1", body: "What's the migration deadline again?", parentId: "unrelated-comment-1" },
+    },
+  });
+  await Bun.sleep(10);
+
+  assert.equal(runs.length, 1, "an off-thread reply must not resume the run");
+  assert.deepEqual(stateFlips, [{ issueId: "parent-issue", stateId: "state-blocked" }], "status must stay flipped, unrestored");
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 1, "the blocking attention must remain tracked");
 });
 
 test("completes the issue directly when the engineer approves a QA attention", async () => {

@@ -296,7 +296,7 @@ export class AgentController {
       const previousState = await this.linear.issueState(state.issueId);
       const attentionStateId = await this.linear.resolveAttentionStateId(state.teamId, this.attentionStateName);
       await this.linear.setIssueState(state.issueId, attentionStateId);
-      await this.linear.createIssueComment(state.issueId, finalText(renderAttentionComment(req)));
+      const comment = await this.linear.createIssueComment(state.issueId, finalText(renderAttentionComment(req)));
       const options = attentionOptions(req)?.map(({ label, value }) => ({ label, value }));
       await this.linear.createActivity(sessionId, {
         type: "elicitation",
@@ -306,6 +306,7 @@ export class AgentController {
         kind: req.kind,
         priority: attentionPriority(req),
         previousStateId: previousState.id,
+        commentId: comment.id,
         requestedAt: Date.now(),
       };
       state.attention = [active];
@@ -412,6 +413,17 @@ export class AgentController {
     if (session.creatorId && session.creatorId !== appUserId) state.humanAssigneeId = session.creatorId;
     if (payload.action === "prompted" && state.attention.length) {
       const attention = state.attention[0]!;
+      const replyParentId = session.comment?.parentId;
+      if (replyParentId && replyParentId !== attention.commentId) {
+        // A reply landed on a different comment thread while a blocking
+        // attention is still open (e.g. a side question on an earlier
+        // Signal). Don't treat it as the answer - the run stays paused
+        // waiting for a reply in the tracked thread.
+        this.touch(state);
+        this.states.set(sessionId, state);
+        await this.persist();
+        return;
+      }
       const answer = payload.agentActivity?.content?.body?.trim() ?? "";
       state.attention = [];
       if (attention.kind === "qa" && isQaApproval(answer) && state.issueId) {

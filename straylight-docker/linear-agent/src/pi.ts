@@ -865,6 +865,7 @@ export class PiHarness {
           "Choose interrupt only when material harm can occur before the engineer's next normal review window; interrupts are blocking and urgent. Signals are always queued. Otherwise queue the request and choose the native priority that reflects when it deserves review.",
           "Lead with the exact action and your recommendation. Preserve the original intent, explain only what changed, and state the consequence of waiting. Keep detail behind evidence links.",
           "Options are for genuine Steering choices, not QA. QA receives standard approval controls. End the turn after Steering or QA; a Signal is nonblocking, so continue the delegated work.",
+          "On resume after a reply, check whether it actually decided what you asked. A clarifying question or partial answer is not a decision - answer it and call request_attention again with the same or refined ask instead of proceeding as if resolved.",
         ],
         parameters: Type.Object({
           kind: Type.Union([Type.Literal("signal"), Type.Literal("steering"), Type.Literal("qa")]),
