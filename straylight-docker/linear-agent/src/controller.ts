@@ -3,6 +3,7 @@ import {
   attentionOptions,
   attentionPriority,
   isQaApproval,
+  renderAttentionComment,
   renderAttentionRequest,
   renderDeferredItem,
   type ActiveAttention,
@@ -286,7 +287,7 @@ export class AgentController {
       if (!state.issueId || !state.teamId) throw new Error("Attention requests require an issue-backed Agent Session");
       const req = request.request;
       if (req.kind === "signal") {
-        await this.linear.createIssueComment(state.issueId, finalText(renderAttentionRequest(req)));
+        await this.linear.createIssueComment(state.issueId, finalText(renderAttentionComment(req)));
         return { ok: true, action: request.action };
       }
       if (state.attention.length) {
@@ -295,7 +296,7 @@ export class AgentController {
       const previousState = await this.linear.issueState(state.issueId);
       const attentionStateId = await this.linear.resolveAttentionStateId(state.teamId, this.attentionStateName);
       await this.linear.setIssueState(state.issueId, attentionStateId);
-      await this.linear.createIssueComment(state.issueId, finalText(renderAttentionRequest(req)));
+      await this.linear.createIssueComment(state.issueId, finalText(renderAttentionComment(req)));
       const options = attentionOptions(req)?.map(({ label, value }) => ({ label, value }));
       await this.linear.createActivity(sessionId, {
         type: "elicitation",

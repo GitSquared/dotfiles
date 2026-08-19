@@ -463,7 +463,7 @@ export class LinearClient {
     if (request.resource === "issue") data = await this.manageIssue(request, context);
     else if (request.resource === "project") data = await this.manageProject(request);
     else if (request.resource === "document") data = await this.manageDocument(request, context);
-    else if (request.resource === "comment") data = await this.manageComment(request);
+    else if (request.resource === "comment") data = await this.manageComment(request, context);
     else if (request.resource === "relation") data = await this.manageRelation(request, context);
     else data = await this.manageSubissue(request, context);
     return { ok: true, resource: request.resource, operation: request.operation, data };
@@ -782,7 +782,7 @@ export class LinearClient {
     throw new Error("document does not support create here; use publish to create, or list, get, update, and delete to manage existing documents");
   }
 
-  private async manageComment(request: LinearManageRequest): Promise<unknown> {
+  private async manageComment(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {
     if (request.operation === "list") {
       const documentId = requiredId(request.parentId, undefined, "comment list");
       return (await this.graphql<{ document: unknown }>(
@@ -809,20 +809,30 @@ export class LinearClient {
       )).comment;
     }
     if (request.operation === "create") {
-      const documentId = requiredId(request.parentId, undefined, "comment create");
       const input = managedFields(request.fields, COMMENT_CREATE_FIELDS, "comment create");
-      const document = (await this.graphql<{ document: { documentContentId?: string | null } }>(
-        `query ManagedCommentCreateDocument($id: String!) { document(id: $id) { documentContentId } }`,
-        { id: documentId },
-      )).document;
-      const documentContentId = requiredId(document.documentContentId ?? undefined, undefined, "comment create Document content");
+      if (request.parentId) {
+        const document = (await this.graphql<{ document: { documentContentId?: string | null } }>(
+          `query ManagedCommentCreateDocument($id: String!) { document(id: $id) { documentContentId } }`,
+          { id: request.parentId },
+        )).document;
+        const documentContentId = requiredId(document.documentContentId ?? undefined, undefined, "comment create Document content");
+        const result = await this.graphql<{ commentCreate: { success: boolean; comment?: unknown } }>(
+          `mutation ManagedCommentCreate($input: CommentCreateInput!) {
+            commentCreate(input: $input) { success comment { ${COMMENT_FIELDS} } }
+          }`,
+          { input: { ...input, documentContentId } },
+        );
+        if (!result.commentCreate.success || !result.commentCreate.comment) throw new Error("Linear rejected Document comment creation");
+        return result.commentCreate.comment;
+      }
+      const issueId = requiredId(request.id, context.issueId, "comment create");
       const result = await this.graphql<{ commentCreate: { success: boolean; comment?: unknown } }>(
-        `mutation ManagedCommentCreate($input: CommentCreateInput!) {
+        `mutation ManagedIssueCommentCreate($input: CommentCreateInput!) {
           commentCreate(input: $input) { success comment { ${COMMENT_FIELDS} } }
         }`,
-        { input: { ...input, documentContentId } },
+        { input: { ...input, issueId } },
       );
-      if (!result.commentCreate.success || !result.commentCreate.comment) throw new Error("Linear rejected Document comment creation");
+      if (!result.commentCreate.success || !result.commentCreate.comment) throw new Error("Linear rejected issue comment creation");
       return result.commentCreate.comment;
     }
     if (request.operation === "reply") {

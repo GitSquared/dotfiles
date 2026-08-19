@@ -180,6 +180,36 @@ export function renderAttentionRequest(request: AttentionRequest): string {
   return sections.join("\n\n");
 }
 
+/**
+ * The same-issue comment version. The full renderAttentionRequest is meant
+ * for a separate child issue with no shared context; on the same issue,
+ * restating original intent, what changed, and why it matters is pure noise
+ * since the human already has the issue open. Keep only the decision itself.
+ */
+export function renderAttentionComment(request: AttentionRequest): string {
+  const heading = request.kind === "qa" ? "QA needed" : request.kind === "steering" ? "Steering needed" : "Update";
+  const lines = [
+    `**${heading}:** ${markdownText(request.title)}`,
+    markdownText(request.action),
+  ];
+  if (request.kind !== "signal" && request.recommendation) {
+    lines.push(`*Recommendation:* ${markdownText(request.recommendation)}`);
+  }
+  const options = attentionOptions(request);
+  if (request.kind === "steering" && options?.length) {
+    lines.push(options.map((option) => `- **${markdownLabel(option.label)}** — ${markdownText(option.value)}`).join("\n"));
+  }
+  if (request.evidence?.length) {
+    lines.push(request.evidence.map((evidence) => `- [${markdownLabel(evidence.label)}](${evidence.url})`).join("\n"));
+  }
+  lines.push(
+    request.kind === "qa" ? "Reply **approve** to complete, or reply with changes needed."
+      : request.kind === "steering" ? "Reply here to answer, or ask a follow-up."
+        : "No action needed; the run is continuing.",
+  );
+  return lines.join("\n\n");
+}
+
 export function isDeferredItemRequest(value: unknown): value is DeferredItemRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const request = value as Partial<DeferredItemRequest>;

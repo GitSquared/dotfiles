@@ -222,7 +222,8 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   assert.ok(waiting.controller.attentionQueue.oldestWaitMs >= 0);
   assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
   assert.equal(comments.length, 1);
-  assert.match(comments[0]?.body ?? "", /Your action/);
+  assert.match(comments[0]?.body ?? "", /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
+  assert.doesNotMatch(comments[0]?.body ?? "", /Original intent/);
   const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Your action"));
   assert.match((elicitation?.content as { body?: string }).body ?? "", /Your action/);
   assert.deepEqual((elicitation?.options as { signal?: string }).signal, "select");

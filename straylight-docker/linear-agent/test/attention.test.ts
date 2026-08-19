@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { isAttentionRequest, isDeferredItemRequest, renderAttentionRequest, renderDeferredItem } from "../src/attention.js";
+import { isAttentionRequest, isDeferredItemRequest, renderAttentionComment, renderAttentionRequest, renderDeferredItem } from "../src/attention.js";
 
 const steering = {
   kind: "steering" as const,
@@ -27,6 +27,31 @@ test("accepts a rationalized steering request and renders the decision before de
   assert.match(rendered, /high · blocking input/);
   assert.ok(rendered.indexOf("Your action") < rendered.indexOf("Original intent"));
   assert.match(rendered, /Keep old writer/);
+});
+
+test("renders a terse same-issue comment without restating intent or delta", () => {
+  const comment = renderAttentionComment(steering);
+  assert.match(comment, /\*\*Steering needed:\*\* Choose the migration boundary/);
+  assert.match(comment, /Confirm whether the old table must remain writable/);
+  assert.match(comment, /Keep old writer/);
+  assert.doesNotMatch(comment, /Original intent/);
+  assert.doesNotMatch(comment, /What changed/);
+  assert.doesNotMatch(comment, /Why this deserves attention/);
+  assert.ok(comment.length < renderAttentionRequest(steering).length / 2);
+});
+
+test("renders a QA comment with an approve instruction instead of an options list", () => {
+  const { options: _options, ...steeringWithoutOptions } = steering;
+  const qa = {
+    ...steeringWithoutOptions,
+    kind: "qa" as const,
+    evidence: [{ label: "Preview", url: "https://preview.example.test" }],
+  };
+  const comment = renderAttentionComment(qa);
+  assert.match(comment, /\*\*QA needed:\*\* Choose the migration boundary/);
+  assert.match(comment, /Reply \*\*approve\*\* to complete/);
+  assert.match(comment, /\[Preview\]\(https:\/\/preview\.example\.test\)/);
+  assert.doesNotMatch(comment, /Approve and complete —/);
 });
 
 test("requires review evidence before asking for QA attention", () => {
