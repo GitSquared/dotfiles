@@ -55,6 +55,7 @@ function progressAction(name) {
     case "view_image": return "Inspecting image";
     case "share_artifact": return "Sharing artifact";
     case "request_attention": return "Requesting attention";
+    case "defer_followup": return "Deferring a follow-up";
     case "finish_work": return "Recording work disposition";
     case "manage_linear": return "Updating Linear";
     case "linear_activity": return "Publishing Linear activity";
@@ -90,6 +91,7 @@ function progressParameter(name, input) {
       parameter = values.path;
       break;
     case "request_attention":
+    case "defer_followup":
       parameter = values.title;
       break;
     case "finish_work":
@@ -292,7 +294,7 @@ export function assertAgentMayAct(context) {
 
 export function recordWorkDisposition(context, disposition) {
   if (["awaiting_steering", "awaiting_qa"].includes(disposition.status)) {
-    throw new Error("Human-owned transitions must use request_attention so Linear receives the correct child issue.");
+    throw new Error("Human-owned transitions must use request_attention so Linear records the correct attention state.");
   }
   if (context.awaitingInput) {
     throw new Error("A blocking attention request already recorded the human-owned lifecycle disposition. End this turn.");
@@ -328,7 +330,7 @@ export function stopDispositionGuard(context, input) {
     context.stopRepairRequested = true;
     return {
       decision: "block",
-      reason: "Your summary appears to require engineer action, but no blocking attention issue exists. Request Steering for an answer or QA for approval; otherwise rewrite the non-human disposition so it requests nothing from the engineer.",
+      reason: "Your summary appears to require engineer action, but no blocking attention request is active. Request Steering for an answer or QA for approval; otherwise rewrite the non-human disposition so it requests nothing from the engineer.",
     };
   }
   return {};
@@ -404,7 +406,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "request_attention",
-      "Create a first-class Linear child issue in the engineer's attention queue. Signal is a nonblocking queued question or notification and work must continue. Steering pauses for a required answer. QA pauses when checked work is ready for human approval. QA requires evidence and provides standard approval controls.",
+      "Signal, Steering, or QA on the current issue. Signal posts a nonblocking comment and work must continue. Steering and QA flip the issue to the team's attention state, post the request as a comment, and pause for the engineer's reply on that same issue. QA requires evidence and provides standard approval controls.",
       {
         kind: z.enum(["signal", "steering", "qa"]),
         delivery: z.enum(["interrupt", "queue"]),
@@ -436,12 +438,24 @@ export function createStraylightTools(context) {
             status: request.kind === "qa" ? "awaiting_qa" : "awaiting_steering",
             reason: request.action,
             nextAction: request.kind === "qa"
-              ? `Approve or request changes on the QA issue: ${request.title}`
-              : `Answer the Steering issue: ${request.title}`,
+              ? `Approve or request changes on this issue: ${request.title}`
+              : `Answer on this issue: ${request.title}`,
           };
         }
         return text(result);
       },
+      { alwaysLoad: true },
+    ),
+    tool(
+      "defer_followup",
+      "Create a genuine follow-up subissue for something discovered mid-task that does not block or belong in the current work. Requires a real justification, not just a title, so agents cannot manufacture busywork nobody owns. Does not end the turn.",
+      {
+        title: z.string().min(1).max(160),
+        what: z.string().min(1).max(1_000),
+        whyNotNow: z.string().min(1).max(500),
+        resurface: z.string().min(1).max(500),
+      },
+      async (request, extra) => text(await forward("/v1/linear-session", { action: "defer", request }, extra?.signal)),
       { alwaysLoad: true },
     ),
     tool(
@@ -567,6 +581,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
           "mcp__straylight__apply_patch",
           "mcp__straylight__manage_plan",
           "mcp__straylight__request_attention",
+          "mcp__straylight__defer_followup",
           "mcp__straylight__finish_work",
           "mcp__straylight__share_artifact",
           "mcp__straylight__view_image",
@@ -586,6 +601,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
           "After selecting a repository, read its root instructions and every applicable scoped AGENTS.md before editing. Treat them as repository constraints unless they conflict with this system prompt or the authoritative Linear request.",
           "Use model turns economically: batch independent searches and file reads into one bash call, prefer rg, and stop broadening once you have the affected path, a matching pattern, and the relevant checks. For multi-step work, publish a compact native plan with manage_plan before implementation.",
           "Use Signal for a nonblocking queued question or notification, then continue working. Use Steering when an answer is required before work can continue. If required developer-tool access is missing, request Steering with the exact repair needed. Never ask for credentials in Linear.",
+          "Use defer_followup only for something genuinely out of scope for the current task, with a real reason it isn't this task's job and what actually brings it back up. It does not end the turn and is not a way to avoid finishing the current work.",
           "The engineer owns task completion. When checked work is ready, request QA with evidence and wait for approval or changes. Never say the work is complete or invite an informal follow-up without creating QA. Use finish_work only for a non-human external blocker or explicitly authorized deferral.",
           "Every turn must end in a structured lifecycle state. After blocking Steering or QA, stop and wait. A Signal is nonblocking, so continue until another lifecycle transition is reached.",
           runtimeBudgetInstruction(input.timeBudgetMs),

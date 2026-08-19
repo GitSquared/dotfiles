@@ -14,7 +14,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { CapsuleClient } from "./capsule-client.js";
-import type { AttentionRequest } from "./attention.js";
+import type { AttentionRequest, DeferredItemRequest } from "./attention.js";
 import type { RunnerConfig } from "./config.js";
 import { decodeLinearInput, MAX_LINEAR_INPUTS, MAX_LINEAR_INPUT_TOTAL_BYTES } from "./linear-inputs.js";
 import { LinearToolClient } from "./linear-tool-client.js";
@@ -804,7 +804,7 @@ export class PiHarness {
             delivery: "queue",
             priority: "high",
             title: `Restore ${providerName} access`.slice(0, 160),
-            action: `${message}\n\nOpen the trusted workbench instructions, restore access, then reply on this child issue.`.slice(0, 1_000),
+            action: `${message}\n\nOpen the trusted workbench instructions, restore access, then reply on this issue.`.slice(0, 1_000),
             originalIntent: `Resume the delegated Linear task that requires ${providerName}.`,
             delta: `${providerName} is unavailable inside the current isolated agent workspace.`,
             recommendation: "Use the trusted workbench link below to repair the existing login or permission; never paste credentials into Linear.",
@@ -817,10 +817,10 @@ export class PiHarness {
           current.disposition = {
             status: "awaiting_steering",
             reason: message,
-            nextAction: `Restore ${providerName} access on the Steering child issue and resume the parent session.`,
+            nextAction: `Restore ${providerName} access and resume the run.`,
           };
           reporter.current?.stop();
-          return { content: [{ type: "text" as const, text: "Blocking access Steering child sent to Linear. End this turn and wait for the engineer's response there." }], details: {} };
+          return { content: [{ type: "text" as const, text: "Blocking access Steering request sent to Linear. End this turn and wait for the engineer's response on this issue." }], details: {} };
         },
       }),
       defineTool({
@@ -857,7 +857,7 @@ export class PiHarness {
       defineTool({
         name: "request_attention",
         label: "Request attention",
-        description: "Create one rigid lifecycle transition: a nonblocking Signal, blocking Steering request, or checked QA handoff.",
+        description: "One rigid lifecycle transition. Signal posts a nonblocking comment on the current issue and work continues. Steering and QA flip the issue to the team's attention state, post the request as a comment, and pause for the engineer's reply on that same issue.",
         promptSnippet: "Send a Signal, request Steering, or hand checked work to QA",
         promptGuidelines: [
           "Use only when there is a concrete action for the engineer. If you can safely decide, continue working; if a signal is not actionable or unique, do not surface it.",
@@ -942,11 +942,38 @@ export class PiHarness {
             content: [{
               type: "text",
               text: current.awaitingInput
-                ? `${request.kind === "steering" ? "Steering" : "QA"} attention item sent to Linear. End this turn and wait for the engineer's response on the child issue.`
-                : "Signal sent to the Linear attention queue. Continue the delegated work.",
+                ? `${request.kind === "steering" ? "Steering" : "QA"} attention request sent to Linear. End this turn and wait for the engineer's response on this issue.`
+                : "Signal posted as a comment on the issue. Continue the delegated work.",
             }],
             details: {},
           };
+        },
+      }),
+      defineTool({
+        name: "defer_followup",
+        label: "Defer a follow-up",
+        description: "Create a genuine follow-up subissue for something discovered mid-task that does not block or belong in the current work. Requires a real justification, not just a title, so agents cannot manufacture busywork nobody owns.",
+        promptSnippet: "Spin off a discovered but out-of-scope follow-up as its own subissue",
+        promptGuidelines: [
+          "Use only for something real that is genuinely out of scope for the current task, not as a way to avoid finishing it.",
+          "whyNotNow must explain why this isn't the current task's job, not just that there wasn't time.",
+          "resurface must name what would actually bring this back up - a future task, a threshold, a recurrence - not 'someday'.",
+        ],
+        parameters: Type.Object({
+          title: Type.String({ minLength: 1, maxLength: 160 }),
+          what: Type.String({ minLength: 1, maxLength: 1_000, description: "What was discovered." }),
+          whyNotNow: Type.String({ minLength: 1, maxLength: 500, description: "Why this isn't the current task's job." }),
+          resurface: Type.String({ minLength: 1, maxLength: 500, description: "What or who actually re-surfaces this." }),
+        }),
+        async execute(_toolCallId, params) {
+          const request: DeferredItemRequest = {
+            title: finalText(params.title).slice(0, 160),
+            what: finalText(params.what).slice(0, 1_000),
+            whyNotNow: finalText(params.whyNotNow).slice(0, 500),
+            resurface: finalText(params.resurface).slice(0, 500),
+          };
+          await linear.collaborate({ action: "defer", request });
+          return { content: [{ type: "text" as const, text: "Follow-up subissue created. Continue the current task." }], details: {} };
         },
       }),
       defineTool({

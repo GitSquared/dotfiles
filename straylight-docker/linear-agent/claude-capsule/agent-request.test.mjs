@@ -83,7 +83,7 @@ test("rejects an informal follow-up outside the attention state machine", () => 
   assert.throws(() => assertTerminalSummary(context, "All good; let me know if you want more."), /outside the Linear attention state machine/);
 });
 
-test("repairs a prose blocker that lacks a Linear attention issue", () => {
+test("repairs a prose blocker that lacks an active Linear attention request", () => {
   const context = {
     awaitingInput: false,
     attentionKind: undefined,
@@ -94,7 +94,7 @@ test("repairs a prose blocker that lacks a Linear attention issue", () => {
     last_assistant_message: "I cannot continue until the engineer grants repository access.",
   });
   assert.equal(decision.decision, "block");
-  assert.match(decision.reason, /no blocking attention issue exists/);
+  assert.match(decision.reason, /no blocking attention request is active/);
 });
 
 test("only request_attention can record a human-owned transition", () => {
