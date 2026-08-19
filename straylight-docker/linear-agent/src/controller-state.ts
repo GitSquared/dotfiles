@@ -49,6 +49,7 @@ export class ControllerStateStore {
         ["steering", "qa"].includes(attention.kind)
         && ["urgent", "high", "medium", "low", "none"].includes(attention.priority)
         && typeof attention.previousStateId === "string"
+        && typeof attention.previousPriority === "number"
         && typeof attention.commentId === "string"
         && typeof attention.requestedAt === "number"
       ))))

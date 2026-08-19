@@ -43,6 +43,7 @@ const PROJECT_UPDATE_FIELDS = new Set([
   "canceledAt", "color", "completedAt", "content", "description", "icon", "labelIds", "leadId", "memberIds",
   "name", "priority", "startDate", "statusId", "targetDate", "teamIds", "trashed",
 ]);
+const DOCUMENT_CREATE_FIELDS = new Set(["title", "content", "icon", "color"]);
 const DOCUMENT_UPDATE_FIELDS = new Set(["content", "title"]);
 const COMMENT_CREATE_FIELDS = new Set(["body", "quotedText"]);
 const COMMENT_UPDATE_FIELDS = new Set(["body", "quotedText"]);
@@ -615,6 +616,42 @@ export class LinearClient {
     if (!data.issueUpdate.success) throw new Error("Linear rejected issue status update");
   }
 
+  async issuePriority(issueId: string): Promise<number> {
+    const data = await this.graphql<{ issue: { priority: number } }>(
+      `query IssuePriority($id: String!) { issue(id: $id) { priority } }`,
+      { id: issueId },
+    );
+    return data.issue.priority;
+  }
+
+  async setIssuePriority(issueId: string, priority: number): Promise<void> {
+    const data = await this.graphql<{ issueUpdate: { success: boolean } }>(
+      `mutation SetIssuePriority($id: String!, $input: IssueUpdateInput!) {
+        issueUpdate(id: $id, input: $input) { success }
+      }`,
+      { id: issueId, input: { priority } },
+    );
+    if (!data.issueUpdate.success) throw new Error("Linear rejected issue priority update");
+  }
+
+  async reactToComment(commentId: string, emoji: string): Promise<void> {
+    const data = await this.graphql<{ reactionCreate: { success: boolean } }>(
+      `mutation ReactToComment($input: ReactionCreateInput!) {
+        reactionCreate(input: $input) { success }
+      }`,
+      { input: { commentId, emoji } },
+    );
+    if (!data.reactionCreate.success) throw new Error("Linear rejected the comment reaction");
+  }
+
+  async resolveComment(commentId: string): Promise<void> {
+    const data = await this.graphql<{ commentResolve: { success: boolean } }>(
+      `mutation ResolveIssueComment($id: String!) { commentResolve(id: $id) { success } }`,
+      { id: commentId },
+    );
+    if (!data.commentResolve.success) throw new Error("Linear rejected the comment resolution");
+  }
+
   async resolveAttentionStateId(teamId: string, stateName: string): Promise<string> {
     const data = await this.graphql<{
       team: { states: { nodes: Array<{ id: string; name: string }> } } | null;
@@ -765,6 +802,18 @@ export class LinearClient {
         { id },
       )).document;
     }
+    if (request.operation === "create") {
+      const input = managedFields(request.fields, DOCUMENT_CREATE_FIELDS, "document create");
+      const issueId = requiredId(request.id, context.issueId, "document create");
+      const result = await this.graphql<{ documentCreate: { success: boolean; document?: unknown } }>(
+        `mutation ManagedDocumentCreate($input: DocumentCreateInput!) {
+          documentCreate(input: $input) { success document { ${DOCUMENT_FIELDS} } }
+        }`,
+        { input: { ...input, issueId } },
+      );
+      if (!result.documentCreate.success || !result.documentCreate.document) throw new Error("Linear rejected document creation");
+      return result.documentCreate.document;
+    }
     if (request.operation === "update" || request.operation === "delete") {
       const id = requiredId(request.id, undefined, `document ${request.operation}`);
       const input = request.operation === "delete"
@@ -779,7 +828,7 @@ export class LinearClient {
       if (!result.documentUpdate.success || !result.documentUpdate.document) throw new Error("Linear rejected document update");
       return result.documentUpdate.document;
     }
-    throw new Error("document does not support create here; use publish to create, or list, get, update, and delete to manage existing documents");
+    throw new Error(`document does not support ${request.operation}; use list, get, create, update, or delete`);
   }
 
   private async manageComment(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {

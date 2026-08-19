@@ -92,6 +92,7 @@ test("restores an attention wait without replaying work after a controller resta
         kind: "qa",
         priority: "medium",
         previousStateId: "state-in-progress",
+        previousPriority: 3,
         commentId: "comment-1",
         requestedAt: Date.now() - 1_000,
       }],
@@ -164,11 +165,18 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   const activities: Array<{ content: unknown; options?: unknown }> = [];
   const comments: Array<{ issueId: string; body: string }> = [];
   const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const priorityFlips: Array<{ issueId: string; priority: number }> = [];
+  const resolvedComments: string[] = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
+    async issuePriority() { return 3; },
+    async setIssuePriority(issueId: string, priority: number) { priorityFlips.push({ issueId, priority }); },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-1", body }; },
     async createActivity(_sessionId: string, content: unknown, options?: unknown) {
@@ -222,6 +230,7 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   assert.equal(waiting.controller.attentionQueue.urgent, 1);
   assert.ok(waiting.controller.attentionQueue.oldestWaitMs >= 0);
   assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
+  assert.deepEqual(priorityFlips, [{ issueId: "issue-1", priority: 1 }]);
   assert.equal(comments.length, 1);
   assert.match(comments[0]?.body ?? "", /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
   assert.doesNotMatch(comments[0]?.body ?? "", /Original intent/);
@@ -232,11 +241,14 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   await controller.handle({
     action: "prompted",
     agentActivity: { content: { body: "Keep the old writer." } },
-    agentSession: { id: "session-attention" },
+    agentSession: { id: "session-attention", comment: { id: "reply-1", body: "Keep the old writer." } },
   });
   const resumed = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(resumed.controller.attentionQueue.total, 0);
   assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" });
+  assert.deepEqual(priorityFlips[1], { issueId: "issue-1", priority: 3 });
+  assert.deepEqual(resolvedComments, ["comment-1"]);
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
   finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
 });
 
@@ -247,6 +259,10 @@ test("resumes the paused parent run directly when the engineer replies on the sa
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
+    async issuePriority() { return 3; },
+    async setIssuePriority() {},
+    async resolveComment() {},
+    async reactToComment() {},
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async createIssueComment() { return { id: "comment-1", body: "" }; },
     async createActivity() {},
@@ -318,6 +334,10 @@ test("ignores a reply on an unrelated comment thread while a blocking attention 
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
+    async issuePriority() { return 3; },
+    async setIssuePriority() {},
+    async resolveComment() {},
+    async reactToComment() {},
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
     async createActivity() {},
@@ -386,11 +406,17 @@ test("ignores a reply on an unrelated comment thread while a blocking attention 
 test("completes the issue directly when the engineer approves a QA attention", async () => {
   const activities: Array<{ sessionId: string; content: unknown; options?: unknown }> = [];
   const completedIssues: string[] = [];
+  const resolvedComments: string[] = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
+    async issuePriority() { return 3; },
+    async setIssuePriority() {},
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
     async setIssueState() {},
     async createIssueComment() { return { id: "comment-1", body: "" }; },
     async completeIssue(issueId: string) { completedIssues.push(issueId); },
@@ -448,11 +474,13 @@ test("completes the issue directly when the engineer approves a QA attention", a
   await controller.handle({
     action: "prompted",
     agentActivity: { content: { body: QA_APPROVE_VALUE } },
-    agentSession: { id: "parent-qa-session", issueId: "parent-issue" },
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", comment: { id: "reply-1", body: QA_APPROVE_VALUE } },
   });
 
   assert.equal(runs, 1);
   assert.deepEqual(completedIssues, ["parent-issue"]);
+  assert.deepEqual(resolvedComments, ["comment-1"]);
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
   assert.equal(activities.some((activity) => activity.sessionId === "parent-qa-session"
     && (activity.content as { type?: string }).type === "response"), true);
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };

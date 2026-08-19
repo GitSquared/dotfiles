@@ -243,6 +243,37 @@ Linear's developer docs rather than guessing:
   (rebuilding context from Activities, not Comments) is the platform's own
   recommended pattern, not an idiosyncratic choice.
 
+### Going bold - using more of the surface (2026-08-19)
+
+Confirmed via the SDK schema rather than assuming: `ReactionCreateInput`
+takes `commentId`/`issueId` + `emoji` (a generic mutation, not gated to
+human OAuth actors as far as the schema shows), and `DocumentCreateInput`
+takes `issueId` directly with no project - the same shape `CommentCreateInput`
+already has. Both confirm the earlier `manage_linear` document-create
+rejection was a routing gap, not a platform limitation. Shipped:
+
+- `manage_linear`'s comment resource now posts directly on the current
+  issue when created with no parentId (previously Document-only); document
+  create now works the same way instead of requiring the separate
+  `publish` path - one coherent path for both instead of two.
+- The attention state flip now also bumps issue priority to match the
+  request's urgency, and restores both together on resolution or
+  dismissal - a second visual axis (list/board priority color) alongside
+  the status column, not just a status change alone.
+- The tracked attention comment gets resolved (`commentResolve`) when the
+  blocking request is answered or dismissed, and the human's resolving
+  reply gets a ✅ reaction - the same native "resolved" checkmark UX that
+  prompted this whole redesign thread, now applied by the system itself
+  instead of only appearing when a human manually resolves.
+- Prompt guidance nudges the agent to reply within the specific thread a
+  request is actually about (using the existing comment `reply` operation
+  and the primary-directive-thread/other-thread markers already in
+  `promptContext`) instead of always starting a new comment - the
+  plumbing for topics already existed; this is the first attempt at
+  actually using it.
+
+Not yet run against a real task.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any

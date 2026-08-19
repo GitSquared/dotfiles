@@ -495,7 +495,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "manage_linear",
-      "Get, create, update, list, link, or unlink native Linear issues, subissues, projects, Documents, review comments, and relationships through the credential broker.",
+      "Get, create, update, list, link, or unlink native Linear issues, subissues, projects, Documents, review comments, and relationships through the credential broker. Document create posts directly on the current issue, no project required. Comment create with no parentId posts a plain comment on the current issue; pass a Document id as parentId to comment on a Document instead, or reply within an existing thread by id. If the session context shows more than one comment thread on the issue, reply within the one the request is actually about rather than starting an unrelated new comment.",
       {
         resource: z.enum(["issue", "project", "document", "comment", "relation", "subissue"]),
         operation: z.enum(["get", "create", "update", "delete", "list", "link", "unlink", "reply", "resolve", "unresolve"]),
