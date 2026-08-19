@@ -20,6 +20,7 @@ import type {
   LinearInputFile,
   PermissionChangeWebhook,
 } from "./types.js";
+import { PermanentWebhookDeliveryError } from "./webhook-inbox.js";
 
 type SessionState = {
   running: boolean;
@@ -557,6 +558,12 @@ export class AgentController {
         session = await this.linear.createAgentSessionOnComment(rootCommentId);
       } catch (error) {
         this.notificationThreadSources.delete(rootCommentId);
+        const message = error instanceof Error ? error.message : String(error);
+        if (message.includes("comment must be on an issue") || message.includes("comment threads on issues")) {
+          throw new PermanentWebhookDeliveryError(
+            "Linear currently rejects Agent Sessions on Document comment threads. The mention was quarantined without its private comment body; use an issue-backed Agent Session that links the Document until Linear supports this anchor.",
+          );
+        }
         throw error;
       }
       if (this.notificationThreadSources.has(rootCommentId)) this.notificationSources.set(session.id, commentId);
@@ -755,9 +762,14 @@ export class AgentController {
   }
 
   private finish(sessionId: string, result: PiResult): Promise<void> {
-    const footer = `\n\n_Run ${result.ok ? "completed" : "failed"} in ${elapsed(result.elapsedMs)}._`;
+    const outcome = result.disposition?.status === "blocked_external"
+      ? "blocked externally"
+      : result.disposition?.status === "deferred"
+        ? "deferred"
+        : result.ok ? "completed" : "failed";
+    const footer = `\n\n_Run ${outcome} in ${elapsed(result.elapsedMs)}._`;
     const activity = this.linear.createActivity(sessionId, {
-      type: result.ok ? "response" : "error",
+      type: result.ok || result.disposition?.status === "deferred" ? "response" : "error",
       body: finalText(`${result.summary}${footer}`),
     });
     const pullRequest = githubPullRequestUrl(result.summary);

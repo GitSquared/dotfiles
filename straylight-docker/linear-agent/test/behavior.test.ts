@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { githubPullRequestUrl, isStopRequest } from "../src/controller.js";
-import { currentLinearRequest, followUpPrompt, initialPrompt, modelSelectionPrompt } from "../src/prompts.js";
+import { claudeInitialPrompt, currentLinearRequest, followUpPrompt, initialPrompt, modelSelectionPrompt } from "../src/prompts.js";
 import { finalText, progressText, redact } from "../src/redaction.js";
 
 test("builds a repository-aware initial prompt", () => {
@@ -28,6 +28,15 @@ test("builds a repository-aware initial prompt", () => {
 test("uses the activity body for follow-ups", () => {
   const prompt = followUpPrompt({ agentActivity: { content: { body: "Run the integration tests too." } } });
   assert.match(prompt, /Run the integration tests too/);
+});
+
+test("requires Claude to finish through the shared work disposition", () => {
+  const prompt = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-5", title: "Try the repository" } },
+    agentActivity: { content: { body: "Inspect the repository." } },
+  });
+  assert.match(prompt, /finish_work/);
+  assert.match(prompt, /blocking request_attention/);
 });
 
 test("makes a mention comment authoritative over an older issue instruction", () => {
@@ -129,6 +138,7 @@ test("includes ranked workbench repositories without choosing for the agent", ()
   assert.match(prompt, /GitSquared\/nemo/);
   assert.match(prompt, /\/repositories\/nemo/);
   assert.match(prompt, /0\.92/);
+  assert.match(prompt, /https:\/\/github\.com\/GitSquared\/nemo\.git/);
   assert.match(prompt, /linear tool/);
 });
 

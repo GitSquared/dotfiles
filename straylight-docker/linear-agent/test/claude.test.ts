@@ -41,6 +41,7 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
           sessionId: "claude-session-1",
           awaitingInput: false,
           durationMs: 12,
+          disposition: { status: "completed" as const, reason: "Implemented and checked." },
         };
       },
     };
@@ -53,6 +54,7 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
     }, async (event) => { events.push(event); });
     assert.equal(first.ok, true);
     assert.equal(first.summary, "Implemented the change.");
+    assert.equal(first.disposition?.status, "completed");
     assert.match(requests[0]?.prompt ?? "", /primary Claude Code coding agent/);
     assert.equal(requests[0]?.resume, undefined);
     assert.equal(events.length, 1);

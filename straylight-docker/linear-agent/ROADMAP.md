@@ -319,7 +319,9 @@ Acceptance:
 
 ## Slice 12 — compact re-entry, closure, and Document review
 
-Status: implemented locally; deployed acceptance pending. This builds on native
+Status: issue-backed review is implemented locally; a deployed probe showed
+that Linear currently rejects Agent Sessions anchored directly on Document
+comments. This builds on native
 Linear issue, Agent Session, plan, and Document surfaces without introducing a
 second task-card database or a rigid final-comment template.
 
@@ -340,10 +342,12 @@ second task-card database or a rigid final-comment template.
   operations behind the existing `linear` tool. Prefer anchored review comments
   when Linear's API exposes them; otherwise retain the exact selected text and
   Document id in an ordinary review thread.
-- Make an explicit Document or Document-comment mention authoritative input to
-  the matching Agent Session, including the current comment thread and bounded
-  Document context. Treat ordinary edits, subscriptions, and unmentioned comments
-  as context-only notifications so they do not synthesize new instructions.
+- Make an explicit Document review request authoritative input to an
+  issue-backed Agent Session, including the current comment thread and bounded
+  Document context. Treat ordinary edits, subscriptions, and unmentioned
+  comments as context-only notifications so they do not synthesize new
+  instructions. Keep direct Document-comment mention routing quarantined until
+  Linear supports an Agent Session anchor for that comment type.
 - Let Pi disposition a batch of review comments, revise the existing Document,
   and report which comments were applied, declined with rationale, or still need
   a decision. Keep the reviewed Document and its comment trail as evidence.
@@ -361,10 +365,11 @@ Implementation notes:
 - The controller resolves a Document mention's source comment through Linear,
   includes the root thread and at most 80 KB of current Markdown, and lets Pi
   continue with the mention body if that supporting lookup fails.
-- Because Linear delivers Document-comment mentions as Inbox notifications, the
-  controller explicitly promotes the notification to an Agent Session on the
-  root thread and preserves the mentioned child comment as the authoritative
-  source. Ordinary Document comments remain context-only.
+- Linear delivers Document-comment mentions as Inbox notifications, but its
+  current `agentSessionCreateOnComment` mutation rejects Document comments with
+  `comment must be on an issue`. The controller classifies that validation as a
+  permanent delivery, retains only safe event metadata in the dead-letter
+  ledger, and stops retrying. Ordinary Document comments remain context-only.
 - Re-entry remains a compact behavioral contract over native lifecycle, plan,
   and one optional work-record Document. It is intentionally not a mandatory
   comment template or a second persisted state model.
@@ -376,9 +381,11 @@ Acceptance:
    transcript.
 2. Close a task with partially completed scope and confirm every original plan
    item has an explicit disposition and customer-visible completion is honest.
-3. Mention Straylight in a review comment on an existing Document; confirm Pi
-   receives that comment as the current request, reads the relevant Document and
-   thread, updates the same Document, and replies in the review surface.
+3. Link an existing Document from an issue-backed session; confirm the agent
+   reads the relevant Document and thread, updates the same Document, and
+   replies in the review surface. Separately mention Straylight directly in a
+   Document comment and confirm one safe dead-letter entry replaces indefinite
+   retries.
 4. Add an ordinary unmentioned Document comment or edit and confirm it remains
    context-only and does not start or redirect Pi work.
 5. Submit several Document review comments and confirm Pi returns an auditable
@@ -426,6 +433,39 @@ Acceptance:
    blocking, urgent, and true interruptions across simultaneous sessions.
 5. Restart the controller while an attention request is pending; confirm it
    remains awaiting input and does not rerun tools or external actions.
+
+## Slice 14 — pilot lifecycle and repository-cache hardening
+
+Status: implemented locally; deployed acceptance pending.
+
+- Give operators one `./compose` wrapper that derives the live Docker socket
+  group for every fresh SSH shell. Keep `DOCKER_GID` out of `.env`.
+- Refresh each allowlisted repository cache centrally at most once per TTL.
+  Task jails continue to mount caches read-only, borrow their Git objects, and
+  keep the canonical authenticated HTTPS remote as `origin`.
+- Add Claude's semantic `finish_work` capability with `completed`,
+  `blocked_external`, and `deferred` dispositions. A successful blocking
+  `request_attention` records `blocked_human`; no other path may claim it.
+- Use a deterministic Claude Stop callback for one repair turn when the
+  disposition is missing, conflicts with attention state, or the final summary
+  appears to require an engineer without a blocking child issue. Keep the same
+  disposition in the runner protocol so future backends can adopt it.
+- Log only tool names plus terminal disposition for each Claude run, giving the
+  pilot enough evidence to distinguish an ignored collaboration tool from a
+  broker failure without retaining tool arguments or private task text.
+
+Acceptance:
+
+1. Start a fresh SSH shell and run `./compose run ... gh auth status` without
+   exporting `DOCKER_GID`; confirm authenticated GitHub access works.
+2. Push a new commit upstream, delegate two sessions inside the cache TTL, and
+   confirm one central refresh plus canonical HTTPS task origins.
+3. Give Claude a missing-access blocker and confirm it cannot end as ordinary
+   completion: a blocking Steering child appears and health reports it.
+4. Complete a normal low-risk task and confirm `finish_work: completed` appears
+   in the safe tool audit without creating attention work.
+5. Restart after a permanently unsupported Document-comment delivery and
+   confirm pending becomes zero while one bounded dead-letter summary remains.
 
 ## Later hardening
 

@@ -46,6 +46,7 @@ export type WorkbenchConfig = {
   dataDirectory: string;
   workspaceRunsDirectory: string;
   repositoryDirectory: string;
+  repositoryRefreshTtlMs: number;
   workspaceInstructions: string;
   piConfigSource: string;
   toolProfileDirectory: string;
@@ -175,6 +176,7 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     dataDirectory: absolutePath(env, "PI_WORKBENCH_DATA_DIR", "/workbench/data"),
     workspaceRunsDirectory: absolutePath(env, "PI_WORKSPACE_RUNS_DIR", "/workbench/workspace-runs"),
     repositoryDirectory: absolutePath(env, "PI_REPOSITORY_DIR", "/repositories"),
+    repositoryRefreshTtlMs: positiveInteger(env, "PI_REPOSITORY_REFRESH_TTL_MS", 300_000),
     workspaceInstructions: absolutePath(env, "PI_WORKSPACE_INSTRUCTIONS", "/workbench/AGENTS.md"),
     piConfigSource: absolutePath(env, "PI_CONFIG_SOURCE", "/workbench/pi-config"),
     toolProfileDirectory: absolutePath(env, "PI_TOOL_PROFILE_DIR", "/tool-profile"),

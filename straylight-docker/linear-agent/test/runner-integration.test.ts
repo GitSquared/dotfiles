@@ -20,7 +20,7 @@ test("streams structured events across the controller-runner boundary", async ()
     },
     async runClaude(taskCredential: string, request: { prompt: string; resume?: string }) {
       return taskCredential === "one-time-task-token" && request.prompt === "Implement it"
-        ? { status: "ok" as const, answer: "Implemented.", sessionId: request.resume ?? "claude-session", awaitingInput: false, durationMs: 9 }
+        ? { status: "ok" as const, answer: "Implemented.", sessionId: request.resume ?? "claude-session", awaitingInput: false, durationMs: 9, disposition: { status: "completed" as const, reason: "Implemented and checked." } }
         : { status: "error" as const, message: "Unauthorized." };
     },
     async shell(request: { command: string }) {
@@ -87,7 +87,7 @@ test("streams structured events across the controller-runner boundary", async ()
     const rejectedClaude = await new CapsuleClient(baseUrl, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
     assert.deepEqual(rejectedClaude, { status: "error", message: "Unauthorized." });
     const agent = await new CapsuleClient(baseUrl, "one-time-task-token").runBrokeredAgent({ prompt: "Implement it" }); // yadm-secret-scan: ignore
-    assert.deepEqual(agent, { status: "ok", answer: "Implemented.", sessionId: "claude-session", awaitingInput: false, durationMs: 9 });
+    assert.deepEqual(agent, { status: "ok", answer: "Implemented.", sessionId: "claude-session", awaitingInput: false, durationMs: 9, disposition: { status: "completed", reason: "Implemented and checked." } });
     const shell = await fetch(`${baseUrl}/v1/shell`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },

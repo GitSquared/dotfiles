@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "bun:test";
 import type { WorkbenchConfig } from "../src/config.js";
 import { decodeDockerStream, type ContainerEngine } from "../src/docker-engine.js";
-import { parseRepositoryRemote, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
+import { parseRepositoryRemote, repositoryCloneUrl, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
 
 function config(): WorkbenchConfig {
   return {
@@ -17,6 +17,7 @@ function config(): WorkbenchConfig {
     dataDirectory: "/workbench/data",
     workspaceRunsDirectory: "/workbench/workspace-runs",
     repositoryDirectory: "/repositories",
+    repositoryRefreshTtlMs: 300_000,
     workspaceInstructions: "/workbench/AGENTS.md",
     piConfigSource: "/workbench/pi-config",
     toolProfileDirectory: "/tool-profile",
@@ -52,6 +53,7 @@ test("parses common Git repository remotes", () => {
     repositoryFullName: "GitSquared/dotfiles",
   });
   assert.equal(parseRepositoryRemote("not-a-remote"), undefined);
+  assert.equal(repositoryCloneUrl({ hostname: "github.com", repositoryFullName: "GitSquared/nemo" }), "https://github.com/GitSquared/nemo.git");
 });
 
 test("builds a secretless, bounded, per-session task jail", () => {
@@ -176,7 +178,7 @@ test("forwards a running task to the Claude capsule without mounting its identit
     async ask() { return { status: "error" as const, message: "unused" }; },
     async runAgent(input: unknown) {
       request = input;
-      return { status: "ok" as const, answer: "Done.", sessionId: "claude-1", awaitingInput: false, durationMs: 4 };
+      return { status: "ok" as const, answer: "Done.", sessionId: "claude-1", awaitingInput: false, durationMs: 4, disposition: { status: "completed" as const, reason: "Done." } };
     },
   };
   const harness = new WorkbenchHarness(config(), engine, capsule);

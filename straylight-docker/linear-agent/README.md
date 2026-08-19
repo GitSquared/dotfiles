@@ -40,7 +40,7 @@ There are four roles:
   Linear token store.
 - Every Linear Agent Session is executed in a private task container. The task has
   one private persistent `/workspace`, backend-specific conversation state,
-  read-only repository sources at `/repositories`, a shared single-engineer
+  read-only, centrally refreshed repository caches at `/repositories`, a shared single-engineer
   developer-tool profile at `/tool-profile`, and a one-time control token.
   It has no host port, Docker socket, SSH key, other task workspace, or
   `LINEAR_*` environment variable. A successful container remains warm for ten
@@ -157,8 +157,11 @@ below.
 - `memory/` is the shared persistent Markdown notebook. Pi can write concise
   non-secret notes directly and search them with the generic qmd-backed `memory`
   tool across otherwise isolated Agent Sessions.
-- `workspace/repos/<name>` contains local repository sources. They are mounted
-  read-only and should have an `origin` remote so Linear can rank them.
+- `workspace/repos/<name>` contains the local repository cache. The trusted
+  workbench refreshes remote branches at most once per configured TTL; task
+  jails mount it read-only and clone the canonical HTTPS remote with the cache
+  as an object reference. The source should have an `origin` so Linear can rank
+  it and derive the canonical repository identity.
 - `workspace/runs/<session-hash>` is the persistent private workspace for one
   Linear Agent Session.
 - `tool-profile/` contains the single engineer's persistent GitHub CLI and Git
@@ -174,9 +177,11 @@ below.
   items; aggregate queue pressure is exposed
   in controller health without copying request content into another database.
   `state/webhook-inbox.json` durably queues
-  accepted webhook payloads before acknowledgement, retries failed handling,
-  replays pending work after restart, and retains a bounded ten-minute completed
-  ledger for deduplication. Both files are atomically replaced with mode `0600`.
+  accepted webhook payloads before acknowledgement, retries transient handling
+  failures, replays pending work after restart, and retains a bounded ten-minute
+  completed ledger for deduplication. Permanent failures move into a bounded
+  seven-day dead-letter summary containing only safe event metadata, not comment
+  bodies. Both files are atomically replaced with mode `0600`.
 - `${LINEAR_AGENT_CLAUDE_PROFILE_VOLUME:-linear-agent-claude-profile}` is the Docker
   volume containing one engineer's Claude Code home. Use a different volume name
   for each engineer when the prototype is expanded.
@@ -199,6 +204,7 @@ Optional settings:
   Claude Code runner. Set it to `pi` only to exercise the fallback.
 - `LINEAR_AGENT_MAX_WARM_SESSIONS=3`
 - `LINEAR_AGENT_WARM_SESSION_TTL_MS=600000`
+- `LINEAR_AGENT_REPOSITORY_REFRESH_TTL_MS=300000`
 - `LINEAR_AGENT_HOST_ROOT=/home/gaby/straylight-docker/linear-agent` if the
   Compose checkout ever moves elsewhere
 
@@ -206,6 +212,10 @@ Do not reuse the Linear client secret, webhook secret, or installation secret as
 the runner secret. Do not add `DOCKER_GID` to `.env`: bootstrap derives it from
 the live `/var/run/docker.sock`, exports it only for Compose, and stops safely
 when the socket is absent or inaccessible.
+
+For later interactive Compose commands, use `/home/gaby/straylight-docker/compose`.
+The wrapper derives the live socket group for every invocation, so a fresh SSH
+shell cannot accidentally pass an empty `group_add` value to Docker.
 
 ## Pi fallback authentication
 
@@ -215,7 +225,7 @@ subscription; API keys are not used. Existing `pi-config/auth.json` continues to
 work. For a first login or reauthentication:
 
 ```sh
-docker compose run --rm --no-deps \
+./compose run --rm --no-deps \
   --workdir /home/node/.pi/agent \
   --entrypoint /app/node_modules/.bin/pi-ai \
   linear-agent-runner login openai-codex
@@ -250,7 +260,7 @@ To inspect the models visible to the persistent Pi profile:
 
 ```sh
 cd /home/gaby/straylight-docker
-docker compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
+./compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
   linear-agent-runner --list-models
 ```
 
@@ -258,7 +268,7 @@ To add or refresh a provider, open Pi interactively in the same mounted profile,
 run `/login`, select the provider, and complete its normal flow:
 
 ```sh
-docker compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
+./compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
   linear-agent-runner
 ```
 
@@ -304,7 +314,7 @@ The default runner invokes the official Claude Agent SDK inside this authenticat
 capsule and resumes its Claude session id from the task's private workspace. Its
 built-in shell and filesystem tools are disabled. Instead, in-process Straylight
 MCP tools cross the authenticated control channel and operate inside the current
-  task jail: `bash`, `view_image`, `share_artifact`, `request_attention`,
+  task jail: `bash`, `view_image`, `share_artifact`, `request_attention`, `finish_work`,
   `manage_linear`, `linear_activity`, and `manage_service`. The capsule therefore holds inference
 identity but not source code; the task holds source code but not inference or
 Linear credentials.
@@ -321,7 +331,7 @@ and launch the real interactive workbench:
 
 ```sh
 cd /home/gaby/straylight-docker
-docker compose run --rm --no-deps --entrypoint claude \
+./compose run --rm --no-deps --entrypoint claude \
   linear-agent-claude-capsule --permission-mode auto --model sonnet
 ```
 
@@ -357,11 +367,11 @@ GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
 
 ```sh
 cd /home/gaby/straylight-docker
-docker compose run --rm --no-deps --entrypoint gh \
+./compose run --rm --no-deps --entrypoint gh \
   linear-agent-runner auth login --hostname github.com --git-protocol https --web --insecure-storage
-docker compose run --rm --no-deps --entrypoint gh \
+./compose run --rm --no-deps --entrypoint gh \
   linear-agent-runner auth setup-git
-docker compose run --rm --no-deps --entrypoint gh \
+./compose run --rm --no-deps --entrypoint gh \
   linear-agent-runner auth status
 ```
 
@@ -480,7 +490,7 @@ After the ten-minute warm lease expires, the controller and workbench should be
 healthy and no task container should exist:
 
 ```sh
-docker compose ps linear-agent-controller linear-agent-runner linear-agent-claude-capsule
+./compose ps linear-agent-controller linear-agent-runner linear-agent-claude-capsule
 curl -fsS http://127.0.0.1:8787/healthz | jq
 docker ps --filter label=dev.straylight.linear-agent.task=true
 sudo tailscale funnel status
@@ -489,12 +499,14 @@ sudo tailscale funnel status
 The health response reports controller session counts, whether native plans are
 still enabled, notification dispositions, and the last registry recovery result
 (`restored`, `resumed`, `skipped`, and `errors`), plus accepted/skipped inbound
-file counts and bytes. `webhookInbox` reports pending/completed deliveries,
-retry attempts, the next retry, and the latest safe failure. Its workbench
+file counts and bytes. `webhookInbox` reports pending/completed/dead-letter
+deliveries, retry attempts, the next retry, and safe transient/permanent failure
+summaries. Its workbench
 snapshot includes `mode: warm-session-jails`, `runnerBackend`, active/warm/queued
 tasks, actual task/service/network counts, the rolling ten-minute p75 CPU/RAM
-sample and adaptive active limit, the last safe task-failure diagnostic when
-present, warm-session limits, and the installed RTK version. The model policy is
+sample and adaptive active limit, repository-cache refresh counts and the last
+safe refresh result, the last safe task-failure diagnostic when present,
+warm-session limits, and the installed RTK version. The model policy is
 reported only when the Pi fallback is selected.
 Immediately after a clean start it should show zero active tasks.
 
@@ -522,8 +534,9 @@ Useful Linear smoke tests:
    new container; after ten minutes, confirm history and files reconstruct in a
    new container.
 6. Put a Git repository with an `origin` under `workspace/repos`, delegate an
-   issue naming it, and confirm the agent clones into its private workspace
-   rather than editing the source.
+   issue naming it, and confirm the cache refreshes once, the agent clones into
+   its private workspace using the cache, and its `origin` remains the canonical
+   HTTPS GitHub URL.
 7. Ask the agent to inspect and publish a screenshot or report from `/workspace`;
    confirm it is viewed before any visual claim, uploaded to Linear's private
    storage, and rendered in the Agent Session.
@@ -570,17 +583,18 @@ Useful Linear smoke tests:
     pending, and ask the agent to close the turn. Confirm every plan item displays
     an explicit disposition, the deployment item names its owner and next
     action, and the final response does not claim customer-visible completion.
-21. Add several inline comments to an existing Document and mention Straylight
-    in one thread. Confirm the mention is the current request, the agent receives
-    the selected text plus bounded Document/thread context, revises the same
-    Document id, replies `Applied`, `Declined`, or `Needs decision` to each
-    reviewed thread, and resolves only the fully answered ones. Then add an
-    unmentioned comment and confirm it remains context-only.
+21. Link an existing Document from an issue-backed Agent Session and ask the
+    agent to process its inline review threads. Confirm it receives the selected
+    text plus bounded Document/thread context, revises the same Document id,
+    replies `Applied`, `Declined`, or `Needs decision`, and resolves only fully
+    answered threads. A direct mention inside a Document comment is currently
+    rejected by Linear's Agent Session API; confirm it becomes one safe
+    dead-letter entry rather than an indefinitely retried delivery.
 
 Logs:
 
 ```sh
-docker compose logs -f linear-agent-controller linear-agent-runner linear-agent-claude-capsule
+./compose logs -f linear-agent-controller linear-agent-runner linear-agent-claude-capsule
 ```
 
 ## Remaining security boundary

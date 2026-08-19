@@ -74,12 +74,17 @@ export class ClaudeHarness {
         };
       }
       await this.writeSession(sessionId, result.sessionId);
+      const awaitingInput = result.disposition.status === "blocked_human";
+      if (result.awaitingInput !== awaitingInput) {
+        throw new Error("Claude attention state conflicts with its terminal work disposition");
+      }
       return {
-        ok: true,
+        ok: ["completed", "blocked_human"].includes(result.disposition.status),
         timedOut: false,
-        awaitingInput: result.awaitingInput,
+        awaitingInput,
         summary: finalText(result.answer || "Claude Code completed without a textual summary."),
         elapsedMs: result.durationMs || Math.round(performance.now() - startedAt),
+        disposition: result.disposition,
       };
     } catch (error) {
       const aborted = controller.signal.aborted;

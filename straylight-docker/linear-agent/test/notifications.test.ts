@@ -3,6 +3,7 @@ import { test } from "bun:test";
 import { AgentController } from "../src/controller.js";
 import type { LinearClient } from "../src/linear.js";
 import type { AgentRunner } from "../src/runner-client.js";
+import { PermanentWebhookDeliveryError } from "../src/webhook-inbox.js";
 
 test("routes Linear inbox notifications without synthesizing comment instructions", async () => {
   let promotedComment: string | undefined;
@@ -43,4 +44,22 @@ test("routes Linear inbox notifications without synthesizing comment instruction
     unknown: 0,
   });
   assert.equal(promotedComment, "root-1");
+});
+
+test("classifies Linear's unsupported Document comment anchor as permanent", async () => {
+  const linear = {
+    async createAgentSessionOnComment() {
+      throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+  } as unknown as LinearClient;
+  const runner = { async health() { return { mode: "test" }; } } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await assert.rejects(
+    controller.handleNotification({
+      action: "documentCommentMention",
+      notification: { documentId: "document-1", commentId: "comment-1", parentCommentId: "root-1" },
+    }),
+    PermanentWebhookDeliveryError,
+  );
 });

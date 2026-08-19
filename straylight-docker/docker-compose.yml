@@ -296,6 +296,7 @@ services:
       PI_WORKBENCH_DATA_DIR: /workbench/data
       PI_WORKSPACE_RUNS_DIR: /workbench/workspace-runs
       PI_REPOSITORY_DIR: /repositories
+      PI_REPOSITORY_REFRESH_TTL_MS: "${LINEAR_AGENT_REPOSITORY_REFRESH_TTL_MS:-300000}"
       PI_WORKSPACE_INSTRUCTIONS: /workbench/AGENTS.md
       PI_CONFIG_SOURCE: /workbench/pi-config
       PI_TOOL_PROFILE_DIR: /tool-profile
@@ -328,7 +329,7 @@ services:
       - ./linear-agent/pi-config:/home/node/.pi/agent
       - ./linear-agent/tool-profile:/tool-profile
       - ./linear-agent/memory:/memory
-      - ./linear-agent/workspace/repos:/repositories:ro
+      - ./linear-agent/workspace/repos:/repositories
       - ./linear-agent/workspace/runs:/workbench/workspace-runs
       - ./linear-agent/workspace/AGENTS.md:/workbench/AGENTS.md:ro
     networks:

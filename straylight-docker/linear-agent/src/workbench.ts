@@ -56,6 +56,10 @@ type ActiveService = {
   persistent: boolean;
 };
 type Waiter = { resolve: (acquired: boolean) => void };
+type RepositorySource = {
+  candidate: RepositoryCandidate;
+  repositoryPath: string;
+};
 
 function sessionKey(sessionId: string): string {
   return crypto.createHash("sha256").update(sessionId).digest("hex").slice(0, 24);
@@ -159,8 +163,12 @@ export class WorkbenchHarness {
   private readonly starting = new Set<string>();
   private readonly cancelled = new Set<string>();
   private readonly waiters = new Map<string, Waiter>();
+  private readonly repositoryRefreshes = new Map<string, Promise<void>>();
   private readonly order: string[] = [];
   private lastTaskFailure: Record<string, unknown> | undefined;
+  private repositoryRefreshCount = 0;
+  private repositoryRefreshFailureCount = 0;
+  private lastRepositoryRefresh: Record<string, unknown> | undefined;
   private runningSlots = 0;
 
   constructor(
@@ -216,6 +224,12 @@ export class WorkbenchHarness {
       runnerBackend: this.config.runnerBackend,
       adaptiveConcurrency: this.capacity.status(),
       ...(this.lastTaskFailure ? { lastTaskFailure: this.lastTaskFailure } : {}),
+      repositoryCache: {
+        refreshTtlMs: this.config.repositoryRefreshTtlMs,
+        refreshes: this.repositoryRefreshCount,
+        failures: this.repositoryRefreshFailureCount,
+        ...(this.lastRepositoryRefresh ? { last: this.lastRepositoryRefresh } : {}),
+      },
       ...(modelPolicy ? { modelPolicy: publicModelPolicy(modelPolicy) } : {}),
       rtkVersion: process.env.RTK_VERSION ?? "unknown",
       maxWarmSessions: this.config.maxWarmSessions,
@@ -505,19 +519,72 @@ export class WorkbenchHarness {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     }
-    const candidates = await Promise.all(entries.filter((entry) => entry.isDirectory()).slice(0, 100).map(async (entry) => {
+    const sources = await Promise.all(entries.filter((entry) => entry.isDirectory()).slice(0, 100).map(async (entry) => {
       const repositoryPath = path.join(this.config.repositoryDirectory, entry.name);
       try {
         const { stdout } = await runCommand("git", ["-C", repositoryPath, "config", "--get", "remote.origin.url"], {
           timeout: 5_000,
           maxBuffer: 1_000_000,
         });
-        return parseRepositoryRemote(stdout.trim(), `/repositories/${entry.name}`);
+        const candidate = parseRepositoryRemote(stdout.trim(), `/repositories/${entry.name}`);
+        return candidate ? { candidate, repositoryPath } : undefined;
       } catch {
         return undefined;
       }
     }));
-    return candidates.filter((candidate): candidate is RepositoryCandidate => Boolean(candidate));
+    const repositories = sources.filter((source): source is RepositorySource => Boolean(source));
+    await Promise.all(repositories.map((source) => this.refreshRepository(source)));
+    return repositories.map((source) => source.candidate);
+  }
+
+  private refreshRepository(source: RepositorySource): Promise<void> {
+    const active = this.repositoryRefreshes.get(source.repositoryPath);
+    if (active) return active;
+    const refresh = this.refreshRepositoryNow(source).finally(() => {
+      if (this.repositoryRefreshes.get(source.repositoryPath) === refresh) {
+        this.repositoryRefreshes.delete(source.repositoryPath);
+      }
+    });
+    this.repositoryRefreshes.set(source.repositoryPath, refresh);
+    return refresh;
+  }
+
+  private async refreshRepositoryNow(source: RepositorySource): Promise<void> {
+    const { stdout: fetchHeadOutput } = await runCommand("git", [
+      "-C", source.repositoryPath,
+      "rev-parse", "--path-format=absolute", "--git-path", "FETCH_HEAD",
+    ], { timeout: 5_000, maxBuffer: 1_000_000 });
+    const fetchHead = fetchHeadOutput.trim();
+    const lastFetch = await fs.stat(fetchHead).catch(() => undefined);
+    if (lastFetch && Date.now() - lastFetch.mtimeMs < this.config.repositoryRefreshTtlMs) return;
+    const cloneUrl = repositoryCloneUrl(source.candidate);
+    try {
+      await runCommand("git", [
+        "-C", source.repositoryPath,
+        "fetch", "--prune", "--tags", "--quiet",
+        cloneUrl,
+        "+refs/heads/*:refs/remotes/origin/*",
+      ], { timeout: 120_000, maxBuffer: 1_000_000 });
+      this.repositoryRefreshCount += 1;
+      this.lastRepositoryRefresh = {
+        at: new Date().toISOString(),
+        repository: `${source.candidate.hostname}/${source.candidate.repositoryFullName}`,
+        ok: true,
+      };
+    } catch (error) {
+      this.repositoryRefreshFailureCount += 1;
+      const message = redact(error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+      this.lastRepositoryRefresh = {
+        at: new Date().toISOString(),
+        repository: `${source.candidate.hostname}/${source.candidate.repositoryFullName}`,
+        ok: false,
+        message,
+      };
+      console.warn("repository cache refresh failed; the last local snapshot remains available", {
+        repository: `${source.candidate.hostname}/${source.candidate.repositoryFullName}`,
+        message,
+      });
+    }
   }
 
   private taskForToken(token: string): ActiveTask | undefined { // yadm-secret-scan: ignore
@@ -978,4 +1045,11 @@ export function parseRepositoryRemote(remote: string, repositoryPath?: string): 
   } catch {
     return undefined;
   }
+}
+
+export function repositoryCloneUrl(repository: RepositoryCandidate): string {
+  const hostname = repository.hostname.toLowerCase();
+  const fullName = repository.repositoryFullName.replace(/^\/+|\.git$/g, "");
+  if (!hostname || !fullName.includes("/")) throw new Error("Repository candidate is incomplete");
+  return `https://${hostname}/${fullName}.git`;
 }

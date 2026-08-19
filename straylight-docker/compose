@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+compose_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+readonly compose_dir
+readonly docker_socket=${STRAYLIGHT_DOCKER_SOCKET:-/var/run/docker.sock}
+
+if [[ ! -S "$docker_socket" ]]; then
+  printf 'straylight-compose: Docker socket is unavailable: %s\n' "$docker_socket" >&2
+  exit 1
+fi
+
+docker_gid=$(stat -c '%g' "$docker_socket")
+if [[ ! "$docker_gid" =~ ^[0-9]+$ ]]; then
+  printf 'straylight-compose: Docker socket group is not numeric: %s\n' "$docker_gid" >&2
+  exit 1
+fi
+
+export DOCKER_GID=$docker_gid
+exec docker compose --project-directory "$compose_dir" "$@"

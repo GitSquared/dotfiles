@@ -1,9 +1,11 @@
+import type { WorkDisposition } from "./runner-protocol.js";
+
 export type CapsuleResult =
   | { status: "ok"; answer: string }
   | { status: "error"; message: string };
 
 export type CapsuleAgentResult =
-  | { status: "ok"; answer: string; sessionId: string; awaitingInput: boolean; durationMs: number }
+  | { status: "ok"; answer: string; sessionId: string; awaitingInput: boolean; durationMs: number; disposition: WorkDisposition }
   | { status: "error"; message: string };
 
 export type CapsuleAgentRequest = {
@@ -86,10 +88,20 @@ export class CapsuleClient {
       || typeof payload.answer !== "string"
       || typeof payload.sessionId !== "string"
       || typeof payload.awaitingInput !== "boolean"
-      || typeof payload.durationMs !== "number") {
+      || typeof payload.durationMs !== "number"
+      || !validDisposition(payload.disposition)) {
       return { status: "error", message: "The Claude agent capsule returned an invalid result." };
     }
     if (!response.ok) return { status: "error", message: "The Claude agent capsule request failed." };
     return payload;
   }
+}
+
+function validDisposition(value: unknown): value is WorkDisposition {
+  if (!value || typeof value !== "object") return false;
+  const disposition = value as Partial<WorkDisposition>;
+  return ["completed", "blocked_human", "blocked_external", "deferred"].includes(disposition.status ?? "")
+    && typeof disposition.reason === "string"
+    && disposition.reason.length > 0
+    && (disposition.nextAction === undefined || typeof disposition.nextAction === "string");
 }

@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "bun:test";
 import type { LinearWebhook } from "../src/types.js";
-import { DurableWebhookInbox } from "../src/webhook-inbox.js";
+import { DurableWebhookInbox, PermanentWebhookDeliveryError } from "../src/webhook-inbox.js";
 
 async function waitFor(check: () => boolean | Promise<boolean>): Promise<void> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -65,6 +65,35 @@ test("replays a failed pending delivery after restart", async () => {
     await waitFor(() => handled === 1);
     await waitFor(async () => (await restarted.status()).pending === 0);
     restarted.shutdown();
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("quarantines a permanent delivery without retaining private payload text", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-inbox-"));
+  try {
+    const documentPayload: LinearWebhook = {
+      type: "AppUserNotification",
+      action: "documentCommentMention",
+      notification: {
+        documentId: "document-1",
+        commentId: "comment-1",
+        comment: { id: "comment-1", body: "private review text" },
+      },
+    };
+    const inbox = new DurableWebhookInbox(directory, async () => {
+      throw new PermanentWebhookDeliveryError("unsupported document comment anchor");
+    }, { retryBaseMs: 5 });
+    await inbox.initialize();
+    await inbox.enqueue(Buffer.from(JSON.stringify(documentPayload)), documentPayload);
+    await waitFor(async () => (await inbox.status()).deadLetters === 1);
+    const status = await inbox.status();
+    assert.equal(status.pending, 0);
+    assert.equal(status.lastDeadLetter?.action, "documentCommentMention");
+    const stored = await fs.readFile(path.join(directory, "webhook-inbox.json"), "utf8");
+    assert.doesNotMatch(stored, /private review text/);
+    inbox.shutdown();
   } finally {
     await fs.rm(directory, { recursive: true, force: true });
   }

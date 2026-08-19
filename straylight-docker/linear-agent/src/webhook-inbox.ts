@@ -21,10 +21,31 @@ type CompletedDelivery = {
   completedAt: number;
 };
 
-type StoredDelivery = PendingDelivery | CompletedDelivery;
+type DeadDelivery = {
+  key: string;
+  status: "dead";
+  receivedAt: number;
+  failedAt: number;
+  attempts: number;
+  message: string;
+  event: {
+    type?: string;
+    action?: string;
+    issueId?: string;
+    documentId?: string;
+    commentId?: string;
+  };
+};
+
+type StoredDelivery = PendingDelivery | CompletedDelivery | DeadDelivery;
 type InboxState = { version: 1; deliveries: StoredDelivery[] };
 
 const MAX_COMPLETED = 2_048;
+const MAX_DEAD = 128;
+
+export class PermanentWebhookDeliveryError extends Error {
+  override readonly name = "PermanentWebhookDeliveryError";
+}
 
 function deliveryKey(body: Buffer): string {
   return crypto.createHash("sha256").update(body).digest("hex");
@@ -34,9 +55,17 @@ export type WebhookInboxStatus = {
   persistent: true;
   pending: number;
   completed: number;
+  deadLetters: number;
   attempts: number;
   nextAttemptAt?: string;
   lastFailure?: string;
+  lastDeadLetter?: {
+    at: string;
+    attempts: number;
+    type?: string;
+    action?: string;
+    message: string;
+  };
 };
 
 export class DurableWebhookInbox {
@@ -47,11 +76,12 @@ export class DurableWebhookInbox {
   private readonly retentionMs: number;
   private readonly retryBaseMs: number;
   private readonly maxRetryMs: number;
+  private readonly deadRetentionMs: number;
 
   constructor(
     stateDirectory: string,
     private readonly handler: (payload: LinearWebhook) => Promise<void>,
-    options: { retentionMs?: number; retryBaseMs?: number; maxRetryMs?: number } = {},
+    options: { retentionMs?: number; retryBaseMs?: number; maxRetryMs?: number; deadRetentionMs?: number } = {},
   ) {
     this.store = new JsonStore(path.join(stateDirectory, "webhook-inbox.json"), {
       version: 1,
@@ -60,6 +90,7 @@ export class DurableWebhookInbox {
     this.retentionMs = options.retentionMs ?? 10 * 60_000;
     this.retryBaseMs = options.retryBaseMs ?? 1_000;
     this.maxRetryMs = options.maxRetryMs ?? 5 * 60_000;
+    this.deadRetentionMs = options.deadRetentionMs ?? 7 * 24 * 60 * 60_000;
   }
 
   async initialize(): Promise<void> {
@@ -96,16 +127,29 @@ export class DurableWebhookInbox {
   async status(): Promise<WebhookInboxStatus> {
     const state = await this.store.read();
     const pending = state.deliveries.filter((delivery): delivery is PendingDelivery => delivery.status === "pending");
-    const completed = state.deliveries.length - pending.length;
+    const completed = state.deliveries.filter((delivery) => delivery.status === "complete").length;
+    const dead = state.deliveries
+      .filter((delivery): delivery is DeadDelivery => delivery.status === "dead")
+      .sort((left, right) => right.failedAt - left.failedAt);
     const next = pending.map((delivery) => delivery.nextAttemptAt).sort((left, right) => left - right)[0];
     const failed = [...pending].filter((delivery) => delivery.lastError).sort((left, right) => right.nextAttemptAt - left.nextAttemptAt)[0];
     return {
       persistent: true,
       pending: pending.length,
       completed,
+      deadLetters: dead.length,
       attempts: pending.reduce((total, delivery) => total + delivery.attempts, 0),
       ...(next === undefined ? {} : { nextAttemptAt: new Date(next).toISOString() }),
       ...(failed?.lastError ? { lastFailure: failed.lastError } : {}),
+      ...(dead[0] ? {
+        lastDeadLetter: {
+          at: new Date(dead[0].failedAt).toISOString(),
+          attempts: dead[0].attempts,
+          ...(dead[0].event.type ? { type: dead[0].event.type } : {}),
+          ...(dead[0].event.action ? { action: dead[0].event.action } : {}),
+          message: dead[0].message,
+        },
+      } : {}),
     };
   }
 
@@ -150,6 +194,28 @@ export class DurableWebhookInbox {
           });
         } catch (error) {
           const message = finalText(error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+          if (error instanceof PermanentWebhookDeliveryError) {
+            await this.store.update((current) => {
+              const index = current.deliveries.findIndex((delivery) => delivery.key === pending.key);
+              if (index < 0) return;
+              current.deliveries[index] = {
+                key: pending.key,
+                status: "dead",
+                receivedAt: pending.receivedAt,
+                failedAt: Date.now(),
+                attempts: pending.attempts + 1,
+                message,
+                event: eventSummary(pending.payload),
+              };
+              this.prune(current, Date.now());
+            });
+            console.error("permanent Linear webhook delivery quarantined", {
+              key: pending.key.slice(0, 12),
+              message,
+              event: eventSummary(pending.payload),
+            });
+            continue;
+          }
           let nextAttemptAt = Date.now() + this.retryBaseMs;
           await this.store.update((current) => {
             const delivery = current.deliveries.find((item): item is PendingDelivery => item.key === pending.key && item.status === "pending");
@@ -176,12 +242,30 @@ export class DurableWebhookInbox {
 
   private prune(state: InboxState, now: number): void {
     const cutoff = now - this.retentionMs;
+    const deadCutoff = now - this.deadRetentionMs;
     const pending = state.deliveries.filter((delivery) => delivery.status === "pending");
     const completed = state.deliveries
       .filter((delivery): delivery is CompletedDelivery => delivery.status === "complete" && delivery.completedAt >= cutoff)
       .sort((left, right) => right.completedAt - left.completedAt)
       .slice(0, MAX_COMPLETED);
+    const dead = state.deliveries
+      .filter((delivery): delivery is DeadDelivery => delivery.status === "dead" && delivery.failedAt >= deadCutoff)
+      .sort((left, right) => right.failedAt - left.failedAt)
+      .slice(0, MAX_DEAD);
     state.version = 1;
-    state.deliveries = [...pending, ...completed];
+    state.deliveries = [...pending, ...completed, ...dead];
   }
+}
+
+function eventSummary(payload: LinearWebhook): DeadDelivery["event"] {
+  const notification = "notification" in payload ? payload.notification : undefined;
+  const agentSession = "agentSession" in payload ? payload.agentSession : undefined;
+  const issueId = notification?.issueId ?? agentSession?.issueId;
+  return {
+    ...(payload.type ? { type: payload.type } : {}),
+    ...(payload.action ? { action: payload.action } : {}),
+    ...(issueId ? { issueId } : {}),
+    ...(notification?.documentId ? { documentId: notification.documentId } : {}),
+    ...(notification?.commentId ? { commentId: notification.commentId } : {}),
+  };
 }

@@ -10,13 +10,18 @@ mounted at all.
   ranked repository suggestions in the task prompt.
 - If the repository is ambiguous, ask in the Agent Session before editing.
 - Never guess that a similarly named repository is the requested target.
-- Clone the chosen source into `/workspace/<repository-name>` before editing.
-  `git clone --shared /repositories/<repository-name> /workspace/<repository-name>`
-  is fast and keeps all task writes inside this jail.
+- Clone the canonical HTTPS URL shown in the task prompt into
+  `/workspace/<repository-name>` before editing, while borrowing objects from
+  its cache:
+  `git clone --reference-if-able /repositories/<repository-name> <canonical-https-url> /workspace/<repository-name>`.
+  This keeps `origin` pointed at the real host while avoiding repeated history
+  downloads. If an existing workspace still has an `/repositories/...` origin,
+  reset it to the canonical HTTPS URL before fetching.
 
 ## Isolate implementation work
 
-- Do not modify anything below `/repositories`; it is a shared read-only source.
+- Do not modify anything below `/repositories`; it is a centrally refreshed,
+  shared read-only cache.
 - Implement only in the private clone below `/workspace`.
 - Use branch `agent/<lowercase-issue-identifier>` unless the issue specifies a
   branch.
@@ -116,6 +121,12 @@ mounted at all.
   deferred items a concrete next action and name an owner when known. In the
   final natural summary, distinguish implementation, merge, deployment, and
   customer-visible completion.
+- Claude runs must call `finish_work` before an ordinary final response. Use
+  `completed` only when the requested outcome is delivered, `blocked_external`
+  only when a non-human dependency has a concrete retry condition, and
+  `deferred` only when postponement is authorized. A human-resolvable blocker
+  must go through blocking `request_attention`, which records `blocked_human`
+  automatically and creates the durable Linear queue item.
 - A quick classifier selects the cheapest suitable model when a new session
   starts. If the current model is clearly undersized, call
   `escalate_intelligence` with the concrete reason and end the turn so the next
