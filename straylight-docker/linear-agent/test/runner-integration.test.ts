@@ -18,10 +18,12 @@ test("streams structured events across the controller-runner boundary", async ()
         ? { status: "ok" as const, answer: "Corporate context" }
         : { status: "error" as const, message: "Unauthorized." };
     },
-    async runClaude(taskCredential: string, request: { prompt: string; resume?: string }) {
-      return taskCredential === "one-time-task-token" && request.prompt === "Implement it"
-        ? { status: "ok" as const, answer: "Ready for QA.", sessionId: request.resume ?? "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa" as const, reason: "Implemented, checked, and ready for approval." } }
-        : { status: "error" as const, message: "Unauthorized." };
+    async runClaude(taskCredential: string, request: { prompt: string; resume?: string }, _signal?: AbortSignal, onProgress?: (progress: { type: "thought"; body: string }) => void) {
+      if (taskCredential === "one-time-task-token" && request.prompt === "Implement it") {
+        onProgress?.({ type: "thought", body: "Inspecting the affected module." });
+        return { status: "ok" as const, answer: "Ready for QA.", sessionId: request.resume ?? "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa" as const, reason: "Implemented, checked, and ready for approval." } };
+      }
+      return { status: "error" as const, message: "Unauthorized." };
     },
     async shell(request: { command: string }) {
       return { ok: true, exitCode: 0, stdout: request.command, stderr: "" };
@@ -86,8 +88,14 @@ test("streams structured events across the controller-runner boundary", async ()
     assert.deepEqual(await claude.json(), { status: "ok", answer: "Corporate context" });
     const rejectedClaude = await new CapsuleClient(baseUrl, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
     assert.deepEqual(rejectedClaude, { status: "error", message: "Unauthorized." });
-    const agent = await new CapsuleClient(baseUrl, "one-time-task-token").runBrokeredAgent({ prompt: "Implement it" }); // yadm-secret-scan: ignore
+    const agentProgress: unknown[] = [];
+    const agent = await new CapsuleClient(baseUrl, "one-time-task-token").runBrokeredAgent(
+      { prompt: "Implement it" },
+      undefined,
+      (progress) => { agentProgress.push(progress); },
+    ); // yadm-secret-scan: ignore
     assert.deepEqual(agent, { status: "ok", answer: "Ready for QA.", sessionId: "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa", reason: "Implemented, checked, and ready for approval." } });
+    assert.deepEqual(agentProgress, [{ type: "thought", body: "Inspecting the affected module." }]);
     const shell = await fetch(`${baseUrl}/v1/shell`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -192,6 +200,52 @@ test("propagates a disconnected Claude request to the workbench abort signal", a
     await Promise.race([
       aborted,
       new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("abort signal was not propagated")), 1_000)),
+    ]);
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("cancels a streamed Claude agent run when its task caller disconnects", async () => {
+  let markStarted!: () => void;
+  let markAborted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  const aborted = new Promise<void>((resolve) => { markAborted = resolve; });
+  const harness = {
+    runClaude(_taskCredential: string, _request: unknown, signal?: AbortSignal) {
+      markStarted();
+      return new Promise<{ status: "error"; message: string }>((resolve) => {
+        const cancel = () => {
+          markAborted();
+          resolve({ status: "error", message: "Cancelled." });
+        };
+        if (signal?.aborted) cancel();
+        else signal?.addEventListener("abort", cancel, { once: true });
+      });
+    },
+    async run() { return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 }; },
+    async followUp() { return false; },
+    async abort() { return false; },
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, "runner-test-token"), // yadm-secret-scan: ignore
+  });
+  try {
+    const controller = new AbortController();
+    const pending = fetch(`${server.url.origin}/v1/agent`, {
+      method: "POST",
+      headers: { authorization: "Bearer one-time-task-token", "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "Keep working" }),
+      signal: controller.signal,
+    }).then((response) => response.text());
+    await started;
+    controller.abort();
+    await pending.catch(() => undefined);
+    await Promise.race([
+      aborted,
+      new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error("stream abort signal was not propagated")), 1_000)),
     ]);
   } finally {
     await server.stop(true);

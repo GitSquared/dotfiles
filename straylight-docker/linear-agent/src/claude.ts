@@ -6,7 +6,7 @@ import { LinearToolClient } from "./linear-tool-client.js";
 import { materializeLinearInputs } from "./pi.js";
 import { ProgressReporter } from "./progress.js";
 import { claudeFollowUpPrompt, claudeInitialPrompt } from "./prompts.js";
-import { finalText, redact } from "./redaction.js";
+import { finalText, progressText, redact } from "./redaction.js";
 import type { PiResult, RunnerEvent } from "./runner-protocol.js";
 import { captureCommand } from "./runtime.js";
 import type { AgentTaskPayload, LinearInputFile, RepositoryCandidate } from "./types.js";
@@ -58,7 +58,20 @@ export class ClaudeHarness {
         prompt,
         ...(resume ? { resume } : {}),
         model: "sonnet",
-      }, controller.signal);
+      }, controller.signal, (progress) => {
+        reporter.report({
+          type: "activity",
+          content: progress.type === "thought"
+            ? { type: "thought", body: finalText(progress.body) }
+            : {
+                type: "action",
+                action: progressText(progress.action),
+                parameter: progressText(progress.parameter),
+                ...(progress.result ? { result: progressText(progress.result) } : {}),
+              },
+          ephemeral: true,
+        });
+      });
       if (timedOut) {
         return {
           ok: false,

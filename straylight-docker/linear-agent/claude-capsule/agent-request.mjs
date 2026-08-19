@@ -3,8 +3,120 @@ import { z } from "zod";
 
 const MAX_TOOL_RESULT = 256 * 1024;
 const MAX_IMAGE_RESULT = 8 * 1024 * 1024;
+const MAX_PROGRESS_TEXT = 1_000;
 const HUMAN_BLOCKER_LANGUAGE = /\b(?:cannot|can't|unable to|nothing further\b[^.]{0,120}\buntil|waiting for (?:you|the engineer|a human)|requires? (?:your|developer|human) (?:input|access|permission)|need(?:s|ed)? (?:you|the engineer|a human) to)\b/i;
 const INFORMAL_ATTENTION_LANGUAGE = /\b(?:let me know|tell me if|please (?:review|confirm|check)|confirm whether|what would you like|when you(?:'re| are) ready)\b/i;
+
+function boundedProgress(value) {
+  const clean = String(value ?? "").replace(/\s+/g, " ").trim();
+  return clean.length <= MAX_PROGRESS_TEXT ? clean : `${clean.slice(0, MAX_PROGRESS_TEXT - 1)}…`;
+}
+
+function safeLogMessage(value) {
+  return boundedProgress(value)
+    .replace(/Authorization:\s*Bearer\s+\S+/gi, "Authorization: Bearer [redacted]")
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]{12,}/gi, "Bearer [redacted]")
+    .replace(/(?:github_pat_|ghp_)[A-Za-z0-9_]{16,}/g, "github_[redacted]")
+    .replace(/sk-[A-Za-z0-9_-]{12,}/g, "sk-[redacted]")
+    .replace(/(--(?:token|api-key|key|secret|password|auth)(?:\s+|=))\S+/gi, "$1[redacted]");
+}
+
+function progressAction(name) {
+  const clean = boundedProgress(name).replace(/^mcp__straylight__/, "").replace(/[_-]+/g, " ");
+  return clean ? `Running ${clean}` : "Running tool";
+}
+
+function assistantText(message) {
+  if (!Array.isArray(message?.message?.content)) return "";
+  return boundedProgress(message.message.content
+    .filter((block) => block?.type === "text" && typeof block.text === "string")
+    .map((block) => block.text)
+    .join("\n"));
+}
+
+export function createProgressProjector(report, clock = Date.now) {
+  let partialText = "";
+  let partialTextReported = false;
+  let totalTextLength = 0;
+  let lastTextLength = 0;
+  let lastTextAt = 0;
+  let thinkingBucket = -1;
+  const toolBuckets = new Map();
+
+  return async (message) => {
+    let progress;
+    if (message?.type === "stream_event") {
+      const event = message.event;
+      if (event?.type === "message_start") {
+        partialText = "";
+        partialTextReported = false;
+        totalTextLength = 0;
+        lastTextLength = 0;
+        lastTextAt = clock();
+      } else if (event?.type === "content_block_start" && event.content_block?.type === "tool_use") {
+        progress = {
+          type: "action",
+          action: progressAction(event.content_block.name),
+          parameter: boundedProgress(event.content_block.name) || "tool",
+        };
+      } else if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
+        const delta = event.delta.text ?? "";
+        partialText = `${partialText}${delta}`.slice(-MAX_PROGRESS_TEXT);
+        totalTextLength += delta.length;
+        const now = clock();
+        const enoughText = totalTextLength - lastTextLength >= 160;
+        const enoughTime = now - lastTextAt >= 750;
+        if (enoughText || enoughTime || partialText.endsWith("\n")) {
+          progress = { type: "thought", body: boundedProgress(partialText) };
+          partialTextReported = true;
+          lastTextLength = totalTextLength;
+          lastTextAt = now;
+        }
+      }
+    } else if (message?.type === "assistant") {
+      const body = assistantText(message);
+      if (body && !partialTextReported) progress = { type: "thought", body };
+    } else if (message?.type === "tool_progress") {
+      const bucket = Math.floor(Math.max(0, message.elapsed_time_seconds ?? 0) / 10);
+      if (toolBuckets.get(message.tool_use_id) !== bucket) {
+        toolBuckets.set(message.tool_use_id, bucket);
+        progress = {
+          type: "action",
+          action: progressAction(message.tool_name),
+          parameter: `${Math.max(0, Math.round(message.elapsed_time_seconds ?? 0))}s elapsed`,
+          ...(message.subagent_retry ? { result: `Retry ${message.subagent_retry.attempt}/${message.subagent_retry.max_retries}` } : {}),
+        };
+      }
+    } else if (message?.type === "system" && message.subtype === "init") {
+      progress = {
+        type: "thought",
+        body: `Claude Code connected${message.model ? ` using ${boundedProgress(message.model)}` : ""}; the agent turn is running.`,
+      };
+    } else if (message?.type === "system" && message.subtype === "thinking_tokens") {
+      const bucket = Math.floor(Math.max(0, message.estimated_tokens ?? 0) / 256);
+      if (bucket !== thinkingBucket) {
+        thinkingBucket = bucket;
+        progress = { type: "thought", body: `Claude is thinking (about ${Math.max(0, Math.round(message.estimated_tokens ?? 0))} tokens so far).` };
+      }
+    } else if (message?.type === "system" && message.subtype === "status" && message.status === "compacting") {
+      progress = { type: "thought", body: "Claude is compacting its working context before continuing." };
+    } else if (message?.type === "system" && message.subtype === "api_retry") {
+      progress = {
+        type: "thought",
+        body: `Claude is retrying a model request (${message.attempt}/${message.max_retries}${message.error_status ? `, HTTP ${message.error_status}` : ""}).`,
+      };
+    } else if (message?.type === "rate_limit_event" && message.rate_limit_info?.status !== "allowed") {
+      const utilization = Number.isFinite(message.rate_limit_info?.utilization)
+        ? `, ${Math.round(message.rate_limit_info.utilization * 100)}% used`
+        : "";
+      progress = {
+        type: "thought",
+        body: `Claude subscription limit ${message.rate_limit_info.status === "rejected" ? "reached" : "warning"}${utilization}.`,
+      };
+    }
+    if (progress) await report(progress);
+  };
+}
 
 async function proxy(baseUrl, token, pathname, body, signal, maximum = MAX_TOOL_RESULT) {
   const response = await fetch(`${baseUrl}${pathname}`, {
@@ -224,7 +336,7 @@ export function createStraylightTools(context) {
   });
 }
 
-export async function runAgent(input, signal) {
+export async function runAgent(input, signal, reportProgress = async () => {}) {
   const context = {
     taskUrl: input.taskUrl,
     workbenchUrl: input.workbenchUrl,
@@ -239,7 +351,12 @@ export async function runAgent(input, signal) {
   if (signal.aborted) abort();
   else signal.addEventListener("abort", abort, { once: true });
   let result;
+  let sdkEventCount = 0;
+  let lastSdkEvent;
+  let sdkSessionId;
+  const startedAt = Date.now();
   try {
+    const projectProgress = createProgressProjector(reportProgress);
     const messages = query({
       prompt: input.prompt,
       options: {
@@ -263,6 +380,7 @@ export async function runAgent(input, signal) {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         maxTurns: 100,
+        includePartialMessages: true,
         systemPrompt: [
           "You are Straylight's primary coding agent. You extend the sponsoring engineer inside an isolated task workspace.",
           "Your filesystem and shell are remote: use the straylight bash tool for every repository, file, test, and development-server operation. /workspace is writable. You cannot access the capsule filesystem.",
@@ -282,6 +400,17 @@ export async function runAgent(input, signal) {
     });
     const toolCalls = new Set();
     for await (const message of messages) {
+      sdkEventCount += 1;
+      lastSdkEvent = message.subtype ? `${message.type}:${message.subtype}` : message.type;
+      sdkSessionId = message.session_id || sdkSessionId;
+      if (sdkEventCount === 1) {
+        console.info("Claude Agent SDK stream opened", {
+          sessionId: sdkSessionId,
+          firstEvent: lastSdkEvent,
+          elapsedMs: Date.now() - startedAt,
+        });
+      }
+      await projectProgress(message);
       if (message.type === "assistant" && Array.isArray(message.message?.content)) {
         for (const block of message.message.content) {
           if (block?.type === "tool_use" && typeof block.name === "string") toolCalls.add(block.name);
@@ -294,7 +423,24 @@ export async function runAgent(input, signal) {
       toolCalls: [...toolCalls],
       disposition: context.disposition?.status,
       awaitingInput: context.awaitingInput,
+      estimatedCostUsd: result?.total_cost_usd,
+      inputTokens: result?.usage?.input_tokens,
+      outputTokens: result?.usage?.output_tokens,
+      cacheReadInputTokens: result?.usage?.cache_read_input_tokens,
+      cacheCreationInputTokens: result?.usage?.cache_creation_input_tokens,
+      sdkEventCount,
+      lastSdkEvent,
     });
+  } catch (error) {
+    console.error("Claude Agent SDK stream failed", {
+      sessionId: sdkSessionId,
+      elapsedMs: Date.now() - startedAt,
+      sdkEventCount,
+      lastSdkEvent,
+      cancelled: abortController.signal.aborted,
+      message: safeLogMessage(error instanceof Error ? error.message : String(error)),
+    });
+    throw error;
   } finally {
     signal.removeEventListener("abort", abort);
   }

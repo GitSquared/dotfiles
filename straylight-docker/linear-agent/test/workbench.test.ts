@@ -159,6 +159,7 @@ test("reuses an idle warm task and withholds supervisor capabilities between tur
 
 test("forwards a running task to the Claude capsule without mounting its identity", async () => {
   let request: unknown;
+  const progress: unknown[] = [];
   const unused = async () => { throw new Error("unexpected engine call"); };
   const engine: ContainerEngine = {
     pull: unused,
@@ -176,8 +177,9 @@ test("forwards a running task to the Claude capsule without mounting its identit
   };
   const capsule = {
     async ask() { return { status: "error" as const, message: "unused" }; },
-    async runAgent(input: unknown) {
+    async runAgent(input: unknown, _signal?: AbortSignal, onProgress?: (event: { type: "thought"; body: string }) => void) {
       request = input;
+      onProgress?.({ type: "thought", body: "Reading the repository." });
       return { status: "ok" as const, answer: "Ready for QA.", sessionId: "claude-1", awaitingInput: true, durationMs: 4, disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." } };
     },
   };
@@ -200,8 +202,14 @@ test("forwards a running task to the Claude capsule without mounting its identit
   const internals = harness as unknown as { active: Map<string, unknown> };
   internals.active.set("session", active);
 
-  const result = await harness.runClaude("task-token", { prompt: "Implement it", resume: "claude-0" }); // yadm-secret-scan: ignore
+  const result = await harness.runClaude(
+    "task-token",
+    { prompt: "Implement it", resume: "claude-0" },
+    undefined,
+    (event) => { progress.push(event); },
+  ); // yadm-secret-scan: ignore
   assert.equal(result.status, "ok");
+  assert.deepEqual(progress, [{ type: "thought", body: "Reading the repository." }]);
   assert.deepEqual(request, {
     prompt: "Implement it",
     taskUrl: "http://linear-agent-task-abc123:8788",

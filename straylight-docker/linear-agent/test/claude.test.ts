@@ -128,6 +128,44 @@ test("reports visible progress while Claude is quiet", async () => {
   }
 });
 
+test("publishes safe semantic Claude progress into Linear activity", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-semantic-progress-"));
+  try {
+    const progressConfig = { ...config(workdir), progressDebounceMs: 1, progressHeartbeatMs: 300_000 };
+    const capsule = {
+      async runBrokeredAgent(
+        _request: unknown,
+        _signal?: AbortSignal,
+        onProgress?: (progress: { type: "thought"; body: string } | { type: "action"; action: string; parameter: string }) => void,
+      ) {
+        onProgress?.({ type: "thought", body: "Inspecting Authorization: Bearer very-secret-token-value." });
+        await Bun.sleep(3);
+        onProgress?.({ type: "action", action: "Running bash", parameter: "bun test" });
+        await Bun.sleep(3);
+        return {
+          status: "ok" as const,
+          answer: "Ready for review.",
+          sessionId: "claude-semantic-progress-session",
+          awaitingInput: true,
+          durationMs: 6,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+    };
+    const events: unknown[] = [];
+    const harness = new ClaudeHarness(progressConfig, capsule);
+    await harness.run({
+      action: "created",
+      agentSession: { id: "linear-semantic-progress-session", issueId: "issue-1" },
+      agentActivity: { content: { body: "Inspect and test." } },
+    }, async (event) => { events.push(event); });
+    assert.equal(events.some((event) => (event as { content?: { body?: string } }).content?.body === "Inspecting Authorization: Bearer [redacted]"), true);
+    assert.equal(events.some((event) => (event as { content?: { action?: string } }).content?.action === "Running bash"), true);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
 test("runs shell commands in the task workspace and strips broker credentials", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-shell-"));
   const previous = process.env.PI_RUNNER_TOKEN;

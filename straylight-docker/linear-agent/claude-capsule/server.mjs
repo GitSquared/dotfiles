@@ -12,6 +12,7 @@ const port = Number(process.env.PORT || 8790);
 const maxBodyBytes = 512 * 1024;
 const maxOutputBytes = 256 * 1024;
 const claudeTimeoutMs = 300_000;
+const agentHeartbeatMs = 15_000;
 const controlToken = fs.readFileSync(process.env.CAPSULE_CONTROL_TOKEN_FILE || "/run/secrets/capsule-control-token", "utf8").trim(); // yadm-secret-scan: ignore
 if (controlToken.length < 32) throw new Error("capsule control token is invalid");
 
@@ -24,6 +25,10 @@ function json(response, status, value) {
     "x-content-type-options": "nosniff",
   });
   response.end(output);
+}
+
+function ndjson(response, value) {
+  if (!response.destroyed && !response.writableEnded) response.write(`${JSON.stringify(value)}\n`);
 }
 
 async function body(request) {
@@ -128,6 +133,9 @@ async function route(request, response) {
   }
   if (method === "POST" && pathname === "/v1/agent") {
     const requestCancellation = cancellation(request, response);
+    const requestId = crypto.randomUUID();
+    const startedAt = Date.now();
+    let heartbeat;
     try {
       if (!authorized(request)) {
         if (!response.destroyed) json(response, 401, { status: "error", message: "Unauthorized." });
@@ -145,20 +153,55 @@ async function route(request, response) {
         if (!response.destroyed) json(response, 400, { status: "error", message: "Invalid Straylight agent request." });
         return;
       }
-      const result = await runAgent(input, requestCancellation.signal);
-      if (!response.destroyed) json(response, 200, result);
+      console.info("Claude agent request accepted", {
+        requestId,
+        model: input.model || "sonnet",
+        resumed: Boolean(input.resume),
+      });
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-type": "application/x-ndjson; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      });
+      heartbeat = setInterval(() => {
+        if (!response.destroyed && !response.writableEnded) response.write("\n");
+      }, agentHeartbeatMs);
+      heartbeat.unref();
+      const result = await runAgent(input, requestCancellation.signal, async (progress) => {
+        ndjson(response, { type: "progress", progress });
+      });
+      ndjson(response, { type: "result", result });
+      if (!response.destroyed) response.end();
+      console.info("Claude agent request completed", {
+        requestId,
+        elapsedMs: Date.now() - startedAt,
+        disposition: result.disposition?.status,
+      });
       return;
     } catch (error) {
       if (!response.destroyed) {
-        json(response, 502, {
+        const result = {
           status: "error",
           message: requestCancellation.signal.aborted
             ? "The Claude agent run was cancelled."
             : (error instanceof Error ? error.message : "The Claude agent run failed."),
-        });
+        };
+        if (response.headersSent) {
+          ndjson(response, { type: "result", result });
+          response.end();
+        } else {
+          json(response, 502, result);
+        }
       }
+      console.error("Claude agent request failed", {
+        requestId,
+        elapsedMs: Date.now() - startedAt,
+        cancelled: requestCancellation.signal.aborted,
+        errorName: error instanceof Error ? error.name : "NonError",
+      });
       return;
     } finally {
+      if (heartbeat) clearInterval(heartbeat);
       requestCancellation.cleanup();
     }
   }

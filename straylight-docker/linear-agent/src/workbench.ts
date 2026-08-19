@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CapsuleClient } from "./capsule-client.js";
-import type { CapsuleAgentResult } from "./capsule-client.js";
+import type { CapsuleAgentProgressHandler, CapsuleAgentResult } from "./capsule-client.js";
 import { AdaptiveSlots } from "./capacity.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
@@ -415,19 +415,43 @@ export class WorkbenchHarness {
     token: string, // yadm-secret-scan: ignore
     request: { prompt: string; resume?: string; model?: string },
     signal?: AbortSignal,
+    onProgress?: CapsuleAgentProgressHandler,
   ): Promise<CapsuleAgentResult> {
     const active = this.taskForToken(token);
     if (!active?.running || active.aborted || !active.containerName) {
       return { status: "error", message: "Unauthorized or unavailable task workspace." };
     }
-    return this.capsule.runAgent({
-      prompt: request.prompt,
-      taskUrl: `http://${active.containerName}:8788`,
-      workbenchUrl: "http://linear-agent-runner:8788",
-      taskToken: token,
-      ...(request.resume ? { resume: request.resume } : {}),
-      ...(request.model ? { model: request.model } : {}),
-    }, signal);
+    const startedAt = Date.now();
+    console.info("Claude workbench run starting", {
+      sessionId: active.sessionId,
+      model: request.model || "sonnet",
+      resumed: Boolean(request.resume),
+    });
+    try {
+      const result = await this.capsule.runAgent({
+        prompt: request.prompt,
+        taskUrl: `http://${active.containerName}:8788`,
+        workbenchUrl: "http://linear-agent-runner:8788",
+        taskToken: token,
+        ...(request.resume ? { resume: request.resume } : {}),
+        ...(request.model ? { model: request.model } : {}),
+      }, signal, onProgress);
+      console.info("Claude workbench run finished", {
+        sessionId: active.sessionId,
+        elapsedMs: Date.now() - startedAt,
+        status: result.status,
+        ...(result.status === "ok" ? { disposition: result.disposition.status } : {}),
+      });
+      return result;
+    } catch (error) {
+      console.error("Claude workbench run failed", {
+        sessionId: active.sessionId,
+        elapsedMs: Date.now() - startedAt,
+        cancelled: signal?.aborted === true,
+        message: redact(error instanceof Error ? error.message : String(error)),
+      });
+      throw error;
+    }
   }
 
   async manageService(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult> { // yadm-secret-scan: ignore

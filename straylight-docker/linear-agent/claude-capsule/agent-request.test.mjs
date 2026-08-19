@@ -1,6 +1,34 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertAgentMayAct, assertTerminalSummary, recordWorkDisposition, stopDispositionGuard } from "./agent-request.mjs";
+import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, stopDispositionGuard } from "./agent-request.mjs";
+
+test("projects Claude SDK activity without exposing hidden reasoning or tool arguments", async () => {
+  const events = [];
+  let now = 0;
+  const project = createProgressProjector(async (event) => events.push(event), () => now);
+  await project({ type: "system", subtype: "init", model: "claude-sonnet-5" });
+  await project({ type: "stream_event", event: { type: "message_start" } });
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", content_block: { type: "tool_use", name: "mcp__straylight__bash", input: { command: "secret" } } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "private chain of thought" } } });
+  now = 1_000;
+  await project({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "I found the relevant module." } } });
+  await project({ type: "system", subtype: "thinking_tokens", estimated_tokens: 300, estimated_tokens_delta: 300 });
+  await project({ type: "tool_progress", tool_use_id: "tool-1", tool_name: "mcp__straylight__bash", elapsed_time_seconds: 12 });
+  await project({ type: "system", subtype: "api_retry", attempt: 2, max_retries: 4, error_status: 529 });
+
+  assert.deepEqual(events, [
+    { type: "thought", body: "Claude Code connected using claude-sonnet-5; the agent turn is running." },
+    { type: "action", action: "Running bash", parameter: "mcp__straylight__bash" },
+    { type: "thought", body: "I found the relevant module." },
+    { type: "thought", body: "Claude is thinking (about 300 tokens so far)." },
+    { type: "action", action: "Running bash", parameter: "12s elapsed" },
+    { type: "thought", body: "Claude is retrying a model request (2/4, HTTP 529)." },
+  ]);
+  assert.doesNotMatch(JSON.stringify(events), /private chain of thought|secret/);
+});
 
 test("permits tools while the agent is active", () => {
   assert.doesNotThrow(() => assertAgentMayAct({ awaitingInput: false }));

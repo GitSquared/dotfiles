@@ -1,5 +1,10 @@
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
-import type { CapsuleResult } from "./capsule-client.js";
+import {
+  encodeCapsuleAgentStreamEvent,
+  type CapsuleAgentProgressHandler,
+  type CapsuleAgentResult,
+  type CapsuleResult,
+} from "./capsule-client.js";
 import type {
   LinearManageRequest,
   LinearManageResult,
@@ -38,7 +43,7 @@ type RunnerHarness = {
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
-  runClaude?(token: string, request: { prompt: string; resume?: string; model?: string }, signal?: AbortSignal): Promise<import("./capsule-client.js").CapsuleAgentResult>; // yadm-secret-scan: ignore
+  runClaude?(token: string, request: { prompt: string; resume?: string; model?: string }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
   shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   shareArtifact?(request: { path: string; title?: string; body?: string }, signal?: AbortSignal): Promise<{ ok: true; assetUrl: string; contentType: string; filename: string }>;
   viewImage?(request: { path: string }): Promise<{ ok: true; dataBase64: string; mimeType: string }>;
@@ -107,12 +112,11 @@ export function createRunnerServer(
         return json(400, { status: "error", message: "Invalid Claude agent request." });
       }
       server?.timeout(request, 0);
-      const result = await pi.runClaude(bearer(request), {
-        prompt: input.prompt,
+      return streamClaudeAgent((signal, onProgress) => pi.runClaude!(bearer(request), {
+        prompt: input.prompt!,
         ...(input.resume ? { resume: input.resume } : {}),
         ...(input.model ? { model: input.model } : {}),
-      }, request.signal);
-      return json(result.status === "error" ? 502 : 200, result);
+      }, signal, onProgress), request.signal, options.heartbeatMs ?? RUNNER_HEARTBEAT_MS);
     }
 
     if (method === "POST" && pathname === "/v1/services") {
@@ -236,6 +240,64 @@ export function createRunnerServer(
 
     return json(404, { ok: false, error: "not_found" });
   }
+}
+
+function streamClaudeAgent(
+  run: (signal: AbortSignal, onProgress: CapsuleAgentProgressHandler) => Promise<CapsuleAgentResult>,
+  requestSignal: AbortSignal,
+  heartbeatMs: number,
+): Response {
+  const encoder = new TextEncoder();
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  if (requestSignal.aborted) abort();
+  else requestSignal.addEventListener("abort", abort, { once: true });
+  let cancelled = false;
+  let completed = false;
+  let heartbeat: NodeJS.Timeout | undefined;
+  const cleanup = () => {
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = undefined;
+    requestSignal.removeEventListener("abort", abort);
+  };
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      heartbeat = setInterval(() => {
+        if (!cancelled && !completed) controller.enqueue(encoder.encode("\n"));
+      }, Math.max(1, heartbeatMs));
+      heartbeat.unref();
+      void run(abortController.signal, async (progress) => {
+        if (!cancelled) controller.enqueue(encoder.encode(encodeCapsuleAgentStreamEvent({ type: "progress", progress })));
+      }).then((result) => {
+        completed = true;
+        cleanup();
+        if (cancelled) return;
+        controller.enqueue(encoder.encode(encodeCapsuleAgentStreamEvent({ type: "result", result })));
+        controller.close();
+      }).catch((error: unknown) => {
+        completed = true;
+        cleanup();
+        if (cancelled) return;
+        controller.enqueue(encoder.encode(encodeCapsuleAgentStreamEvent({
+          type: "result",
+          result: { status: "error", message: error instanceof Error ? error.message : String(error) },
+        })));
+        controller.close();
+      });
+    },
+    cancel() {
+      cancelled = true;
+      cleanup();
+      abortController.abort();
+    },
+  });
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      ...responseHeaders,
+      "content-type": "application/x-ndjson; charset=utf-8",
+    },
+  });
 }
 
 function streamRun(pi: RunnerHarness, sessionId: string, payload: RunRequest["payload"], heartbeatMs: number): Response {

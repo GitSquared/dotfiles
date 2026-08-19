@@ -336,9 +336,14 @@ The controller-to-runner NDJSON response emits blank transport heartbeats every
 15 seconds and disables Bun's native fetch timeout where supported. Quiet Claude
 turns also replace their ephemeral Linear activity every configured progress
 interval, so a long inference neither looks dead nor loses its control stream.
-That visible activity is currently only synthetic proof-of-life: the Claude
-capsule does not yet forward the Agent SDK's semantic text, tool-progress,
-rate-limit, or usage events to Linear.
+The authenticated capsule and both workbench hops use the same bounded NDJSON
+protocol. Claude assistant text, tool starts and elapsed time, compaction,
+thinking-token estimates, retries, and subscription-limit warnings become safe
+replacement-style Linear activity. Raw hidden reasoning and tool arguments are
+never serialized as progress; user-facing text is bounded and recognized
+credentials are redacted before Linear. The capsule logs request boundaries,
+terminal disposition, tool names, estimated token usage, and SDK-estimated cost
+without logging prompts or task tokens.
 
 ## Linear workflow setup
 
@@ -565,8 +570,11 @@ Useful Linear smoke tests:
 4. Finish a checked change and confirm QA contains evidence plus **Approve and
    complete** / **Not approved**. Approval completes parent and child without a
    new agent turn; free-text changes resume the parent and eventually return to QA.
-5. Keep Claude quiet longer than five minutes. Confirm visible progress updates,
-   no runner-stream timeout, and one eventual lifecycle transition.
+5. Run a task with reasoning and a longer tool call. Confirm Linear replaces the
+   activity with safe assistant text, thinking-token proof-of-life, and tool
+   elapsed time; then keep Claude genuinely quiet longer than five minutes and
+   confirm synthetic progress, no runner-stream timeout, and one eventual
+   lifecycle transition.
 6. Start a longer command and choose **Send stop request**. Confirm the session
    reports that it stopped and the task container disappears.
 7. Send a follow-up within ten minutes. Confirm the same warm workspace,
