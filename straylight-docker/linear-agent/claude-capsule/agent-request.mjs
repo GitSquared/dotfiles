@@ -40,6 +40,11 @@ export function createProgressProjector(report, clock = Date.now) {
   let totalTextLength = 0;
   let lastTextLength = 0;
   let lastTextAt = 0;
+  let partialThinking = "";
+  let thinkingTextSeen = false;
+  let totalThinkingLength = 0;
+  let lastThinkingLength = 0;
+  let lastThinkingAt = 0;
   let thinkingBucket = -1;
   const toolBuckets = new Map();
 
@@ -53,12 +58,30 @@ export function createProgressProjector(report, clock = Date.now) {
         totalTextLength = 0;
         lastTextLength = 0;
         lastTextAt = clock();
+        partialThinking = "";
+        thinkingTextSeen = false;
+        totalThinkingLength = 0;
+        lastThinkingLength = 0;
+        lastThinkingAt = clock();
       } else if (event?.type === "content_block_start" && event.content_block?.type === "tool_use") {
         progress = {
           type: "action",
           action: progressAction(event.content_block.name),
           parameter: boundedProgress(event.content_block.name) || "tool",
         };
+      } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+        const delta = event.delta.thinking ?? "";
+        if (delta) thinkingTextSeen = true;
+        partialThinking = `${partialThinking}${delta}`.slice(-MAX_PROGRESS_TEXT);
+        totalThinkingLength += delta.length;
+        const now = clock();
+        const enoughThinking = totalThinkingLength - lastThinkingLength >= 160;
+        const enoughTime = now - lastThinkingAt >= 750;
+        if (delta && (enoughThinking || enoughTime || partialThinking.endsWith("\n"))) {
+          progress = { type: "thought", body: boundedProgress(`Thinking: ${partialThinking}`) };
+          lastThinkingLength = totalThinkingLength;
+          lastThinkingAt = now;
+        }
       } else if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
         const delta = event.delta.text ?? "";
         partialText = `${partialText}${delta}`.slice(-MAX_PROGRESS_TEXT);
@@ -94,7 +117,7 @@ export function createProgressProjector(report, clock = Date.now) {
       };
     } else if (message?.type === "system" && message.subtype === "thinking_tokens") {
       const bucket = Math.floor(Math.max(0, message.estimated_tokens ?? 0) / 256);
-      if (bucket !== thinkingBucket) {
+      if (!thinkingTextSeen && bucket !== thinkingBucket) {
         thinkingBucket = bucket;
         progress = { type: "thought", body: `Claude is thinking (about ${Math.max(0, Math.round(message.estimated_tokens ?? 0))} tokens so far).` };
       }

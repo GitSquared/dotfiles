@@ -337,11 +337,12 @@ The controller-to-runner NDJSON response emits blank transport heartbeats every
 turns also replace their ephemeral Linear activity every configured progress
 interval, so a long inference neither looks dead nor loses its control stream.
 The authenticated capsule and both workbench hops use the same bounded NDJSON
-protocol. Claude assistant text, tool starts and elapsed time, compaction,
-thinking-token estimates, retries, and subscription-limit warnings become safe
-replacement-style Linear activity. Raw hidden reasoning and tool arguments are
-never serialized as progress; user-facing text is bounded and recognized
-credentials are redacted before Linear. The capsule logs request boundaries,
+protocol. Claude reasoning deltas, assistant text, tool starts and elapsed time,
+compaction, retries, and subscription-limit warnings become inspectable
+replacement-style Linear activity. Thinking-token estimates remain a fallback
+when Claude exposes no reasoning text. Tool arguments are never serialized as
+progress; all streamed text is bounded and recognized credentials are redacted
+before Linear. The capsule logs request boundaries,
 terminal disposition, tool names, estimated token usage, and SDK-estimated cost
 without logging prompts or task tokens.
 
