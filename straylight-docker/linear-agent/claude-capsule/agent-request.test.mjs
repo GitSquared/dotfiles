@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, stopDispositionGuard } from "./agent-request.mjs";
+import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
+
+test("communicates a wall-clock budget without imposing a turn ceiling", () => {
+  const instruction = runtimeBudgetInstruction(3_600_000);
+  assert.match(instruction, /hard wall-clock budget of 1 hour/);
+  assert.match(instruction, /no turn-count limit/);
+  assert.match(instruction, /runner will stop/);
+});
 
 test("projects Claude SDK reasoning and useful tool targets", async () => {
   const events = [];

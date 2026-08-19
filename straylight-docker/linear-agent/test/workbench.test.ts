@@ -204,7 +204,7 @@ test("forwards a running task to the Claude capsule without mounting its identit
 
   const result = await harness.runClaude(
     "task-token",
-    { prompt: "Implement it", resume: "claude-0" },
+    { prompt: "Implement it", resume: "claude-0", timeBudgetMs: 3_600_000 },
     undefined,
     (event) => { progress.push(event); },
   ); // yadm-secret-scan: ignore
@@ -216,6 +216,7 @@ test("forwards a running task to the Claude capsule without mounting its identit
     workbenchUrl: "http://linear-agent-runner:8788",
     taskToken: "task-token", // yadm-secret-scan: ignore
     resume: "claude-0",
+    timeBudgetMs: 3_600_000,
   });
   assert.deepEqual(await harness.runClaude("wrong-token", { prompt: "Nope" }), { // yadm-secret-scan: ignore
     status: "error",

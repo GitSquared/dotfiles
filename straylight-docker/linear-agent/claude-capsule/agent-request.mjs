@@ -7,6 +7,15 @@ const MAX_PROGRESS_TEXT = 1_000;
 const HUMAN_BLOCKER_LANGUAGE = /\b(?:cannot|can't|unable to|nothing further\b[^.]{0,120}\buntil|waiting for (?:you|the engineer|a human)|requires? (?:your|developer|human) (?:input|access|permission)|need(?:s|ed)? (?:you|the engineer|a human) to)\b/i;
 const INFORMAL_ATTENTION_LANGUAGE = /\b(?:let me know|tell me if|please (?:review|confirm|check)|confirm whether|what would you like|when you(?:'re| are) ready)\b/i;
 
+class AgentRunError extends Error {
+  constructor(message, sessionId, durationMs) {
+    super(message);
+    this.name = "AgentRunError";
+    this.sessionId = sessionId;
+    this.durationMs = durationMs;
+  }
+}
+
 function boundedProgress(value) {
   const clean = String(value ?? "").replace(/\s+/g, " ").trim();
   return clean.length <= MAX_PROGRESS_TEXT ? clean : `${clean.slice(0, MAX_PROGRESS_TEXT - 1)}…`;
@@ -19,6 +28,19 @@ function safeLogMessage(value) {
     .replace(/(?:github_pat_|ghp_)[A-Za-z0-9_]{16,}/g, "github_[redacted]")
     .replace(/sk-[A-Za-z0-9_-]{12,}/g, "sk-[redacted]")
     .replace(/(--(?:token|api-key|key|secret|password|auth)(?:\s+|=))\S+/gi, "$1[redacted]");
+}
+
+export function runtimeBudgetInstruction(timeBudgetMs) {
+  if (!Number.isSafeInteger(timeBudgetMs) || timeBudgetMs <= 0) {
+    return "Work deliberately and preserve useful workspace state as you go.";
+  }
+  const minutes = Math.round(timeBudgetMs / 60_000);
+  const duration = minutes >= 60 && minutes % 60 === 0
+    ? `${minutes / 60} hour${minutes === 60 ? "" : "s"}`
+    : minutes >= 1
+      ? `${minutes} minute${minutes === 1 ? "" : "s"}`
+      : `${timeBudgetMs} milliseconds`;
+  return `This run has a hard wall-clock budget of ${duration} and no turn-count limit. Sustained investigation is welcome when it advances the task. Preserve useful workspace state as you go, and before the deadline transition to Steering, QA, blocked_external, or an explicitly authorized deferral; the runner will stop the process when the budget expires.`;
 }
 
 function toolName(name) {
@@ -484,7 +506,6 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
         ],
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        maxTurns: 100,
         includePartialMessages: true,
         systemPrompt: [
           "You are Straylight's primary coding agent. You extend the sponsoring engineer inside an isolated task workspace.",
@@ -495,6 +516,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
           "Use Signal for a nonblocking queued question or notification, then continue working. Use Steering when an answer is required before work can continue. If required developer-tool access is missing, request Steering with the exact repair needed. Never ask for credentials in Linear.",
           "The engineer owns task completion. When checked work is ready, request QA with evidence and wait for approval or changes. Never say the work is complete or invite an informal follow-up without creating QA. Use finish_work only for a non-human external blocker or explicitly authorized deferral.",
           "Every turn must end in a structured lifecycle state. After blocking Steering or QA, stop and wait. A Signal is nonblocking, so continue until another lifecycle transition is reached.",
+          runtimeBudgetInstruction(input.timeBudgetMs),
         ],
         hooks: {
           Stop: [{ hooks: [async (hookInput) => stopDispositionGuard(context, hookInput)] }],
@@ -537,22 +559,26 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
       lastSdkEvent,
     });
   } catch (error) {
+    const elapsedMs = Date.now() - startedAt;
     console.error("Claude Agent SDK stream failed", {
       sessionId: sdkSessionId,
-      elapsedMs: Date.now() - startedAt,
+      elapsedMs,
       sdkEventCount,
       lastSdkEvent,
       cancelled: abortController.signal.aborted,
       message: safeLogMessage(error instanceof Error ? error.message : String(error)),
     });
-    throw error;
+    throw new AgentRunError(error instanceof Error ? error.message : String(error), sdkSessionId, elapsedMs);
   } finally {
     signal.removeEventListener("abort", abort);
   }
   if (!result) throw new Error("Claude Agent SDK ended without a result");
-  if (result.subtype !== "success") {
-    throw new Error(result.errors?.join("; ") || `Claude ended with ${result.subtype}`);
-  }
+  if (result.subtype !== "success") return {
+    status: "error",
+    message: result.errors?.join("; ") || `Claude ended with ${result.subtype}`,
+    ...(result.session_id ? { sessionId: result.session_id } : {}),
+    ...(typeof result.duration_ms === "number" ? { durationMs: result.duration_ms } : {}),
+  };
   if (!context.disposition) throw new Error("Claude ended without a structured work disposition");
   assertTerminalSummary(context, result.result || "");
   return {

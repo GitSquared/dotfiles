@@ -43,7 +43,7 @@ type RunnerHarness = {
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
   askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
-  runClaude?(token: string, request: { prompt: string; resume?: string; model?: string }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
+  runClaude?(token: string, request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
   shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   shareArtifact?(request: { path: string; title?: string; body?: string }, signal?: AbortSignal): Promise<{ ok: true; assetUrl: string; contentType: string; filename: string }>;
   viewImage?(request: { path: string }): Promise<{ ok: true; dataBase64: string; mimeType: string }>;
@@ -107,8 +107,9 @@ export function createRunnerServer(
     }
 
     if (method === "POST" && pathname === "/v1/agent") {
-      const input = await body<{ prompt?: string; resume?: string; model?: string }>(request);
-      if (!pi.runClaude || typeof input.prompt !== "string" || !input.prompt.trim()) {
+      const input = await body<{ prompt?: string; resume?: string; model?: string; timeBudgetMs?: number }>(request);
+      if (!pi.runClaude || typeof input.prompt !== "string" || !input.prompt.trim()
+        || (input.timeBudgetMs !== undefined && (!Number.isSafeInteger(input.timeBudgetMs) || input.timeBudgetMs <= 0))) {
         return json(400, { status: "error", message: "Invalid Claude agent request." });
       }
       server?.timeout(request, 0);
@@ -116,6 +117,7 @@ export function createRunnerServer(
         prompt: input.prompt!,
         ...(input.resume ? { resume: input.resume } : {}),
         ...(input.model ? { model: input.model } : {}),
+        ...(input.timeBudgetMs !== undefined ? { timeBudgetMs: input.timeBudgetMs } : {}),
       }, signal, onProgress), request.signal, options.heartbeatMs ?? RUNNER_HEARTBEAT_MS);
     }
 

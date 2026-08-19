@@ -152,7 +152,7 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
     piConfigDirectory: env.PI_CODING_AGENT_DIR?.trim() || "/home/node/.pi/agent",
     memoryDirectory: absolutePath(env, "PI_MEMORY_DIR", "/memory"),
     piTheme: env.PI_THEME?.trim() || "dark",
-    piTimeoutMs: positiveInteger(env, "PI_TIMEOUT_MS", 1_800_000),
+    piTimeoutMs: positiveInteger(env, "PI_TIMEOUT_MS", 3_600_000),
     progressDebounceMs: positiveInteger(env, "PI_PROGRESS_DEBOUNCE_MS", 3_000),
     progressHeartbeatMs: positiveInteger(env, "PI_PROGRESS_HEARTBEAT_MS", 60_000),
     authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore

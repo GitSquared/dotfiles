@@ -110,7 +110,7 @@ export function taskContainerSpec(
       "PI_THEME=dark",
       "PI_PROGRESS_DEBOUNCE_MS=3000",
       "PI_PROGRESS_HEARTBEAT_MS=60000",
-      "PI_TIMEOUT_MS=1800000",
+      "PI_TIMEOUT_MS=3600000",
       `STRAYLIGHT_RUNNER=${config.runnerBackend}`,
       "CAPSULE_URL=http://linear-agent-runner:8788",
       `CAPSULE_AUTH_URL=${config.capsuleAuthUrl}`,
@@ -413,7 +413,7 @@ export class WorkbenchHarness {
 
   async runClaude(
     token: string, // yadm-secret-scan: ignore
-    request: { prompt: string; resume?: string; model?: string },
+    request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number },
     signal?: AbortSignal,
     onProgress?: CapsuleAgentProgressHandler,
   ): Promise<CapsuleAgentResult> {
@@ -435,6 +435,7 @@ export class WorkbenchHarness {
         taskToken: token,
         ...(request.resume ? { resume: request.resume } : {}),
         ...(request.model ? { model: request.model } : {}),
+        ...(request.timeBudgetMs !== undefined ? { timeBudgetMs: request.timeBudgetMs } : {}),
       }, signal, onProgress);
       console.info("Claude workbench run finished", {
         sessionId: active.sessionId,

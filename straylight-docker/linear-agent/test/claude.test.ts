@@ -31,9 +31,9 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-"));
   try {
     await fs.writeFile(path.join(workdir, "AGENTS.md"), "Work carefully.\n");
-    const requests: Array<{ prompt: string; resume?: string; model?: string }> = [];
+    const requests: Array<{ prompt: string; resume?: string; model?: string; timeBudgetMs?: number }> = [];
     const capsule = {
-      async runBrokeredAgent(request: { prompt: string; resume?: string; model?: string }) {
+      async runBrokeredAgent(request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }) {
         requests.push(request);
         return {
           status: "ok" as const,
@@ -57,6 +57,7 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
     assert.equal(first.disposition?.status, "awaiting_qa");
     assert.match(requests[0]?.prompt ?? "", /primary Claude Code coding agent/);
     assert.equal(requests[0]?.resume, undefined);
+    assert.equal(requests[0]?.timeBudgetMs, 1_800_000);
     assert.equal(events.length, 1);
 
     await harness.run({
@@ -93,6 +94,49 @@ test("aborts and reports a Claude run when the configured runner deadline expire
     assert.equal(result.ok, false);
     assert.equal(result.timedOut, true);
     assert.match(result.summary, /Claude Code run timed out/);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("persists Claude's session id after a non-success result so the next turn can resume", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-recovery-"));
+  try {
+    const requests: Array<{ resume?: string }> = [];
+    const capsule = {
+      async runBrokeredAgent(request: { resume?: string }) {
+        requests.push(request);
+        if (requests.length === 1) {
+          return {
+            status: "error" as const,
+            message: "The upstream model stopped the run.",
+            sessionId: "recoverable-claude-session",
+            durationMs: 42,
+          };
+        }
+        return {
+          status: "ok" as const,
+          answer: "Recovered and ready for QA.",
+          sessionId: "recoverable-claude-session",
+          awaitingInput: true,
+          durationMs: 12,
+          disposition: { status: "awaiting_qa" as const, reason: "Recovered, checked, and ready for approval." },
+        };
+      },
+    };
+    const harness = new ClaudeHarness(config(workdir), capsule);
+    const payload = {
+      action: "created" as const,
+      agentSession: { id: "linear-recovery-session", issueId: "issue-1", issue: { id: "issue-1", title: "Recover it" } },
+      agentActivity: { content: { body: "Keep the useful work." } },
+    };
+    const failed = await harness.run(payload, async () => {});
+    assert.equal(failed.ok, false);
+    assert.match(failed.summary, /upstream model stopped/);
+
+    const resumed = await harness.run({ ...payload, action: "prompted" }, async () => {});
+    assert.equal(resumed.ok, true);
+    assert.equal(requests[1]?.resume, "recoverable-claude-session");
   } finally {
     await fs.rm(workdir, { recursive: true, force: true });
   }

@@ -149,7 +149,8 @@ async function route(request, response) {
       if (typeof input?.prompt !== "string" || !input.prompt.trim() || input.prompt.length > 200_000
         || typeof input?.taskToken !== "string" || input.taskToken.length < 32
         || !validUrl(input?.taskUrl) || !validUrl(input?.workbenchUrl)
-        || (input.resume !== undefined && (typeof input.resume !== "string" || input.resume.length > 200))) {
+        || (input.resume !== undefined && (typeof input.resume !== "string" || input.resume.length > 200))
+        || (input.timeBudgetMs !== undefined && (!Number.isSafeInteger(input.timeBudgetMs) || input.timeBudgetMs <= 0))) {
         if (!response.destroyed) json(response, 400, { status: "error", message: "Invalid Straylight agent request." });
         return;
       }
@@ -185,6 +186,8 @@ async function route(request, response) {
           message: requestCancellation.signal.aborted
             ? "The Claude agent run was cancelled."
             : (error instanceof Error ? error.message : "The Claude agent run failed."),
+          ...(typeof error?.sessionId === "string" ? { sessionId: error.sessionId } : {}),
+          ...(typeof error?.durationMs === "number" ? { durationMs: error.durationMs } : {}),
         };
         if (response.headersSent) {
           ndjson(response, { type: "result", result });

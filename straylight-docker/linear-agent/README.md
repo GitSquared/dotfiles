@@ -318,10 +318,17 @@ The default runner invokes the official Claude Agent SDK inside this authenticat
 capsule and resumes its Claude session id from the task's private workspace. Its
 built-in shell and filesystem tools are disabled. Instead, in-process Straylight
 MCP tools cross the authenticated control channel and operate inside the current
-  task jail: `bash`, `view_image`, `share_artifact`, `request_attention`, `finish_work`,
+task jail: `bash`, `view_image`, `share_artifact`, `request_attention`, `finish_work`,
   `manage_linear`, `linear_activity`, and `manage_service`. The capsule therefore holds inference
 identity but not source code; the task holds source code but not inference or
 Linear credentials.
+
+Runs have no turn-count ceiling: the task runner enforces a configurable
+wall-clock deadline (`PI_TIMEOUT_MS`, one hour by default) and tells Claude that
+budget in its system prompt. If Claude returns a non-success result with a session
+id, Straylight still saves the pointer so a later turn can resume the conversation;
+the raw Claude transcript remains in the persistent capsule profile for private
+forensics.
 
 Neither the default Claude runner nor the Pi fallback can declare delegated work
 complete. A normal turn must continue after a Signal, pause in Steering, or pause

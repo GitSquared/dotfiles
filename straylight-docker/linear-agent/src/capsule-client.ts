@@ -7,7 +7,7 @@ export type CapsuleResult =
 
 export type CapsuleAgentResult =
   | { status: "ok"; answer: string; sessionId: string; awaitingInput: boolean; durationMs: number; disposition: WorkDisposition }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; sessionId?: string; durationMs?: number };
 
 export type CapsuleAgentRequest = {
   prompt: string;
@@ -16,9 +16,10 @@ export type CapsuleAgentRequest = {
   taskToken: string; // yadm-secret-scan: ignore
   resume?: string;
   model?: string;
+  timeBudgetMs?: number;
 };
 
-export type BrokeredCapsuleAgentRequest = Pick<CapsuleAgentRequest, "prompt" | "resume" | "model">;
+export type BrokeredCapsuleAgentRequest = Pick<CapsuleAgentRequest, "prompt" | "resume" | "model" | "timeBudgetMs">;
 export type CapsuleAgentProgress = Extract<AgentActivityContent, { type: "thought" | "action" }>;
 export type CapsuleAgentProgressHandler = (progress: CapsuleAgentProgress) => void | Promise<void>;
 
@@ -187,7 +188,11 @@ function validProgress(value: unknown): value is CapsuleAgentProgress {
 function validAgentResult(value: unknown): value is CapsuleAgentResult {
   if (!value || typeof value !== "object") return false;
   const payload = value as Partial<CapsuleAgentResult>;
-  if (payload.status === "error") return typeof payload.message === "string";
+  if (payload.status === "error") {
+    return typeof payload.message === "string"
+      && (payload.sessionId === undefined || typeof payload.sessionId === "string")
+      && (payload.durationMs === undefined || typeof payload.durationMs === "number");
+  }
   return payload.status === "ok"
     && typeof payload.answer === "string"
     && typeof payload.sessionId === "string"

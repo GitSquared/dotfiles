@@ -58,6 +58,7 @@ export class ClaudeHarness {
         prompt,
         ...(resume ? { resume } : {}),
         model: "sonnet",
+        timeBudgetMs: this.config.piTimeoutMs,
       }, controller.signal, (progress) => {
         reporter.report({
           type: "activity",
@@ -82,6 +83,7 @@ export class ClaudeHarness {
         };
       }
       if (result.status === "error") {
+        if (result.sessionId) await this.writeSession(sessionId, result.sessionId);
         return {
           ok: false,
           timedOut: false,
