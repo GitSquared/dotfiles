@@ -20,7 +20,7 @@ test("streams structured events across the controller-runner boundary", async ()
     },
     async runClaude(taskCredential: string, request: { prompt: string; resume?: string }) {
       return taskCredential === "one-time-task-token" && request.prompt === "Implement it"
-        ? { status: "ok" as const, answer: "Implemented.", sessionId: request.resume ?? "claude-session", awaitingInput: false, durationMs: 9, disposition: { status: "completed" as const, reason: "Implemented and checked." } }
+        ? { status: "ok" as const, answer: "Ready for QA.", sessionId: request.resume ?? "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa" as const, reason: "Implemented, checked, and ready for approval." } }
         : { status: "error" as const, message: "Unauthorized." };
     },
     async shell(request: { command: string }) {
@@ -87,7 +87,7 @@ test("streams structured events across the controller-runner boundary", async ()
     const rejectedClaude = await new CapsuleClient(baseUrl, "wrong-task-token").ask("Find the context"); // yadm-secret-scan: ignore
     assert.deepEqual(rejectedClaude, { status: "error", message: "Unauthorized." });
     const agent = await new CapsuleClient(baseUrl, "one-time-task-token").runBrokeredAgent({ prompt: "Implement it" }); // yadm-secret-scan: ignore
-    assert.deepEqual(agent, { status: "ok", answer: "Implemented.", sessionId: "claude-session", awaitingInput: false, durationMs: 9, disposition: { status: "completed", reason: "Implemented and checked." } });
+    assert.deepEqual(agent, { status: "ok", answer: "Ready for QA.", sessionId: "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa", reason: "Implemented, checked, and ready for approval." } });
     const shell = await fetch(`${baseUrl}/v1/shell`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
@@ -249,6 +249,35 @@ test("keeps quiet Pi and broker requests alive beyond the Bun server idle timeou
     assert.equal(result.ok, true);
     assert.equal(result.summary, "Still here.");
     assert.match(brokerError instanceof Error ? brokerError.message : String(brokerError), /Argument Validation Error/);
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("emits transport heartbeats while a runner turn is otherwise silent", async () => {
+  const harness = {
+    async run() {
+      await Bun.sleep(55);
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Quiet work finished.", elapsedMs: 55 };
+    },
+    async followUp() { return false; },
+    async abort() { return false; },
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, "runner-test-token", { heartbeatMs: 10 }), // yadm-secret-scan: ignore
+  });
+  try {
+    const response = await fetch(new URL("/run", server.url), {
+      method: "POST",
+      headers: { authorization: "Bearer runner-test-token", "content-type": "application/json" }, // yadm-secret-scan: ignore
+      body: JSON.stringify({ payload: { agentSession: { id: "heartbeat-session" } } }),
+    });
+    const raw = await response.text();
+    const blankLines = raw.split("\n").filter((line) => line === "").length;
+    assert.ok(blankLines >= 3, `expected at least two heartbeats plus the terminal newline, got ${blankLines}`);
+    assert.match(raw, /Quiet work finished/);
   } finally {
     await server.stop(true);
   }

@@ -101,14 +101,15 @@ mounted at all.
 - Treat human attention as a scarce capability. Before calling
   `request_attention`, confirm the information is necessary and unique, name the
   exact action expected, state the real response window and cost of waiting, and
-  give your recommendation. Use `interrupt` only when material harm can occur
-  before the next normal review window; otherwise use `queue`. A QA request must
-  follow automated checks and link a genuinely reviewable artifact. Choose a
-  native issue priority that reflects the real response window. Set `blocking`
-  only when work genuinely cannot continue without the answer; otherwise create
-  an FYI acknowledgement item and keep working. The resulting child issue—not a
-  loose notification—is the durable human queue entry, so keep its title and
-  requested action crisp enough to scan independently.
+  give your recommendation. Use `signal` only for a queued nonblocking question
+  or notification, then continue working. Use `steering` when an answer is
+  required before work can continue. Use `qa` only after automated checks, with
+  a genuinely reviewable HTTPS artifact; stop and wait for the engineer to
+  approve or request changes. Use `interrupt` only when material harm can occur
+  before the next normal review window; otherwise use `queue`. Choose native
+  priority from the real response window. The resulting child issue—not a loose
+  notification—is the durable human queue entry, so keep its title and requested
+  action crisp enough to scan independently.
 - Maintain compact re-entry state at meaningful pauses, not after every tool
   call. Prefer native issue lifecycle and plan state. When richer orientation is
   useful, update one issue-backed work-record Document rather than creating
@@ -121,12 +122,12 @@ mounted at all.
   deferred items a concrete next action and name an owner when known. In the
   final natural summary, distinguish implementation, merge, deployment, and
   customer-visible completion.
-- Claude runs must call `finish_work` before an ordinary final response. Use
-  `completed` only when the requested outcome is delivered, `blocked_external`
-  only when a non-human dependency has a concrete retry condition, and
-  `deferred` only when postponement is authorized. A human-resolvable blocker
-  must go through blocking `request_attention`, which records `blocked_human`
-  automatically and creates the durable Linear queue item.
+- The engineer owns completion of delegated work. There is no agent-declared
+  completed state and no valid "tell me if you want more" ending. Continue after
+  a Signal, stop after Steering, and hand apparently finished work to QA with
+  evidence. Claude may call `finish_work` only for `blocked_external` when a
+  non-human dependency has a concrete retry condition, or `deferred` when the
+  authoritative request permits postponement.
 - A quick classifier selects the cheapest suitable model when a new session
   starts. If the current model is clearly undersized, call
   `escalate_intelligence` with the concrete reason and end the turn so the next

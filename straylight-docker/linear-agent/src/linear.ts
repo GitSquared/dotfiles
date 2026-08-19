@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import path from "node:path";
-import { linearAttentionPriority, renderAttentionRequest, type AttentionRequest } from "./attention.js";
+import { attentionBlocking, linearAttentionPriority, renderAttentionRequest, type AttentionRequest } from "./attention.js";
 import type { ControllerConfig } from "./config.js";
 import type {
   LinearManageContext,
@@ -623,8 +623,8 @@ export class LinearClient {
       { id: parentIssueId },
     );
     const labelNames = [
-      `Attention / ${request.kind === "steering" ? "Steering" : "QA"}`,
-      `Attention / ${request.blocking === false ? "FYI" : "Blocking"}`,
+      `Attention / ${request.kind === "signal" ? "Signal" : request.kind === "steering" ? "Steering" : "QA"}`,
+      `Attention / ${attentionBlocking(request) ? "Blocking" : "FYI"}`,
     ];
     const labelIds = await Promise.all(labelNames.map((name) => this.ensureAttentionLabel(parent.issue.team.id, name)));
     const description = [

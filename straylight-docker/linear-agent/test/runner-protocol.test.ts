@@ -17,7 +17,7 @@ test("rejects an unknown runner event", () => {
   assert.throws(() => parseRunnerEvent('{"type":"result","result":{"ok":true}}'), /invalid event/);
 });
 
-test("requires a human-blocked disposition to match awaiting input", () => {
+test("requires a human-owned disposition to match awaiting input", () => {
   const valid = {
     type: "result" as const,
     result: {
@@ -26,7 +26,7 @@ test("requires a human-blocked disposition to match awaiting input", () => {
       awaitingInput: true,
       summary: "Waiting on the attention issue.",
       elapsedMs: 1,
-      disposition: { status: "blocked_human" as const, reason: "Repository access is required." },
+      disposition: { status: "awaiting_steering" as const, reason: "Repository access is required." },
     },
   };
   assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(valid).trim()), valid);

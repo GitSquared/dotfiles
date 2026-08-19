@@ -4,6 +4,7 @@ import { CapsuleClient } from "./capsule-client.js";
 import type { RunnerConfig } from "./config.js";
 import { LinearToolClient } from "./linear-tool-client.js";
 import { materializeLinearInputs } from "./pi.js";
+import { ProgressReporter } from "./progress.js";
 import { claudeFollowUpPrompt, claudeInitialPrompt } from "./prompts.js";
 import { finalText, redact } from "./redaction.js";
 import type { PiResult, RunnerEvent } from "./runner-protocol.js";
@@ -32,6 +33,7 @@ export class ClaudeHarness {
     if (!sessionId) throw new Error("agentSession.id is required");
     if (this.active.has(sessionId)) throw new Error("this Claude session is already running");
     const startedAt = performance.now();
+    const reporter = new ProgressReporter(send, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => {
@@ -41,11 +43,13 @@ export class ClaudeHarness {
     timeout.unref();
     this.active.set(sessionId, controller);
     try {
-      await send({
+      reporter.start();
+      reporter.report({
         type: "activity",
         content: { type: "thought", body: "Claude Code is starting in the isolated Straylight workspace." },
         ephemeral: true,
       });
+      await reporter.flush();
       const linearInputs = await materializeLinearInputs(this.config.piWorkdir, payload.linearInputs);
       const basePrompt = payload.action === "prompted" ? claudeFollowUpPrompt(payload) : claudeInitialPrompt(payload);
       const prompt = `${basePrompt}${linearInputs.prompt}`;
@@ -74,15 +78,15 @@ export class ClaudeHarness {
         };
       }
       await this.writeSession(sessionId, result.sessionId);
-      const awaitingInput = result.disposition.status === "blocked_human";
+      const awaitingInput = ["awaiting_steering", "awaiting_qa"].includes(result.disposition.status);
       if (result.awaitingInput !== awaitingInput) {
         throw new Error("Claude attention state conflicts with its terminal work disposition");
       }
       return {
-        ok: ["completed", "blocked_human"].includes(result.disposition.status),
+        ok: awaitingInput,
         timedOut: false,
         awaitingInput,
-        summary: finalText(result.answer || "Claude Code completed without a textual summary."),
+        summary: finalText(result.answer || "Claude Code ended the turn without a textual summary."),
         elapsedMs: result.durationMs || Math.round(performance.now() - startedAt),
         disposition: result.disposition,
       };
@@ -101,6 +105,8 @@ export class ClaudeHarness {
       };
     } finally {
       clearTimeout(timeout);
+      await reporter.flush();
+      reporter.stop();
       this.active.delete(sessionId);
     }
   }

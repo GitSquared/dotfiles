@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "bun:test";
+import { QA_APPROVE_VALUE } from "../src/attention.js";
 import { AgentController } from "../src/controller.js";
 import { ControllerStateStore } from "../src/controller-state.js";
 import type { LinearClient } from "../src/linear.js";
@@ -315,9 +316,85 @@ test("routes a blocking child-issue response back into the paused parent run", a
   for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
 
   assert.equal(runs.length, 2);
-  assert.match(runs[1]?.agentActivity?.content?.body ?? "", /Human response from attention issue LIN-3/);
+  assert.match(runs[1]?.agentActivity?.content?.body ?? "", /Human steering response from attention issue LIN-3/);
   assert.match(runs[1]?.agentActivity?.content?.body ?? "", /Keep the old writer authoritative/);
   assert.deepEqual(completedIssues, ["attention-issue-2"]);
   assert.equal(activities.some((activity) => activity.sessionId === "attention-session-2"
     && (activity.content as { type?: string }).type === "response"), true);
+});
+
+test("completes parent work directly when the engineer approves a QA handoff", async () => {
+  const activities: Array<{ sessionId: string; content: unknown; options?: unknown }> = [];
+  const completedIssues: string[] = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createAttentionIssue() {
+      return { id: "qa-issue", identifier: "LIN-4", title: "Review the checked fix", url: "https://linear.app/acme/issue/LIN-4" };
+    },
+    async createAgentSessionOnIssue() { return { id: "qa-session" }; },
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async createActivity(sessionId: string, content: unknown, options?: unknown) {
+      activities.push({ sessionId, content, ...(options ? { options } : {}) });
+    },
+  } as unknown as LinearClient;
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const pending = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  let runs = 0;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { runs += 1; return pending; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", creatorId: "human-1" },
+  });
+  await controller.collaborateLinear("parent-qa-session", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Review the checked fix",
+      action: "Approve the preview and complete the parent work, or reply with changes.",
+      originalIntent: "Fix the broken interaction.",
+      delta: "The fix and focused checks are ready.",
+      recommendation: "Approve after checking the linked preview.",
+      impact: "The parent work remains open until ownership is accepted.",
+      timing: "At the next normal review window.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+  finishRun({ ok: true, timedOut: false, awaitingInput: true, summary: "Ready for QA.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  const elicitation = activities.find((activity) => activity.sessionId === "qa-session"
+    && (activity.content as { type?: string }).type === "elicitation");
+  assert.deepEqual((elicitation?.options as { signalMetadata?: { options?: Array<{ value: string }> } })?.signalMetadata?.options?.map((option) => option.value), [
+    QA_APPROVE_VALUE,
+    "Not approved; resume the parent work.",
+  ]);
+
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: QA_APPROVE_VALUE } },
+    agentSession: { id: "qa-session", issueId: "qa-issue" },
+  });
+
+  assert.equal(runs, 1);
+  assert.deepEqual(completedIssues, ["qa-issue", "parent-issue"]);
+  assert.equal(activities.some((activity) => activity.sessionId === "parent-qa-session"
+    && (activity.content as { type?: string }).type === "response"), true);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 0);
 });

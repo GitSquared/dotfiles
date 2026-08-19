@@ -12,6 +12,7 @@ import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 import { finalText } from "./redaction.js";
 
 export const RUNNER_MAX_BODY_BYTES = 30 * 1024 * 1024;
+export const RUNNER_HEARTBEAT_MS = 15_000;
 
 const responseHeaders = {
   "cache-control": "no-store",
@@ -58,7 +59,11 @@ function bearer(request: Request): string {
   return authorization?.startsWith("Bearer ") ? authorization.slice(7) : ""; // yadm-secret-scan: ignore
 }
 
-export function createRunnerServer(pi: RunnerHarness, token: string): (request: Request, server?: RunnerServer) => Promise<Response> { // yadm-secret-scan: ignore
+export function createRunnerServer(
+  pi: RunnerHarness,
+  token: string,
+  options: { heartbeatMs?: number } = {},
+): (request: Request, server?: RunnerServer) => Promise<Response> { // yadm-secret-scan: ignore
   return async (request, server) => {
     try {
       return await route(request, server);
@@ -214,7 +219,7 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
       // Agent turns can legitimately be quiet while the model reasons or a tool runs.
       // Bun otherwise resets this streaming response after 10 idle seconds.
       server?.timeout(request, 0);
-      return streamRun(pi, sessionId, input.payload);
+      return streamRun(pi, sessionId, input.payload, options.heartbeatMs ?? RUNNER_HEARTBEAT_MS);
     }
 
     if (method === "POST" && pathname === "/follow-up") {
@@ -233,22 +238,33 @@ export function createRunnerServer(pi: RunnerHarness, token: string): (request: 
   }
 }
 
-function streamRun(pi: RunnerHarness, sessionId: string, payload: RunRequest["payload"]): Response {
+function streamRun(pi: RunnerHarness, sessionId: string, payload: RunRequest["payload"], heartbeatMs: number): Response {
   const encoder = new TextEncoder();
   const startedAt = Date.now();
   let cancelled = false;
   let completed = false;
+  let heartbeat: NodeJS.Timeout | undefined;
+  const stopHeartbeat = () => {
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = undefined;
+  };
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      heartbeat = setInterval(() => {
+        if (!cancelled && !completed) controller.enqueue(encoder.encode("\n"));
+      }, Math.max(1, heartbeatMs));
+      heartbeat.unref();
       void pi.run(payload, async (event) => {
         if (!cancelled) controller.enqueue(encoder.encode(encodeRunnerEvent(event)));
       }).then((result) => {
         completed = true;
+        stopHeartbeat();
         if (cancelled) return;
         controller.enqueue(encoder.encode(encodeRunnerEvent({ type: "result", result })));
         controller.close();
       }).catch((error: unknown) => {
         completed = true;
+        stopHeartbeat();
         if (cancelled) return;
         const message = error instanceof Error ? error.message : String(error);
         controller.enqueue(encoder.encode(encodeRunnerEvent({
@@ -266,6 +282,7 @@ function streamRun(pi: RunnerHarness, sessionId: string, payload: RunRequest["pa
     },
     async cancel() {
       cancelled = true;
+      stopHeartbeat();
       if (!completed) await pi.abort(sessionId).catch(() => undefined);
     },
   });

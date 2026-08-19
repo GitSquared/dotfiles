@@ -22,7 +22,8 @@ export class PiRunnerClient implements AgentRunner {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({ payload }),
-    });
+      timeout: false,
+    } as BunFetchRequestInit);
     if (!response.ok || !response.body) throw new Error(`Agent runner rejected run: HTTP ${response.status}`);
 
     const reader = response.body.getReader();

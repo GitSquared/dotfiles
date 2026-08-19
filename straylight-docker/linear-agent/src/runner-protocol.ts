@@ -1,7 +1,7 @@
 import type { AgentActivityContent, AgentTaskPayload, LinearInputFile } from "./types.js";
 
 export type WorkDisposition = {
-  status: "completed" | "blocked_human" | "blocked_external" | "deferred";
+  status: "awaiting_steering" | "awaiting_qa" | "blocked_external" | "deferred";
   reason: string;
   nextAction?: string;
 };
@@ -49,7 +49,7 @@ export function parseRunnerEvent(line: string): RunnerEvent {
       || typeof result.elapsedMs !== "number"
       || (result.disposition !== undefined && !validWorkDisposition(result.disposition))
       || (result.disposition !== undefined
-        && result.awaitingInput !== (result.disposition.status === "blocked_human"))) {
+        && result.awaitingInput !== ["awaiting_steering", "awaiting_qa"].includes(result.disposition.status))) {
       throw new Error("Runner returned an invalid event");
     }
     return event as Extract<RunnerEvent, { type: "result" }>;
@@ -60,8 +60,10 @@ export function parseRunnerEvent(line: string): RunnerEvent {
 function validWorkDisposition(value: unknown): value is WorkDisposition {
   if (!value || typeof value !== "object") return false;
   const disposition = value as Partial<WorkDisposition>;
-  return ["completed", "blocked_human", "blocked_external", "deferred"].includes(disposition.status ?? "")
+  return ["awaiting_steering", "awaiting_qa", "blocked_external", "deferred"].includes(disposition.status ?? "")
     && typeof disposition.reason === "string"
     && disposition.reason.length > 0
-    && (disposition.nextAction === undefined || typeof disposition.nextAction === "string");
+    && (disposition.nextAction === undefined || typeof disposition.nextAction === "string")
+    && (!["blocked_external", "deferred"].includes(disposition.status ?? "")
+      || (typeof disposition.nextAction === "string" && disposition.nextAction.length > 0));
 }

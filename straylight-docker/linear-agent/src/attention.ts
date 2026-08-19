@@ -1,4 +1,4 @@
-export type AttentionKind = "steering" | "qa";
+export type AttentionKind = "signal" | "steering" | "qa";
 export type AttentionDelivery = "interrupt" | "queue";
 export type AttentionPriority = "urgent" | "high" | "medium" | "low" | "none";
 
@@ -42,6 +42,14 @@ export type ActiveAttention = {
   requestedAt: number;
 };
 
+export const QA_APPROVE_VALUE = "Approve and complete the parent work.";
+export const QA_REVISE_VALUE = "Not approved; resume the parent work.";
+
+const QA_OPTIONS: AttentionOption[] = [
+  { label: "Approve and complete", value: QA_APPROVE_VALUE },
+  { label: "Not approved", value: QA_REVISE_VALUE, tradeoff: "Reply with concrete changes instead when possible." },
+];
+
 const LINEAR_PRIORITY: Record<AttentionPriority, number> = {
   none: 0,
   urgent: 1,
@@ -59,7 +67,15 @@ export function linearAttentionPriority(request: AttentionRequest): number {
 }
 
 export function attentionBlocking(request: AttentionRequest): boolean {
-  return request.blocking ?? true;
+  return request.kind !== "signal";
+}
+
+export function attentionOptions(request: AttentionRequest): AttentionOption[] | undefined {
+  return request.kind === "qa" ? QA_OPTIONS : request.options;
+}
+
+export function isQaApproval(value: string): boolean {
+  return value.trim() === QA_APPROVE_VALUE;
 }
 
 function markdownText(value: string): string {
@@ -85,7 +101,7 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
   const bounded = (item: unknown, maximum: number): item is string => (
     typeof item === "string" && item.trim().length > 0 && item.length <= maximum
   );
-  if (!(["steering", "qa"] as unknown[]).includes(request.kind)) return false;
+  if (!(["signal", "steering", "qa"] as unknown[]).includes(request.kind)) return false;
   if (!(["interrupt", "queue"] as unknown[]).includes(request.delivery)) return false;
   if (!bounded(request.title, 160)
     || !bounded(request.action, 1_000)
@@ -95,7 +111,8 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
     || !bounded(request.impact, 1_000)
     || !bounded(request.timing, 500)) return false;
   if (request.priority !== undefined && !(["urgent", "high", "medium", "low", "none"] as unknown[]).includes(request.priority)) return false;
-  if (request.blocking !== undefined && typeof request.blocking !== "boolean") return false;
+  if (request.blocking !== undefined && request.blocking !== attentionBlocking(request as AttentionRequest)) return false;
+  if (request.kind === "signal" && request.delivery !== "queue") return false;
   if (request.delivery === "interrupt" && (!attentionBlocking(request as AttentionRequest) || attentionPriority(request as AttentionRequest) !== "urgent")) return false;
 
   if (request.options !== undefined) {
@@ -119,13 +136,14 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
     }
   }
 
+  if (request.kind === "qa" && request.options !== undefined) return false;
   return request.kind !== "qa" || Boolean(request.evidence?.length);
 }
 
 export function renderAttentionRequest(request: AttentionRequest): string {
-  const heading = request.kind === "steering" ? "Steering" : "QA review";
+  const heading = request.kind === "signal" ? "Signal" : request.kind === "steering" ? "Steering" : "QA review";
   const delivery = request.delivery === "interrupt" ? "interrupt" : "queued";
-  const response = attentionBlocking(request) ? "blocking input" : "acknowledgement";
+  const response = request.kind === "qa" ? "approval required" : attentionBlocking(request) ? "blocking input" : "acknowledgement";
   const sections = [
     `## ${heading} · ${delivery} · ${attentionPriority(request)} · ${response}: ${markdownText(request.title)}`,
     `**Your action**\n${markdownText(request.action)}`,
@@ -135,10 +153,14 @@ export function renderAttentionRequest(request: AttentionRequest): string {
     `**Original intent**\n${markdownText(request.originalIntent)}`,
     `**What changed**\n${markdownText(request.delta)}`,
   ];
-  if (request.options?.length) {
+  if (request.kind === "qa") {
+    sections.push("**Resolution**\nChoose **Approve and complete** only when the parent work is genuinely done. Otherwise reply with concrete changes; Straylight will resume the parent run.");
+  }
+  const options = attentionOptions(request);
+  if (options?.length) {
     sections.push([
       "**Options**",
-      ...request.options.map((option) => (
+      ...options.map((option) => (
         `- **${markdownLabel(option.label)}** — ${markdownText(option.value)}`
         + (option.tradeoff ? `\n  ${markdownText(option.tradeoff)}` : "")
       )),

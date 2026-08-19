@@ -126,7 +126,15 @@ export class ProgressReporter {
     if (this.heartbeat) return;
     this.heartbeat = setInterval(() => {
       if (!this.pending && Date.now() - this.lastSentAt >= this.heartbeatMs) {
-        this.report({ type: "activity", content: { type: "thought", body: "The agent is still working." }, ephemeral: true });
+        // Heartbeats intentionally repeat the same replacement-style activity.
+        // Ordinary progress is deduplicated, but a quiet run must keep renewing
+        // its visible proof-of-life instead of showing the message only once.
+        this.pending = {
+          type: "activity",
+          content: { type: "thought", body: "The agent is still working." },
+          ephemeral: true,
+        };
+        void this.flush();
       }
     }, this.heartbeatMs);
     this.heartbeat.unref();

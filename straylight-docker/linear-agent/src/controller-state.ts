@@ -46,7 +46,7 @@ export class ControllerStateStore {
       && typeof record.awaitingInput === "boolean"
       && (record.humanAssigneeId === undefined || typeof record.humanAssigneeId === "string")
       && (record.attention === undefined || (Array.isArray(record.attention) && record.attention.every((attention) => (
-        ["steering", "qa"].includes(attention.kind)
+        ["signal", "steering", "qa"].includes(attention.kind)
         && ["interrupt", "queue"].includes(attention.delivery)
         && ["urgent", "high", "medium", "low", "none"].includes(attention.priority)
         && typeof attention.blocking === "boolean"

@@ -39,9 +39,9 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
           status: "ok" as const,
           answer: requests.length === 1 ? "Implemented the change." : "Applied the follow-up.",
           sessionId: "claude-session-1",
-          awaitingInput: false,
+          awaitingInput: true,
           durationMs: 12,
-          disposition: { status: "completed" as const, reason: "Implemented and checked." },
+          disposition: { status: "awaiting_qa" as const, reason: "Implemented and checked; ready for approval." },
         };
       },
     };
@@ -54,7 +54,7 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
     }, async (event) => { events.push(event); });
     assert.equal(first.ok, true);
     assert.equal(first.summary, "Implemented the change.");
-    assert.equal(first.disposition?.status, "completed");
+    assert.equal(first.disposition?.status, "awaiting_qa");
     assert.match(requests[0]?.prompt ?? "", /primary Claude Code coding agent/);
     assert.equal(requests[0]?.resume, undefined);
     assert.equal(events.length, 1);
@@ -93,6 +93,36 @@ test("aborts and reports a Claude run when the configured runner deadline expire
     assert.equal(result.ok, false);
     assert.equal(result.timedOut, true);
     assert.match(result.summary, /Claude Code run timed out/);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("reports visible progress while Claude is quiet", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-progress-"));
+  try {
+    const progressConfig = { ...config(workdir), progressDebounceMs: 1, progressHeartbeatMs: 10 };
+    const capsule = {
+      async runBrokeredAgent() {
+        await Bun.sleep(45);
+        return {
+          status: "ok" as const,
+          answer: "Ready for review.",
+          sessionId: "claude-progress-session",
+          awaitingInput: true,
+          durationMs: 45,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+    };
+    const events: unknown[] = [];
+    const harness = new ClaudeHarness(progressConfig, capsule);
+    await harness.run({
+      action: "created",
+      agentSession: { id: "linear-progress-session", issueId: "issue-1" },
+      agentActivity: { content: { body: "Work quietly for a while." } },
+    }, async (event) => { events.push(event); });
+    assert.equal(events.some((event) => (event as { content?: { body?: string } }).content?.body === "The agent is still working."), true);
   } finally {
     await fs.rm(workdir, { recursive: true, force: true });
   }

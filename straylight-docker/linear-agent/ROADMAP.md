@@ -398,11 +398,11 @@ Status: implemented locally; deployed interaction and queue-pressure measurement
 remain acceptance checks.
 
 - Replace open-ended `request_input` with a dedicated semantic attention
-  request. Every request is either Steering (new information questions the
-  original intent) or QA (a checked artifact is ready for ownership), and is
-  explicitly classified as an interruption or queued review.
+  request. Signal is a queued nonblocking question or notification, Steering
+  pauses for a required answer, and QA pauses checked work for human ownership.
+  Delivery remains separately classified as an interruption or queued review.
 - Materialize every request as a Linear child issue assigned to the sponsoring
-  engineer. Use native priority for ordering and labels for Steering/QA plus
+  engineer. Use native priority for ordering and labels for Signal/Steering/QA plus
   Blocking/FYI; blocking items pause and route replies to the parent, while FYIs
   remain acknowledgement work and let the parent continue.
 - Require the exact human action, the relevant original intent, what changed,
@@ -423,13 +423,12 @@ Acceptance:
 
 1. Attempt QA without evidence and confirm the broker rejects it before Linear
    is disturbed.
-2. Request queued QA with a preview and screenshot, and confirm Linear creates a
-   child issue assigned to the engineer with the requested priority, QA and FYI
-   labels, and usable evidence.
+2. Request a queued Signal and confirm its FYI child remains while the parent
+   continues; request QA with a preview and confirm it blocks for approval.
 3. Request blocking Steering with real options and confirm Linear creates its
    child Agent Session, renders a native select signal, and routes the reply back
    into the paused parent while still accepting free text.
-4. Confirm controller health distinguishes queued QA, queued Steering, FYI,
+4. Confirm controller health distinguishes Signal, QA, Steering, FYI,
    blocking, urgent, and true interruptions across simultaneous sessions.
 5. Restart the controller while an attention request is pending; confirm it
    remains awaiting input and does not rerun tools or external actions.
@@ -443,9 +442,9 @@ Status: implemented locally; deployed acceptance pending.
 - Refresh each allowlisted repository cache centrally at most once per TTL.
   Task jails continue to mount caches read-only, borrow their Git objects, and
   keep the canonical authenticated HTTPS remote as `origin`.
-- Add Claude's semantic `finish_work` capability with `completed`,
-  `blocked_external`, and `deferred` dispositions. A successful blocking
-  `request_attention` records `blocked_human`; no other path may claim it.
+- Add Claude's initial semantic `finish_work` capability and structured terminal
+  dispositions. Slice 15 removes agent-declared completion and replaces the
+  generic human-blocked state with explicit Steering and QA transitions.
 - Use a deterministic Claude Stop callback for one repair turn when the
   disposition is missing, conflicts with attention state, or the final summary
   appears to require an engineer without a blocking child issue. Keep the same
@@ -462,13 +461,49 @@ Acceptance:
    confirm one central refresh plus canonical HTTPS task origins.
 3. Give Claude a missing-access blocker and confirm it cannot end as ordinary
    completion: a blocking Steering child appears and health reports it.
-4. Complete a normal low-risk task and confirm `finish_work: completed` appears
-   in the safe tool audit without creating attention work.
+4. Complete a normal low-risk task and confirm the later Slice 15 QA transition
+   supersedes the original self-declared completion behavior.
 5. Restart after a permanently unsupported Document-comment delivery and
    confirm pending becomes zero while one bounded dead-letter summary remains.
 
+## Slice 15 — human-owned completion and quiet-stream survival
+
+Status: implemented locally; deployed acceptance pending.
+
+- Make the normal loop rigid: Signal is nonblocking and work continues; Steering
+  waits for required input; QA waits for human approval. Remove `completed` from
+  Claude's `finish_work` surface so the default runner cannot end with an
+  ambiguous invitation.
+- Give QA standard approval controls. Exact approval completes the QA child and
+  parent issue without another model turn; every other response resumes the same
+  parent workspace and conversation for changes before another QA handoff.
+- Require QA evidence, force external blockers and deferrals to name a next
+  action, and fail closed if terminal prose still asks the engineer to "let me
+  know", review, or confirm outside an attention transition.
+- Emit an invisible NDJSON heartbeat every 15 seconds, suppress Bun's native
+  long-fetch timeout where supported, and send replacement-style visible progress
+  for quiet Claude turns.
+- Keep the Linear setup thin: existing Started/Completed states, lazy attention
+  labels, native child issues, assignee, and priority. Treat a saved attention
+  view as optional and add no mandatory board or workflow state yet.
+
+Acceptance:
+
+1. Keep a Claude run quiet for longer than five minutes and confirm the runner
+   stream remains connected while visible ephemeral progress changes.
+2. Ask for a nonblocking question or notification and confirm a Signal child is
+   queued while work continues to Steering or QA.
+3. Require a decision and confirm only Steering pauses and resumes the parent.
+4. Finish checked work and confirm QA is mandatory, includes evidence and fixed
+   approval controls, and cannot degrade into "tell me if you want more" prose.
+5. Approve QA and confirm parent and child complete without inference; request
+   changes instead and confirm the same parent resumes and later returns to QA.
+
 ## Later hardening
 
+- Give the Pi fallback the same fail-closed terminal hook as the default Claude
+  runner. Its attention tool already speaks Signal/Steering/QA, but Pi can still
+  end without choosing one of those dispositions.
 - Replace the Pi fallback task's reusable Codex credential copy with a model
   broker before broadening that route beyond the personal pilot.
 - Move from shared-kernel Docker isolation to gVisor, Kata, or a microVM backend

@@ -178,7 +178,7 @@ test("forwards a running task to the Claude capsule without mounting its identit
     async ask() { return { status: "error" as const, message: "unused" }; },
     async runAgent(input: unknown) {
       request = input;
-      return { status: "ok" as const, answer: "Done.", sessionId: "claude-1", awaitingInput: false, durationMs: 4, disposition: { status: "completed" as const, reason: "Done." } };
+      return { status: "ok" as const, answer: "Ready for QA.", sessionId: "claude-1", awaitingInput: true, durationMs: 4, disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." } };
     },
   };
   const harness = new WorkbenchHarness(config(), engine, capsule);

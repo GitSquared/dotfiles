@@ -30,13 +30,14 @@ test("uses the activity body for follow-ups", () => {
   assert.match(prompt, /Run the integration tests too/);
 });
 
-test("requires Claude to finish through the shared work disposition", () => {
+test("requires Claude to finish through the human-owned lifecycle", () => {
   const prompt = claudeInitialPrompt({
     agentSession: { id: "session", issue: { identifier: "GAB-5", title: "Try the repository" } },
     agentActivity: { content: { body: "Inspect the repository." } },
   });
   assert.match(prompt, /finish_work/);
-  assert.match(prompt, /blocking request_attention/);
+  assert.match(prompt, /only three ordinary lifecycle transitions/);
+  assert.match(prompt, /hand apparently finished work to QA/);
 });
 
 test("makes a mention comment authoritative over an older issue instruction", () => {

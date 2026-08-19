@@ -40,7 +40,8 @@ export class CapsuleClient {
         headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
         body: JSON.stringify({ request }),
         ...(signal ? { signal } : {}),
-      });
+        timeout: false,
+      } as BunFetchRequestInit);
     } catch (error) {
       if (signal?.aborted) throw error;
       return { status: "error", message: "The Claude workbench connection failed." };
@@ -73,7 +74,8 @@ export class CapsuleClient {
         headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
         body: JSON.stringify(request),
         ...(signal ? { signal } : {}),
-      });
+        timeout: false,
+      } as BunFetchRequestInit);
     } catch (error) {
       if (signal?.aborted) throw error;
       return { status: "error", message: "The Claude agent capsule connection failed." };
@@ -100,8 +102,10 @@ export class CapsuleClient {
 function validDisposition(value: unknown): value is WorkDisposition {
   if (!value || typeof value !== "object") return false;
   const disposition = value as Partial<WorkDisposition>;
-  return ["completed", "blocked_human", "blocked_external", "deferred"].includes(disposition.status ?? "")
+  return ["awaiting_steering", "awaiting_qa", "blocked_external", "deferred"].includes(disposition.status ?? "")
     && typeof disposition.reason === "string"
     && disposition.reason.length > 0
-    && (disposition.nextAction === undefined || typeof disposition.nextAction === "string");
+    && (disposition.nextAction === undefined || typeof disposition.nextAction === "string")
+    && (!["blocked_external", "deferred"].includes(disposition.status ?? "")
+      || (typeof disposition.nextAction === "string" && disposition.nextAction.length > 0));
 }

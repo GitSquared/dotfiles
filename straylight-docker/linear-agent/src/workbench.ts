@@ -109,7 +109,7 @@ export function taskContainerSpec(
       "PI_CODING_AGENT_DIR=/home/node/.pi/agent",
       "PI_THEME=dark",
       "PI_PROGRESS_DEBOUNCE_MS=3000",
-      "PI_PROGRESS_HEARTBEAT_MS=300000",
+      "PI_PROGRESS_HEARTBEAT_MS=60000",
       "PI_TIMEOUT_MS=1800000",
       `STRAYLIGHT_RUNNER=${config.runnerBackend}`,
       "CAPSULE_URL=http://linear-agent-runner:8788",

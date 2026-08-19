@@ -30,12 +30,20 @@ test("accepts a rationalized steering request and renders the decision before de
 });
 
 test("requires review evidence before asking for QA attention", () => {
-  assert.equal(isAttentionRequest({ ...steering, kind: "qa" }), false);
+  const { options: _options, ...qa } = steering;
+  assert.equal(isAttentionRequest({ ...qa, kind: "qa" }), false);
   assert.equal(isAttentionRequest({
-    ...steering,
+    ...qa,
     kind: "qa",
     evidence: [{ label: "Preview", url: "https://preview.example.test", description: "Checked at 1440px." }],
   }), true);
+  const rendered = renderAttentionRequest({
+    ...qa,
+    kind: "qa",
+    evidence: [{ label: "Preview", url: "https://preview.example.test" }],
+  });
+  assert.match(rendered, /approval required/);
+  assert.match(rendered, /Approve and complete/);
 });
 
 test("rejects unsafe evidence and duplicate choice values", () => {
@@ -56,4 +64,10 @@ test("reserves interrupt delivery for urgent blocking attention", () => {
   assert.equal(isAttentionRequest({ ...steering, delivery: "interrupt", priority: "high" }), false);
   assert.equal(isAttentionRequest({ ...steering, delivery: "interrupt", priority: "urgent", blocking: false }), false);
   assert.equal(isAttentionRequest({ ...steering, delivery: "interrupt", priority: "urgent", blocking: true }), true);
+});
+
+test("makes Signal the only nonblocking lifecycle transition", () => {
+  assert.equal(isAttentionRequest({ ...steering, kind: "signal", delivery: "queue", blocking: false }), true);
+  assert.equal(isAttentionRequest({ ...steering, kind: "signal", delivery: "interrupt", priority: "urgent", blocking: false }), false);
+  assert.equal(isAttentionRequest({ ...steering, kind: "steering", blocking: false }), false);
 });

@@ -1,5 +1,12 @@
 import { ControllerStateStore, type ControllerSessionRecord } from "./controller-state.js";
-import { attentionBlocking, attentionPriority, renderAttentionRequest, type ActiveAttention } from "./attention.js";
+import {
+  attentionBlocking,
+  attentionOptions,
+  attentionPriority,
+  isQaApproval,
+  renderAttentionRequest,
+  type ActiveAttention,
+} from "./attention.js";
 import { LinearClient, type AgentSessionSnapshot } from "./linear.js";
 import type {
   LinearManageRequest,
@@ -242,6 +249,7 @@ export class AgentController {
           total: attention.length,
           interrupts: attention.filter((request) => request.delivery === "interrupt").length,
           queued: attention.filter((request) => request.delivery === "queue").length,
+          signals: attention.filter((request) => request.kind === "signal").length,
           steering: attention.filter((request) => request.kind === "steering").length,
           qa: attention.filter((request) => request.kind === "qa").length,
           blocking: attention.filter((request) => request.blocking).length,
@@ -300,7 +308,7 @@ export class AgentController {
       await this.persist();
       const attentionSession = await this.linear.createAgentSessionOnIssue(issue.id);
       active.sessionId = attentionSession.id;
-      const options = request.request.options?.map(({ label, value }) => ({ label, value }));
+      const options = attentionOptions(request.request)?.map(({ label, value }) => ({ label, value }));
       await this.linear.createActivity(attentionSession.id, {
         type: "elicitation",
         body: finalText(renderAttentionRequest(request.request)),
@@ -499,10 +507,33 @@ export class AgentController {
     if (payload.action !== "prompted") return;
     const answer = payload.agentActivity?.content?.body?.trim();
     if (!answer) return;
+    if (attention.kind === "qa" && isQaApproval(answer)) {
+      if (!parentState.issueId) throw new Error("QA approval requires an issue-backed parent run");
+      await this.linear.createActivity(childSessionId, {
+        type: "response",
+        body: "QA approved. The parent work is being completed without another agent turn.",
+      });
+      await this.linear.completeIssue(attention.issueId);
+      await this.linear.completeIssue(parentState.issueId);
+      await this.linear.createActivity(parentSessionId, {
+        type: "response",
+        body: `QA approved by the engineer on ${attention.issueIdentifier ?? "the attention issue"}. The delegated work is complete.`,
+      });
+      // Clear the durable route only after every Linear mutation succeeds. A
+      // retried webhook may repeat an idempotent completion, but it cannot lose
+      // the still-pending parent completion after a partial failure.
+      parentState.attention = parentState.attention.filter((item) => item !== attention);
+      parentState.awaitingInput = false;
+      this.touch(parentState);
+      await this.persist();
+      return;
+    }
     await this.linear.createActivity(childSessionId, {
       type: "response",
       body: attention.blocking
-        ? "Response accepted and routed back to the parent Straylight run."
+        ? attention.kind === "qa"
+          ? "Changes requested. The response was routed back to the parent Straylight run."
+          : "Response accepted and routed back to the parent Straylight run."
         : "Acknowledged. The parent run did not need to pause.",
     });
     await this.linear.completeIssue(attention.issueId);
@@ -517,7 +548,7 @@ export class AgentController {
     routed.agentActivity = {
       content: {
         type: "prompt",
-        body: `Human response from attention issue ${attention.issueIdentifier ?? attention.issueId}:\n\n${answer}`,
+        body: `${attention.kind === "qa" ? "QA changes requested" : "Human steering response"} from attention issue ${attention.issueIdentifier ?? attention.issueId}:\n\n${answer}`,
       },
     };
     await this.handle(routed);
