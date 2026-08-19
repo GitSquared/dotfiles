@@ -31,15 +31,17 @@ export type AttentionRequest = {
 };
 
 export type ActiveAttention = {
-  kind: AttentionKind;
-  delivery: AttentionDelivery;
+  kind: "steering" | "qa";
   priority: AttentionPriority;
-  blocking: boolean;
-  issueId: string;
-  issueIdentifier?: string;
-  issueUrl?: string;
-  sessionId?: string;
+  previousStateId: string;
   requestedAt: number;
+};
+
+export type DeferredItemRequest = {
+  title: string;
+  what: string;
+  whyNotNow: string;
+  resurface: string;
 };
 
 export const QA_APPROVE_VALUE = "Approve and complete the parent work.";
@@ -176,4 +178,25 @@ export function renderAttentionRequest(request: AttentionRequest): string {
     ].join("\n"));
   }
   return sections.join("\n\n");
+}
+
+export function isDeferredItemRequest(value: unknown): value is DeferredItemRequest {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const request = value as Partial<DeferredItemRequest>;
+  const bounded = (item: unknown, maximum: number): item is string => (
+    typeof item === "string" && item.trim().length > 0 && item.length <= maximum
+  );
+  return bounded(request.title, 160)
+    && bounded(request.what, 1_000)
+    && bounded(request.whyNotNow, 500)
+    && bounded(request.resurface, 500);
+}
+
+export function renderDeferredItem(request: DeferredItemRequest): string {
+  return [
+    `## Deferred follow-up: ${markdownText(request.title)}`,
+    `**What**\n${markdownText(request.what)}`,
+    `**Why this isn't the current task's job**\n${markdownText(request.whyNotNow)}`,
+    `**What re-surfaces it**\n${markdownText(request.resurface)}`,
+  ].join("\n\n");
 }

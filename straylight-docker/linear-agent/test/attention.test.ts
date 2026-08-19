@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { isAttentionRequest, renderAttentionRequest } from "../src/attention.js";
+import { isAttentionRequest, isDeferredItemRequest, renderAttentionRequest, renderDeferredItem } from "../src/attention.js";
 
 const steering = {
   kind: "steering" as const,
@@ -70,4 +70,28 @@ test("makes Signal the only nonblocking lifecycle transition", () => {
   assert.equal(isAttentionRequest({ ...steering, kind: "signal", delivery: "queue", blocking: false }), true);
   assert.equal(isAttentionRequest({ ...steering, kind: "signal", delivery: "interrupt", priority: "urgent", blocking: false }), false);
   assert.equal(isAttentionRequest({ ...steering, kind: "steering", blocking: false }), false);
+});
+
+const deferred = {
+  title: "Extract the shared retry helper",
+  what: "Three call sites in linear.ts duplicate the same exponential-backoff loop.",
+  whyNotNow: "Unrelated to the bug this task is fixing; touching it now would widen the diff.",
+  resurface: "Next time a fourth call site needs the same retry logic, or during a dedicated cleanup pass.",
+};
+
+test("requires every deferred-follow-up field so a subissue can't be manufactured busywork", () => {
+  assert.equal(isDeferredItemRequest(deferred), true);
+  for (const field of ["title", "what", "whyNotNow", "resurface"] as const) {
+    const { [field]: _omitted, ...incomplete } = deferred;
+    assert.equal(isDeferredItemRequest(incomplete), false);
+  }
+  assert.equal(isDeferredItemRequest({ ...deferred, what: "" }), false);
+});
+
+test("renders a deferred follow-up with its justification, not just a title", () => {
+  const rendered = renderDeferredItem(deferred);
+  assert.match(rendered, /Deferred follow-up: Extract the shared retry helper/);
+  assert.match(rendered, /duplicate the same exponential-backoff loop/);
+  assert.match(rendered, /Why this isn't the current task's job/);
+  assert.match(rendered, /fourth call site needs the same retry logic/);
 });

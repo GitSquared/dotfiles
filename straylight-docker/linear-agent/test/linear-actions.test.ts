@@ -49,6 +49,15 @@ test("accepts bounded generic Agent Session collaboration", () => {
     signal: "select",
     signalMetadata: { options: [{ label: "Nemo", value: "nemo" }, { label: "Dotfiles", value: "dotfiles" }] },
   }), true);
+  assert.equal(isLinearSessionRequest({
+    action: "defer",
+    request: {
+      title: "Extract the shared retry helper",
+      what: "Three call sites duplicate the same backoff loop.",
+      whyNotNow: "Unrelated to the bug this task is fixing; touching it now would widen the diff.",
+      resurface: "Next time a fourth call site needs the same retry logic.",
+    },
+  }), true);
   assert.equal(isLinearSessionRequest({ action: "external_url", label: "Review", url: "https://example.com/review" }), true);
   assert.equal(isLinearSessionRequest({ action: "plan", steps: [{ content: "Inspect", status: "inProgress" }] }), true);
   assert.equal(isLinearSessionRequest({
@@ -70,6 +79,13 @@ test("rejects unsafe or malformed Agent Session collaboration", () => {
       recommendation: "Approve.",
       impact: "Work remains paused.",
       timing: "Whenever.",
+    },
+  }), false);
+  assert.equal(isLinearSessionRequest({
+    action: "defer",
+    request: {
+      title: "Extract the shared retry helper",
+      what: "Three call sites duplicate the same backoff loop.",
     },
   }), false);
   assert.equal(isLinearSessionRequest({ action: "external_url", label: "Local", url: "http://localhost:3000" }), false);

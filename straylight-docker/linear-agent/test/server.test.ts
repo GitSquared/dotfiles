@@ -18,6 +18,7 @@ const config: ControllerConfig = {
   stateDirectory: "/tmp/linear-agent-test",
   runnerUrl: "http://runner.test:8788",
   runnerToken: "r".repeat(32), // yadm-secret-scan: ignore
+  attentionStateName: "Blocked",
 };
 
 test("serves controller health through a Web Response", async () => {

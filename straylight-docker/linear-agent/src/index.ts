@@ -8,7 +8,7 @@ import { DurableWebhookInbox } from "./webhook-inbox.js";
 const config = loadControllerConfig(process.env);
 const linear = new LinearClient(config);
 const runner = new PiRunnerClient(config.runnerUrl, config.runnerToken);
-const controller = new AgentController(linear, runner, config.stateDirectory);
+const controller = new AgentController(linear, runner, config.stateDirectory, config.attentionStateName);
 await controller.initialize();
 const inbox = new DurableWebhookInbox(config.stateDirectory, (payload) => dispatchLinearWebhook(controller, payload));
 await inbox.initialize();

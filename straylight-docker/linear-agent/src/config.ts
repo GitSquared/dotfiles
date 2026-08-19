@@ -13,6 +13,7 @@ export type ControllerConfig = {
   stateDirectory: string;
   runnerUrl: string;
   runnerToken: string; // yadm-secret-scan: ignore
+  attentionStateName: string;
 };
 
 export type RunnerConfig = {
@@ -139,6 +140,7 @@ export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
     stateDirectory: env.LINEAR_AGENT_STATE_DIR?.trim() || "/app/state",
     runnerUrl: serviceUrl(env, "PI_RUNNER_URL", "http://linear-agent-runner:8788"),
     runnerToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
+    attentionStateName: env.LINEAR_ATTENTION_STATE_NAME?.trim() || "Blocked",
   };
 }
 
@@ -209,6 +211,7 @@ export function publicControllerConfig(config: ControllerConfig) {
     port: config.port,
     stateDirectory: config.stateDirectory,
     runnerUrl: config.runnerUrl,
+    attentionStateName: config.attentionStateName,
   };
 }
 

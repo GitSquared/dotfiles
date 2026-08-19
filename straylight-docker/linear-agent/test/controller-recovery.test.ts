@@ -90,10 +90,8 @@ test("restores an attention wait without replaying work after a controller resta
       teamId: "team-1",
       attention: [{
         kind: "qa",
-        delivery: "queue",
         priority: "medium",
-        blocking: true,
-        issueId: "attention-issue-1",
+        previousStateId: "state-in-progress",
         requestedAt: Date.now() - 1_000,
       }],
       updatedAt: Date.now(),
@@ -161,18 +159,17 @@ test("keeps a Pi run alive when an ephemeral Linear activity fails", async () =>
   assert.equal(health.controller.runningSessions, 0);
 });
 
-test("tracks rationalized attention across the fleet and clears it on follow-up", async () => {
+test("tracks rationalized attention on the parent issue and clears it on follow-up", async () => {
   const activities: Array<{ content: unknown; options?: unknown }> = [];
-  let attentionAssignee: string | undefined;
+  const comments: Array<{ issueId: string; body: string }> = [];
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
-    async createAttentionIssue(_issueId: string, _request: unknown, humanAssigneeId?: string) {
-      attentionAssignee = humanAssigneeId;
-      return { id: "attention-issue-1", identifier: "LIN-2", title: "Migration boundary", url: "https://linear.app/acme/issue/LIN-2" };
-    },
-    async createAgentSessionOnIssue() { return { id: "attention-session-1" }; },
-    async completeIssue() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-1", body }; },
     async createActivity(_sessionId: string, content: unknown, options?: unknown) {
       activities.push({ content, ...(options ? { options } : {}) });
     },
@@ -192,7 +189,7 @@ test("tracks rationalized attention across the fleet and clears it on follow-up"
   await controller.handle({
     action: "created",
     appUserId: "agent-1",
-    agentSession: { id: "session-attention", issueId: "issue-1", creatorId: "human-1" },
+    agentSession: { id: "session-attention", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
   });
   await controller.collaborateLinear("session-attention", {
     action: "attention",
@@ -216,19 +213,19 @@ test("tracks rationalized attention across the fleet and clears it on follow-up"
   });
 
   const waiting = await controller.health() as {
-    controller: { attentionQueue: { total: number; interrupts: number; queued: number; steering: number; qa: number; unclassifiedAwaitingInput: number; oldestWaitMs: number } };
+    controller: { attentionQueue: { total: number; steering: number; qa: number; urgent: number; oldestWaitMs: number } };
   };
   assert.equal(waiting.controller.attentionQueue.total, 1);
-  assert.equal(waiting.controller.attentionQueue.interrupts, 1);
-  assert.equal(waiting.controller.attentionQueue.queued, 0);
   assert.equal(waiting.controller.attentionQueue.steering, 1);
   assert.equal(waiting.controller.attentionQueue.qa, 0);
-  assert.equal(waiting.controller.attentionQueue.unclassifiedAwaitingInput, 0);
-  assert.equal(attentionAssignee, "human-1");
+  assert.equal(waiting.controller.attentionQueue.urgent, 1);
   assert.ok(waiting.controller.attentionQueue.oldestWaitMs >= 0);
-  const childElicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Your action"));
-  assert.match((childElicitation?.content as { body?: string }).body ?? "", /Your action/);
-  assert.deepEqual((childElicitation?.options as { signal?: string }).signal, "select");
+  assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
+  assert.equal(comments.length, 1);
+  assert.match(comments[0]?.body ?? "", /Your action/);
+  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Your action"));
+  assert.match((elicitation?.content as { body?: string }).body ?? "", /Your action/);
+  assert.deepEqual((elicitation?.options as { signal?: string }).signal, "select");
 
   await controller.handle({
     action: "prompted",
@@ -237,31 +234,20 @@ test("tracks rationalized attention across the fleet and clears it on follow-up"
   });
   const resumed = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(resumed.controller.attentionQueue.total, 0);
+  assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" });
   finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
 });
 
-test("routes a blocking child-issue response back into the paused parent run", async () => {
-  const activities: Array<{ sessionId: string; content: unknown }> = [];
-  const completedIssues: string[] = [];
+test("resumes the paused parent run directly when the engineer replies on the same issue", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
-    async createAttentionIssue() {
-      return { id: "attention-issue-2", identifier: "LIN-3", title: "Choose the boundary", url: "https://linear.app/acme/issue/LIN-3" };
-    },
-    async createAgentSessionOnIssue() { return { id: "attention-session-2" }; },
-    async completeIssue(issueId: string) { completedIssues.push(issueId); },
-    async createActivity(sessionId: string, content: unknown) { activities.push({ sessionId, content }); },
-    async agentSessionSnapshot() {
-      return {
-        id: "parent-session",
-        status: "awaitingInput",
-        appUser: { id: "agent-1" },
-        creator: { id: "human-1" },
-        issue: { id: "parent-issue", identifier: "LIN-1", title: "Parent work", team: { id: "team-1" } },
-        activities: { nodes: [] },
-      };
-    },
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async createActivity() {},
   } as unknown as LinearClient;
   let finishFirst!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
   const first = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
@@ -282,7 +268,7 @@ test("routes a blocking child-issue response back into the paused parent run", a
   await controller.handle({
     action: "created",
     appUserId: "agent-1",
-    agentSession: { id: "parent-session", issueId: "parent-issue", creatorId: "human-1" },
+    agentSession: { id: "parent-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
   });
   await controller.collaborateLinear("parent-session", {
     action: "attention",
@@ -311,28 +297,28 @@ test("routes a blocking child-issue response back into the paused parent run", a
     action: "prompted",
     organizationId: "org-1",
     agentActivity: { content: { body: "Keep the old writer authoritative." } },
-    agentSession: { id: "attention-session-2", issueId: "attention-issue-2" },
+    agentSession: { id: "parent-session", issueId: "parent-issue" },
   });
   for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
 
   assert.equal(runs.length, 2);
-  assert.match(runs[1]?.agentActivity?.content?.body ?? "", /Human steering response from attention issue LIN-3/);
-  assert.match(runs[1]?.agentActivity?.content?.body ?? "", /Keep the old writer authoritative/);
-  assert.deepEqual(completedIssues, ["attention-issue-2"]);
-  assert.equal(activities.some((activity) => activity.sessionId === "attention-session-2"
-    && (activity.content as { type?: string }).type === "response"), true);
+  assert.equal(runs[1]?.agentActivity?.content?.body, "Keep the old writer authoritative.");
+  assert.deepEqual(stateFlips, [
+    { issueId: "parent-issue", stateId: "state-blocked" },
+    { issueId: "parent-issue", stateId: "state-in-progress" },
+  ]);
 });
 
-test("completes parent work directly when the engineer approves a QA handoff", async () => {
+test("completes the issue directly when the engineer approves a QA attention", async () => {
   const activities: Array<{ sessionId: string; content: unknown; options?: unknown }> = [];
   const completedIssues: string[] = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
-    async createAttentionIssue() {
-      return { id: "qa-issue", identifier: "LIN-4", title: "Review the checked fix", url: "https://linear.app/acme/issue/LIN-4" };
-    },
-    async createAgentSessionOnIssue() { return { id: "qa-session" }; },
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState() {},
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
     async completeIssue(issueId: string) { completedIssues.push(issueId); },
     async createActivity(sessionId: string, content: unknown, options?: unknown) {
       activities.push({ sessionId, content, ...(options ? { options } : {}) });
@@ -353,7 +339,7 @@ test("completes parent work directly when the engineer approves a QA handoff", a
   await controller.handle({
     action: "created",
     appUserId: "agent-1",
-    agentSession: { id: "parent-qa-session", issueId: "parent-issue", creatorId: "human-1" },
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
   });
   await controller.collaborateLinear("parent-qa-session", {
     action: "attention",
@@ -378,7 +364,7 @@ test("completes parent work directly when the engineer approves a QA handoff", a
     await Bun.sleep(2);
   }
 
-  const elicitation = activities.find((activity) => activity.sessionId === "qa-session"
+  const elicitation = activities.find((activity) => activity.sessionId === "parent-qa-session"
     && (activity.content as { type?: string }).type === "elicitation");
   assert.deepEqual((elicitation?.options as { signalMetadata?: { options?: Array<{ value: string }> } })?.signalMetadata?.options?.map((option) => option.value), [
     QA_APPROVE_VALUE,
@@ -388,11 +374,11 @@ test("completes parent work directly when the engineer approves a QA handoff", a
   await controller.handle({
     action: "prompted",
     agentActivity: { content: { body: QA_APPROVE_VALUE } },
-    agentSession: { id: "qa-session", issueId: "qa-issue" },
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue" },
   });
 
   assert.equal(runs, 1);
-  assert.deepEqual(completedIssues, ["qa-issue", "parent-issue"]);
+  assert.deepEqual(completedIssues, ["parent-issue"]);
   assert.equal(activities.some((activity) => activity.sessionId === "parent-qa-session"
     && (activity.content as { type?: string }).type === "response"), true);
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
