@@ -438,6 +438,10 @@ export class AgentController {
           });
         });
       }
+      await this.linear.createActivity(sessionId, {
+        type: "thought",
+        body: "Reply received; resuming the run.",
+      }).catch(() => undefined);
     }
     this.touch(state);
     this.states.set(sessionId, state);
@@ -837,12 +841,21 @@ export class AgentController {
   ): Promise<void> {
     if (!attention.length) return;
     const item = attention[0]!;
+    if (issueId) {
+      try {
+        await this.linear.setIssueState(issueId, item.previousStateId);
+      } catch (error) {
+        console.warn("failed to restore issue state while dismissing attention", {
+          issueId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     try {
-      if (issueId) await this.linear.setIssueState(issueId, item.previousStateId);
       await this.linear.createActivity(sessionId, { type: "response", body: reason });
     } catch (error) {
-      console.warn("failed to restore issue state while dismissing attention", {
-        issueId,
+      console.warn("failed to post attention dismissal activity", {
+        sessionId,
         message: error instanceof Error ? error.message : String(error),
       });
     }
