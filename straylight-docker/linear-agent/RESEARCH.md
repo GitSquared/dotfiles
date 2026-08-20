@@ -395,6 +395,22 @@ changes left behind, plus more of Linear's own docs.
   wrong auto-assignment would pollute a real workspace's delegate/assignee
   fields Gaby may use for other tracking. Skipped rather than guessed;
   flagging here rather than silently dropping it.
+- Audited every silent `.catch(() => undefined)` in `controller.ts` for the
+  same profile as the Document-mention gap (a human action that produces
+  literally no visible trace anywhere). Found none worth changing: the
+  rest are either genuinely best-effort (a missed confirmation activity
+  when the underlying state change already succeeded and is visible) or
+  have no alternative surface to fall back to (Linear itself being
+  unreachable has no backup channel). Not every silent catch is a gap;
+  this one confirmed that rather than assuming it.
+- A first, deliberately small step toward the mention-as-thread idea
+  above: a freshly `created` session now checks whether another tracked
+  session already exists on the same issue (running, awaiting input, or
+  mid-attention) and, if so, injects a note into `payload.guidance` saying
+  so before the agent ever starts reasoning. This doesn't route anything
+  across sessions - it just stops a new mention from acting as if it's
+  the only thing happening on the issue, which is exactly what confused
+  the crashed run. The full cross-session routing idea is still open.
 
 ## Next hypotheses, not commitments
 

@@ -465,3 +465,40 @@ test("completes the issue directly when the engineer approves a QA attention", a
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(health.controller.attentionQueue.total, 0);
 });
+
+test("warns a freshly mentioned session that another session on the same issue is already active", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      // Never resolves - both sessions stay "running" for the test's duration.
+      return new Promise(() => {});
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  // start() sets state.running synchronously before execute() ever runs, so
+  // by the time this resolves, session-a is already tracked as running.
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-a", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-b", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 2);
+  assert.ok(runs[1]?.guidance?.some((entry) => entry.body?.includes("actively running")));
+  assert.ok(!runs[0]?.guidance?.some((entry) => entry.body?.includes("actively running")));
+});

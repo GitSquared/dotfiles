@@ -508,7 +508,28 @@ export class AgentController {
       }
       return;
     }
+    if (payload.action === "created" && state.issueId) {
+      const sibling = this.findActiveSiblingSession(sessionId, state.issueId);
+      if (sibling) {
+        payload.guidance = [
+          ...(payload.guidance ?? []),
+          {
+            body: `This issue already has another Straylight Agent Session that is ${sibling}. This new mention may be about that same ongoing work rather than a separate task - check before assuming it's unrelated, and avoid duplicating effort already in progress there.`,
+          },
+        ];
+      }
+    }
     await this.start(sessionId, payload, state);
+  }
+
+  private findActiveSiblingSession(sessionId: string, issueId: string): string | undefined {
+    for (const [otherId, other] of this.states) {
+      if (otherId === sessionId || other.issueId !== issueId) continue;
+      if (other.attention.length) return "paused, awaiting a Steering/QA reply";
+      if (other.running) return "actively running";
+      if (other.awaitingInput) return "awaiting input";
+    }
+    return undefined;
   }
 
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
