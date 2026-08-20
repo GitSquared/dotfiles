@@ -451,7 +451,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "request_attention",
-      "Signal, Steering, or QA on the current issue. Signal posts a nonblocking comment and work must continue. Steering and QA flip the issue to the team's attention state, post the request as a comment, and pause for the engineer's reply on that same issue. QA requires evidence and provides standard approval controls. For a blocking Steering request caused specifically by missing developer-tool or capsule access, set missingAccess instead of evidence: Linear renders a dedicated account-linking control instead of a plain link.",
+      "Signal, Steering, or QA on the current issue. Signal posts a nonblocking comment and work must continue. Steering and QA flip the issue to the team's attention state, post the request as a native elicitation activity (not a comment), and pause for the engineer's reply on that same issue. QA requires evidence and provides standard approval controls. For a blocking Steering request caused specifically by missing developer-tool or capsule access, set missingAccess instead of evidence: Linear renders a dedicated account-linking control instead of a plain link.",
       {
         kind: z.enum(["signal", "steering", "qa"]),
         delivery: z.enum(["interrupt", "queue"]),
