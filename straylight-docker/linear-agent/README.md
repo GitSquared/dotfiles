@@ -97,19 +97,23 @@ comments:
   before completion; plans are reconstructed from agent history whenever a warm
   container expires
 - a rigid `request_attention` state machine, matched to whether the request
-  actually blocks the run. Signal is always a queued nonblocking question or
-  notification and work continues - it posts a plain comment on the current
-  issue, no separate issue or label. Steering and QA always pause for a
-  required answer or approval, and are exclusive per session; a blocking
-  request flips the issue to a configured workflow state (`LINEAR_ATTENTION_STATE_NAME`,
-  default `In Review`) and posts the request as a comment on that same issue.
-  Because Linear resumes an Agent Session natively from a comment on its own
-  issue, the reply lands directly back on the paused run - no child issue,
-  no second session, no cross-session routing. QA is refused without a
-  reviewable HTTPS evidence URL, and exposes standard **Approve and complete**
-  and **Not approved** controls: approval completes the issue without another
-  inference turn, while changes restore the prior workflow state and resume
-  the same workspace and conversation
+  actually blocks the run and to which native Linear surface actually carries
+  input back. Signal is always a queued nonblocking question or notification
+  and work continues - it posts a plain comment on the current issue: a
+  one-way decision log, nothing more, since a plain comment reply does not
+  resume an Agent Session (confirmed live, not assumed). Steering and QA
+  always pause for a required answer or approval, and are exclusive per
+  session; a blocking request flips the issue to a configured workflow state
+  (`LINEAR_ATTENTION_STATE_NAME`, default `In Review`) and posts the request
+  as the session's own elicitation Activity - the only surface that actually
+  resumes a paused session, with native approve/deny controls or free text.
+  There is no separate comment, child issue, or second session for the
+  blocking case. QA is refused without a reviewable HTTPS evidence URL, and
+  exposes standard **Approve and complete** and **Not approved** controls:
+  approval completes the issue without another inference turn, while changes
+  restore the prior workflow state and resume the same workspace and
+  conversation. Issue priority is never touched by any of this - it stays the
+  engineer's own signal for triage order
 - a separate `defer_followup` tool for a fourth, non-blocking case: something
   discovered mid-task that isn't this task's job and doesn't pause it. It
   requires a real justification (what, why not now, what re-surfaces it), not
@@ -627,9 +631,11 @@ Useful Linear smoke tests:
 2. Send a nonblocking Signal and confirm it lands as a plain comment on the
    issue while the parent continues working - no new issue, no label.
 3. “Ask me to choose between alpha and beta before continuing.” Confirm the
-   issue flips to the configured attention state with native priority and the
-   request posted as a comment; either a button or free text in its Agent
-   Session resumes the run and restores the prior state.
+   issue flips to the configured attention state and the request posts as
+   the session's own elicitation with real approve/deny or free-text
+   controls - not a comment, since a comment reply does not resume a
+   session. Answering through that input resumes the run and restores the
+   prior state; issue priority is untouched throughout.
 4. Finish a checked change and confirm QA contains evidence plus **Approve and
    complete** / **Not approved**. Approval completes the issue without a
    new agent turn; free-text changes resume the run and eventually return to QA.
