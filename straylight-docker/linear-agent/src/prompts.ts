@@ -114,6 +114,7 @@ export function initialPrompt(payload: AgentTaskPayload): string {
     ...repositories(payload),
     "",
     "Never end with an informal invitation such as 'let me know'. Continue working after Signal, stop after Steering, and hand every apparently finished delegated task to QA. After recording a terminal transition, use no more tools. Omit empty categories and do not use a rigid prose status template.",
+    "Don't trust a prior summary, memory note, or comment claiming work is already done or unchanged - verify current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If truly nothing changed, that is not a reason to stop without a transition: request QA again with still-valid or fresh evidence, don't just report it and end the turn.",
   ].filter((line): line is string => Boolean(line)).join("\n");
 }
 
@@ -151,6 +152,7 @@ export function claudeInitialPrompt(payload: AgentTaskPayload): string {
     ...guidance(payload),
     ...repositories(payload),
     "",
+    "Don't trust a prior summary, memory note, or comment claiming work is already done or unchanged - verify current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If truly nothing changed, that is not a reason to stop without a transition: request QA again with still-valid or fresh evidence, don't just report it and end the turn.",
     "At each transition, give Linear only the useful outcome and exact next action. Omit empty categories and do not use a rigid prose status template.",
   ].filter((line): line is string => Boolean(line)).join("\n");
 }

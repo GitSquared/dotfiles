@@ -333,6 +333,31 @@ findings, two of them reversing what had just shipped:
   the human why the mention did nothing. Worth a follow-up (e.g. surface
   the failure on the parent issue) if this keeps coming up in practice.
 
+### Fourth real run - a genuine crash, and confirmation the display fix landed (2026-08-19/20)
+
+- `manage_linear` progress confirmed reading as "Linear · Reading comments"
+  - the phrase-table fix works as intended.
+- Deleting the delivered Document, archiving the session, and
+  re-delegating the same issue reproduced a real crash: the fresh session
+  trusted stale context (a prior summary/comment claiming the report was
+  "already delivered, approved, and answered") without checking that the
+  Document it pointed to still existed. It posted two Signal comments
+  walking back its own claim, then tried to stop without ever calling
+  Steering, QA, or finish_work - none of which Signal sets a disposition
+  for. The one-shot repair guard (`stopDispositionGuard`, by design allows
+  exactly one forced retry to avoid an infinite loop) let the second,
+  still-invalid stop through, and `runAgent` correctly - if unhelpfully -
+  threw "Claude ended without a structured work disposition." Also
+  explains the "two verbose comments" complaint on this run: the right
+  move was one QA re-confirmation, not two Signals second-guessing each
+  other.
+  Fixed by prompting, not by weakening the repair guard (removing the
+  one-retry cap trades a clear failure for a real risk of a token-burning
+  loop): both runners now say explicitly not to trust a prior summary's
+  completion claim without verifying current state, and that "nothing
+  changed" is never a reason to stop without a transition - re-request QA
+  with still-valid or fresh evidence instead.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any
@@ -353,6 +378,18 @@ findings, two of them reversing what had just shipped:
   N+1 rewrite of the tool-result contract, not a simplification. Not adopted
   this pass; worth revisiting only for genuinely new flat-shaped calls, not as
   a wholesale migration of the existing read paths.
+- Straylight controls both ends of the Linear↔Claude connection, so
+  `@mention`-triggered new Agent Sessions don't have to become genuinely
+  new Claude conversations. Confirmed live: mentioning `@straylight` on an
+  issue that already has an active/paused session creates a second,
+  independent Linear session ("delegated the issue to straylight") -
+  Linear's own model has no notion of "this mention is actually about the
+  same ongoing task." Nothing stops Straylight from detecting that case
+  and routing the new session's prompt into the existing Claude
+  conversation instead of starting a fresh one - real "topics" support,
+  where a mention becomes a thread within the same context rather than a
+  parallel task. Sizeable enough (cross-session bookkeeping, deciding
+  what counts as "the same task") to design deliberately, not bolt on.
 
 ## Research conclusion — intent surfaces, not modes
 
