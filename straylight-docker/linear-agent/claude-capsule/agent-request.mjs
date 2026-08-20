@@ -336,6 +336,7 @@ export function recordWorkDisposition(context, disposition) {
   }
   if (context.disposition) throw new Error("A terminal work disposition is already recorded.");
   context.disposition = disposition;
+  context.signaledSinceLastTransition = false;
 }
 
 export function stopDispositionGuard(context, input) {
@@ -478,6 +479,7 @@ export function createStraylightTools(context) {
               ? `Approve or request changes on this issue: ${request.title}`
               : `Answer on this issue: ${request.title}`,
           };
+          context.signaledSinceLastTransition = false;
         } else {
           context.signaledSinceLastTransition = true;
         }

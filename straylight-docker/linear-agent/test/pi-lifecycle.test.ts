@@ -3,14 +3,21 @@ import { test } from "bun:test";
 import {
   assertPiTerminalSummary,
   enforcePiLifecycleTransition,
-  PI_LIFECYCLE_REPAIR_PROMPT,
+  piLifecycleRepairPrompt,
   piTerminalToolBlock,
 } from "../src/pi.js";
 import type { WorkDisposition } from "../src/runner-protocol.js";
 
 test("repairs a Pi turn that tries to stop without a lifecycle transition", () => {
-  assert.match(PI_LIFECYCLE_REPAIR_PROMPT, /request_attention with kind qa/);
-  assert.match(PI_LIFECYCLE_REPAIR_PROMPT, /may not declare delegated work complete/);
+  const prompt = piLifecycleRepairPrompt(false);
+  assert.match(prompt, /request_attention with kind qa/);
+  assert.match(prompt, /may not declare delegated work complete/);
+});
+
+test("tells Pi a Signal it already sent will not be enough, instead of re-listing it as an option", () => {
+  const prompt = piLifecycleRepairPrompt(true);
+  assert.match(prompt, /A Signal alone never ends a turn/);
+  assert.match(prompt, /requesting QA again/);
 });
 
 test("runs exactly one repair turn and then fails closed", async () => {

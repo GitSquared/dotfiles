@@ -33,6 +33,7 @@ type ActiveRunState = {
   send: RunnerSender;
   awaitingInput: boolean;
   disposition?: WorkDisposition;
+  signaledSinceLastTransition?: boolean;
   reloadRequested: boolean;
   reloadCount: number;
   escalationRequested?: { reason: string };
@@ -64,15 +65,28 @@ type MaterializedInputs = { prompt: string; images: PiImage[] };
 const HUMAN_BLOCKER_LANGUAGE = /\b(?:cannot|can't|unable to|nothing further\b[^.]{0,120}\buntil|waiting for (?:you|the engineer|a human)|requires? (?:your|developer|human) (?:input|access|permission)|need(?:s|ed)? (?:you|the engineer|a human) to)\b/i;
 const INFORMAL_ATTENTION_LANGUAGE = /\b(?:let me know|tell me if|please (?:review|confirm|check)|confirm whether|what would you like|when you(?:'re| are) ready)\b/i;
 
-export const PI_LIFECYCLE_REPAIR_PROMPT = [
-  "You attempted to stop without choosing a valid Straylight lifecycle transition.",
-  "Do not perform more implementation work merely to avoid the transition.",
-  "If checked work is ready, call request_attention with kind qa and reviewable HTTPS evidence.",
-  "If an engineer answer is required, call request_attention with kind steering.",
-  "If only a nonblocking notification is useful, send a signal and continue to another terminal transition.",
-  "Call finish_work only for a non-human external blocker with a concrete retry condition or an explicitly authorized deferral.",
-  "The agent may not declare delegated work complete.",
-].join(" ");
+export function piLifecycleRepairPrompt(signaledSinceLastTransition: boolean): string {
+  if (signaledSinceLastTransition) {
+    return [
+      "A Signal alone never ends a turn - it only posts a comment on the issue and work must continue.",
+      "Do not perform more implementation work merely to avoid the transition.",
+      "If checked work is ready, call request_attention with kind qa and reviewable HTTPS evidence.",
+      "If an engineer answer is required, call request_attention with kind steering.",
+      "Call finish_work only for a non-human external blocker with a concrete retry condition or an explicitly authorized deferral.",
+      "If you believe there is genuinely nothing new to do, that still means requesting QA again with the still-valid (or fresh) evidence, not stopping.",
+      "The agent may not declare delegated work complete.",
+    ].join(" ");
+  }
+  return [
+    "You attempted to stop without choosing a valid Straylight lifecycle transition.",
+    "Do not perform more implementation work merely to avoid the transition.",
+    "If checked work is ready, call request_attention with kind qa and reviewable HTTPS evidence.",
+    "If an engineer answer is required, call request_attention with kind steering.",
+    "If only a nonblocking notification is useful, send a signal and continue to another terminal transition.",
+    "Call finish_work only for a non-human external blocker with a concrete retry condition or an explicitly authorized deferral.",
+    "The agent may not declare delegated work complete.",
+  ].join(" ");
+}
 
 export function piTerminalToolBlock(disposition: WorkDisposition | undefined): { block: true; reason: string } | undefined {
   if (!disposition) return undefined;
@@ -597,7 +611,7 @@ export class PiHarness {
   ): Promise<void> {
     await enforcePiLifecycleTransition(
       () => this.promptWithReload(managed, prompt, runState, images),
-      () => this.promptWithReload(managed, PI_LIFECYCLE_REPAIR_PROMPT, runState, []),
+      () => this.promptWithReload(managed, piLifecycleRepairPrompt(Boolean(runState.signaledSinceLastTransition)), runState, []),
       () => runState.disposition,
     );
   }
@@ -819,6 +833,7 @@ export class PiHarness {
             reason: message,
             nextAction: `Restore ${providerName} access and resume the run.`,
           };
+          current.signaledSinceLastTransition = false;
           reporter.current?.stop();
           return { content: [{ type: "text" as const, text: "Blocking access Steering request sent to Linear. End this turn and wait for the engineer's response on this issue." }], details: {} };
         },
@@ -848,6 +863,7 @@ export class PiHarness {
             reason: finalText(params.reason).slice(0, 2_000),
             nextAction: finalText(params.nextAction).slice(0, 1_000),
           };
+          current.signaledSinceLastTransition = false;
           return {
             content: [{ type: "text", text: "Terminal work disposition recorded. Return the concise final summary now without using more tools." }],
             details: {},
@@ -935,8 +951,10 @@ export class PiHarness {
                 ? `Approve or request changes on the QA issue: ${request.title}`
                 : `Answer the Steering issue: ${request.title}`,
             };
+            current.signaledSinceLastTransition = false;
           } else {
             delete current.disposition;
+            current.signaledSinceLastTransition = true;
           }
           if (current.awaitingInput) reporter.current?.stop();
           return {

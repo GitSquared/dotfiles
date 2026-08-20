@@ -422,10 +422,18 @@ changes left behind, plus more of Linear's own docs.
   case: "a Signal alone never ends a turn... that still means requesting
   QA again, not stopping." This is the in-the-moment message fired right
   when the model is stuck, arguably a stronger lever than the static
-  system-prompt line added earlier. The Pi fallback's repair prompt has
-  the same static-message shape and wasn't given the same dynamism -
-  lower priority since Claude is the default runner, noted rather than
-  silently left inconsistent.
+  system-prompt line added earlier. Caught on self-review that `STRAYLIGHT_RUNNER`
+  (`LINEAR_AGENT_RUNNER_BACKEND` in docker-compose) makes Pi genuinely
+  selectable in production, not dead code, so the asymmetry was a live
+  defect rather than a footnote - fixed rather than logged: `pi.ts`'s
+  `ActiveRunState` now tracks the same flag, `PI_LIFECYCLE_REPAIR_PROMPT`
+  became `piLifecycleRepairPrompt(signaledSinceLastTransition)` with the
+  matching sharper branch, and every site that records a real disposition
+  (Steering/QA, the access-Steering helper, finish_work) clears the flag
+  so it always reads "since the last transition" rather than "ever this
+  run" - inert within a single run today since a set disposition already
+  bypasses the branch that reads it, but it keeps the name honest if this
+  logic is ever reused across turns.
 
 ## Next hypotheses, not commitments
 
