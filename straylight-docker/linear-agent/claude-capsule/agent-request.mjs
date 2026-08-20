@@ -346,7 +346,9 @@ export function stopDispositionGuard(context, input) {
     context.stopRepairRequested = true;
     return {
       decision: "block",
-      reason: "Before stopping, choose a valid lifecycle transition: send a nonblocking signal and continue, request blocking Steering when an answer is required, request QA with evidence when work is ready for human approval, or call finish_work only for blocked_external or authorized deferred work. The agent may not declare delegated work complete.",
+      reason: context.signaledSinceLastTransition
+        ? "A Signal alone never ends a turn - it only posts a comment and continues. To actually stop, request blocking Steering when an answer is required, request QA with evidence when work is ready for human approval, or call finish_work only for blocked_external or authorized deferred work. If you believe there is genuinely nothing new to do, that still means requesting QA again with the still-valid (or fresh) evidence, not stopping."
+        : "Before stopping, choose a valid lifecycle transition: send a nonblocking signal and continue, request blocking Steering when an answer is required, request QA with evidence when work is ready for human approval, or call finish_work only for blocked_external or authorized deferred work. The agent may not declare delegated work complete.",
     };
   }
   const expected = context.attentionKind === "steering"
@@ -476,6 +478,8 @@ export function createStraylightTools(context) {
               ? `Approve or request changes on this issue: ${request.title}`
               : `Answer on this issue: ${request.title}`,
           };
+        } else {
+          context.signaledSinceLastTransition = true;
         }
         return text(result);
       },

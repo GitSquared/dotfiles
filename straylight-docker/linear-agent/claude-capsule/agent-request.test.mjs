@@ -80,6 +80,20 @@ test("requires an explicit terminal disposition before Claude stops", () => {
   assert.deepEqual(stopDispositionGuard(context, { last_assistant_message: "Deferred as requested." }), {});
 });
 
+test("tells the model a Signal it already sent will not be enough, instead of re-listing it as an option", () => {
+  const context = {
+    awaitingInput: false,
+    attentionKind: undefined,
+    disposition: undefined,
+    stopRepairRequested: false,
+    signaledSinceLastTransition: true,
+  };
+  const decision = stopDispositionGuard(context, { last_assistant_message: "No new work found." });
+  assert.equal(decision.decision, "block");
+  assert.match(decision.reason, /A Signal alone never ends a turn/);
+  assert.match(decision.reason, /requesting QA again/);
+});
+
 test("rejects an informal follow-up outside the attention state machine", () => {
   const context = {
     awaitingInput: false,

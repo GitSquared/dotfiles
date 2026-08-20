@@ -411,6 +411,21 @@ changes left behind, plus more of Linear's own docs.
   across sessions - it just stops a new mention from acting as if it's
   the only thing happening on the issue, which is exactly what confused
   the crashed run. The full cross-session routing idea is still open.
+- Re-read the crash fix critically rather than assuming the prompt
+  guidance alone closes it. The Stop-hook repair message the Claude
+  capsule sends when there's no disposition yet was static and generic:
+  it re-lists Signal as one of the valid choices even when the model just
+  got stuck *because* it signaled twice and stopped anyway. Re-listing
+  the thing that already failed as an equally valid option invites
+  repeating it. `context` now tracks whether a Signal fired since the
+  last real transition, and the repair message is sharper in exactly that
+  case: "a Signal alone never ends a turn... that still means requesting
+  QA again, not stopping." This is the in-the-moment message fired right
+  when the model is stuck, arguably a stronger lever than the static
+  system-prompt line added earlier. The Pi fallback's repair prompt has
+  the same static-message shape and wasn't given the same dynamism -
+  lower priority since Claude is the default runner, noted rather than
+  silently left inconsistent.
 
 ## Next hypotheses, not commitments
 
