@@ -3,8 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { test } from "bun:test";
-import { downloadLinearInputs, linearInputReferences } from "../src/linear-inputs.js";
-import { materializeLinearInputs } from "../src/pi.js";
+import { downloadLinearInputs, linearInputReferences, materializeLinearInputs } from "../src/linear-inputs.js";
 
 test("extracts only deduplicated uploads.linear.app references from Linear context", () => {
   const references = linearInputReferences({

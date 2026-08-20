@@ -572,8 +572,6 @@ Acceptance:
   state, and aggregate usage through the existing subscription-authenticated
   capsule. Replace synthetic proof-of-life with semantic activity when available
   while keeping a transport-only heartbeat for truly silent intervals.
-- Replace the Pi fallback task's reusable Codex credential copy with a model
-  broker before broadening that route beyond the personal pilot.
 - Move from shared-kernel Docker isolation to gVisor, Kata, or a microVM backend
   if hostile repository code becomes an explicit threat model.
 - Split `/tool-profile` into typed, short-lived capabilities if the pilot grows

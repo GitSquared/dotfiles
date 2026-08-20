@@ -3,7 +3,6 @@ import {
   encodeCapsuleAgentStreamEvent,
   type CapsuleAgentProgressHandler,
   type CapsuleAgentResult,
-  type CapsuleResult,
 } from "./capsule-client.js";
 import type {
   LinearManageRequest,
@@ -43,7 +42,6 @@ type RunnerHarness = {
   abort(sessionId: string): Promise<boolean>;
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
-  askClaude?(token: string, request: string, signal?: AbortSignal): Promise<CapsuleResult>; // yadm-secret-scan: ignore
   runClaude?(token: string, request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
   shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   applyPatch?(request: { patch: string; directory?: string }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
@@ -97,16 +95,6 @@ export function createRunnerServer(
           error: error instanceof Error ? error.message : String(error),
         });
       }
-    }
-
-    if (method === "POST" && pathname === "/v1/ask") {
-      const input = await body<{ request?: string }>(request);
-      if (!pi.askClaude || typeof input.request !== "string") {
-        return json(400, { status: "error", message: "Invalid Claude request." });
-      }
-      server?.timeout(request, 0);
-      const result = await pi.askClaude(bearer(request), input.request, request.signal);
-      return json(result.status === "error" ? 502 : 200, result);
     }
 
     if (method === "POST" && pathname === "/v1/agent") {

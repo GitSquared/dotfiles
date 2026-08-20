@@ -1,23 +1,15 @@
 # Straylight Linear agent
 
-This is Straylight's owned Linear-to-agent bridge. Claude Code is the default
-coding runner; Pi remains an explicit fallback while this pilot earns its shape.
-It contains no source or build
-dependency on `hiasinho/linear-pi-agent`; that project was only a behavioral
-reference for the first OAuth and Agent Session loop.
+This is Straylight's owned Linear-to-agent bridge. Claude Code is the sole
+coding runner, invoked through the official Claude Agent SDK. It contains no
+source or build dependency on `hiasinho/linear-pi-agent`; that project was
+only a behavioral reference for the first OAuth and Agent Session loop.
 
-The default path uses the official Claude Agent SDK and the engineer's persistent
+The runner uses the official Claude Agent SDK and the engineer's persistent
 Claude Code subscription session. The capsule image pins Claude Code `2.1.226`
 and the matching Agent SDK `0.3.226`. It rejects provider override variables in
 the deployment smoke test so an accidental API, Bedrock, Vertex, or Foundry
 configuration cannot silently replace subscription-backed authentication.
-
-The fallback path uses mainline Pi from `earendil-works/pi`, published as
-`@earendil-works/pi-coding-agent`. This is the successor npm scope and GitHub
-location for the original `@mariozechner/pi-coding-agent` / `badlogic/pi-mono`
-project, not a Straylight or third-party fork. The runtime currently pins the
-latest published mainline npm release, `0.84.0`, so upstream SDK changes are
-upgraded and verified deliberately.
 
 ## Stack namespace
 
@@ -34,13 +26,13 @@ There are four roles:
 - `linear-agent-controller` is the trusted controller. It owns Linear OAuth and webhook
   secrets, accepts Caddy-proxied traffic over a dedicated private ingress network,
   and is the only component that calls Linear.
-  It has no Pi configuration, repository, Docker socket, or task workspace.
+  It has no repository, Docker socket, or task workspace.
 - `linear-agent-runner` is a narrow workbench supervisor. It receives
   authenticated run/follow-up/abort requests from the controller and is the only
   component with the Docker socket. It never receives Linear credentials or the
   Linear token store.
 - Every Linear Agent Session is executed in a private task container. The task has
-  one private persistent `/workspace`, backend-specific conversation state,
+  one private persistent `/workspace`, Claude conversation state,
   read-only, centrally refreshed repository caches at `/repositories`, a shared single-engineer
   developer-tool profile at `/tool-profile`, and a one-time control token.
   It has no host port, Docker socket, SSH key, other task workspace, or
@@ -57,8 +49,6 @@ There are four roles:
   gives it semantic tools that proxy shell, artifact sharing, Linear, and
   development-service operations into the current task jail. Task containers
   never mount or receive the capsule profile or its reusable control token.
-  The older conversational `ask_claude` route remains available to the Pi
-  fallback for bounded corporate-context retrieval.
 
 The controller and task containers use separate Docker networks. The workbench
 joins both but authenticates its controller API with
@@ -160,20 +150,17 @@ comments:
   Activity decide whether interrupted work resumes, remains awaiting input, or
   is left terminal without replaying completed actions
 
-The Pi fallback has a dedicated `request_access` flow for login, connection,
-approval, or permission failures. It creates a blocking Steering child with the
-trusted workbench link and a precise repair request. Default Claude runs use the
-same child-issue transition for developer-access failures; capsule authentication
-failures are repaired from the interactive workbench described below.
+Developer-access failures request blocking Steering through `request_attention`
+with the trusted workbench link and a precise repair request, posted as the
+session's own elicitation rather than a separate child issue. Capsule
+authentication failures are repaired from the interactive workbench described
+below.
 
 ## Host data layout
 
-- `pi-config/` is Pi's persistent global profile. `auth.json` is the master
-  Codex-subscription credential; global instructions and settings placed here
-  are copied privately into every task.
-- `memory/` is the shared persistent Markdown notebook. Pi can write concise
-  non-secret notes directly and search them with the generic qmd-backed `memory`
-  tool across otherwise isolated Agent Sessions.
+- `memory/` is the shared persistent Markdown notebook. Claude can write
+  concise non-secret notes directly and search them with the generic
+  qmd-backed BM25 index across otherwise isolated Agent Sessions.
 - `workspace/repos/<name>` contains the local repository cache. The trusted
   workbench refreshes remote branches at most once per configured TTL; task
   jails mount it read-only and clone the canonical HTTPS remote with the cache
@@ -185,8 +172,7 @@ failures are repaired from the interactive workbench described below.
   credential-helper state plus an optional web-search provider configuration. It
   is mounted read-only into coding tasks and is not mounted into the controller
   or Claude capsule.
-- `data/tasks/<session-hash>` contains backend conversation state, Pi fallback
-  configuration, and a
+- `data/tasks/<session-hash>` contains Claude conversation state and a
   `session.json` mapping back to the Linear session and issue.
 - `state/controller-sessions.json` retains only active, queued, or
   awaiting-input controller sessions, including the kind, priority, prior
@@ -203,10 +189,8 @@ failures are repaired from the interactive workbench described below.
   volume containing one engineer's Claude Code home. Use a different volume name
   for each engineer when the prototype is expanded.
 
-Existing shared `data/pi-sessions/<session-id>.jsonl` histories are copied into
-the new per-session layout lazily on first use. Persistent task data is not
-deleted automatically yet; that avoids surprising loss while the pilot is
-young.
+Persistent task data is not deleted automatically yet; that avoids surprising
+loss while the pilot is young.
 
 ## One-time environment update
 
@@ -217,8 +201,6 @@ Keep the existing Linear values in `/home/gaby/straylight-docker/.env` and add:
   the output into `.env`.
 Optional settings:
 
-- `LINEAR_AGENT_RUNNER_BACKEND=claude` selects the default subscription-backed
-  Claude Code runner. Set it to `pi` only to exercise the fallback.
 - `LINEAR_AGENT_MAX_WARM_SESSIONS=3`
 - `LINEAR_AGENT_WARM_SESSION_TTL_MS=600000`
 - `LINEAR_AGENT_REPOSITORY_REFRESH_TTL_MS=300000`
@@ -237,88 +219,6 @@ For later interactive Compose commands, use `/home/gaby/straylight-docker/compos
 The wrapper derives the live socket group for every invocation, so a fresh SSH
 shell cannot accidentally pass an empty `group_add` value to Docker.
 
-## Pi fallback authentication
-
-Only the explicit `LINEAR_AGENT_RUNNER_BACKEND=pi` fallback uses Pi's
-`openai-codex` provider with a ChatGPT Plus or Pro
-subscription; API keys are not used. Existing `pi-config/auth.json` continues to
-work. For a first login or reauthentication:
-
-```sh
-./compose run --rm --no-deps \
-  --workdir /home/node/.pi/agent \
-  --entrypoint /app/node_modules/.bin/pi-ai \
-  linear-agent-runner login openai-codex
-```
-
-Choose **Device code login (headless)**, open the displayed URL, and sign in with
-the ChatGPT account that owns the Codex subscription. Confirm the file exists
-without printing it:
-
-```sh
-test -s linear-agent/pi-config/auth.json
-test "$(stat -c '%a' linear-agent/pi-config/auth.json)" = 600
-```
-
-## Pi fallback model allowlist and provider administration
-
-`linear-agent/pi-config/model-policy.json` is the reviewed, ordered allowlist.
-New sessions first show **Setting up workspace**, then a low-effort classifier
-chooses the cheapest suitable entry and publishes the choice to Linear. The
-initial policy uses `openai-codex/gpt-5.6-luna:low`,
-`openai-codex/gpt-5.6-terra:medium`, and
-`openai-codex/gpt-5.6-sol:high`, with Terra as the fallback. Pi can move only to
-the next stronger allowlisted entry via `escalate_intelligence`; it cannot pick
-an unlisted provider or model.
-
-For comment-created sessions, the controller resolves `sourceCommentId` before
-classification. The classifier receives only that current directive (plus the
-issue identifier), not an older root comment or issue description; Pi still
-receives the broader thread and issue material as supporting execution context.
-
-To inspect the models visible to the persistent Pi profile:
-
-```sh
-cd /home/gaby/straylight-docker
-./compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
-  linear-agent-runner --list-models
-```
-
-To add or refresh a provider, open Pi interactively in the same mounted profile,
-run `/login`, select the provider, and complete its normal flow:
-
-```sh
-./compose run --rm --no-deps --entrypoint /app/node_modules/.bin/pi \
-  linear-agent-runner
-```
-
-List models again, then add only verified provider/model IDs to
-`linear-agent/pi-config/model-policy.json`. Keep entries in escalation order and
-choose a supported reasoning level. New sessions pick up the new policy;
-existing warm sessions retain their selected model.
-
-## Persistent Pi fallback instructions
-
-Pi loads global instructions from `~/.pi/agent/AGENTS.md` and appends them to
-the `AGENTS.md` files found on the path to the active repository. In this stack,
-the persistent host-side source for that global profile is
-`linear-agent/pi-config/`. To add notes that should apply to every future Linear
-Agent Session, SSH into Straylight and edit:
-
-```sh
-cd /home/gaby/straylight-docker
-${EDITOR:-vi} linear-agent/pi-config/AGENTS.md
-```
-
-Each new task receives a private copy at `~/.pi/agent/AGENTS.md`, in addition to
-the curated `/workspace/AGENTS.md` shipped by this repository. Existing active
-tasks keep their current copy; start a new task to pick up changes.
-
-For instructions that specifically need system-prompt priority without
-replacing Pi's defaults, use `linear-agent/pi-config/APPEND_SYSTEM.md`. Pi also
-supports `SYSTEM.md`, but that replaces its default coding-agent system prompt
-and should be reserved for deliberate prompt development.
-
 ## Claude Code authentication and runner
 
 No Claude or Slack credential is present in an image, environment variable,
@@ -330,13 +230,13 @@ recreation. A separate generated 0600 token
 file authorizes the workbench-to-capsule control channel and is never mounted in
 a task jail.
 
-The default runner invokes the official Claude Agent SDK inside this authenticated
+The runner invokes the official Claude Agent SDK inside this authenticated
 capsule and resumes its Claude session id from the task's private workspace. Its
 built-in shell and filesystem tools are disabled. Instead, in-process Straylight
 MCP tools cross the authenticated control channel and operate inside the current
 task jail: `bash`, `apply_patch`, `manage_plan`, `view_image`, `share_artifact`,
-`request_attention`, `finish_work`, `manage_linear`, `linear_activity`, and
-`manage_service`. The capsule therefore holds inference
+`request_attention`, `defer_followup`, `finish_work`, `manage_linear`,
+`linear_activity`, and `manage_service`. The capsule therefore holds inference
 identity but not source code; the task holds source code but not inference or
 Linear credentials.
 
@@ -348,7 +248,7 @@ the raw Claude transcript remains in the persistent capsule profile for private
 forensics. Failure logs include model-turn, tool-call, and observed token/cache
 usage so an expensive loop can be distinguished from a quiet transport failure.
 
-Claude receives the same incremental `manage_plan` semantics as Pi plus a
+Claude uses incremental `manage_plan` semantics plus a
 dedicated `apply_patch` tool alongside its isolated shell. Its plan is persisted
 inside the task workspace and mirrored into Linear's native Agent Plan. The
 workspace instructions ask it to batch independent reads, switch from bounded
@@ -373,14 +273,13 @@ docker compose exec -T linear-agent-claude-capsule sh -lc '
 Treat that export as private source material and remove it when the forensic work
 is finished; raw transcripts do not belong in Git or shared memory.
 
-Neither the default Claude runner nor the Pi fallback can declare delegated work
-complete. A normal turn must continue after a Signal, pause in Steering, or pause
-in QA. `finish_work` exists only for a non-human external dependency with a
-concrete retry condition or an explicitly authorized deferral. Claude's Stop hook
-repairs one invalid transition. Pi runs one bounded repair turn, blocks later
-tools after a terminal transition, and then fails closed. Both reject terminal
-prose that still contains an informal request such as "let me know" outside the
-attention state machine.
+Claude cannot declare delegated work complete. A normal turn must continue
+after a Signal, pause in Steering, or pause in QA. `finish_work` exists only
+for a non-human external dependency with a concrete retry condition or an
+explicitly authorized deferral. Claude's Stop hook repairs one invalid
+transition, blocks further tool calls once a terminal disposition is recorded,
+and then fails closed. It rejects terminal prose that still contains an
+informal request such as "let me know" outside the attention state machine.
 
 The controller-to-runner NDJSON response emits blank transport heartbeats every
 15 seconds and disables Bun's native fetch timeout where supported. Quiet Claude
@@ -419,12 +318,9 @@ An optional saved view can filter issues currently in that state, sorted by
 native priority, as the engineer's attention queue. Keep this as a view over
 Linear's issues rather than creating another board.
 
-The older headless `ask_claude` route remains available to the Pi fallback for
-connected corporate context. Corporate connectors are action-capable, but local
-shell, filesystem, web, and sub-agent tools remain denied on that route. Both
-routes use the same fixed authenticated capsule API: a task jail uses its
-one-time runner token to call the workbench, and the workbench uses the private
-capsule control token.
+Task jails and the capsule share the same fixed authenticated API: a task jail
+uses its one-time runner token to call the workbench, and the workbench uses
+the private capsule control token.
 
 If Claude authentication or a connector approval is missing, SSH into Straylight
 and launch the real interactive workbench:
@@ -452,15 +348,14 @@ session.
 The controller, workbench supervisor, and task runner execute on Bun 1.3. Bun
 owns their HTTP servers, streaming responses, request cancellation, dependency
 lock, tests, and captured subprocesses. The runner image also retains Node.js 24
-as a compatibility layer for upstream Pi executables and qmd's native SQLite
-module; Docker Engine calls retain `node:http` because they use a Unix socket,
-and permission-sensitive filesystem operations retain Node's POSIX APIs.
-Long-running Pi and broker routes disable Bun's per-request idle timeout after
-validation; explicit task deadlines and cancellation remain authoritative.
+as a compatibility layer for qmd's native SQLite module; Docker Engine calls
+retain `node:http` because they use a Unix socket, and permission-sensitive
+filesystem operations retain Node's POSIX APIs. Long-running broker routes
+disable Bun's per-request idle timeout after validation; explicit task
+deadlines and cancellation remain authoritative.
 
 The image also contains Git, GitHub CLI, qmd, RTK 0.45.0, build tools, Python,
-curl, jq, ripgrep, and fd. Pi is online and explicitly receives writable
-filesystem and shell tools inside its bounded task jail. TypeScript 7 checks the
+curl, jq, ripgrep, and fd. TypeScript 7 checks the
 source, while `bun test` exercises the TypeScript tests directly.
 
 GitHub CLI and Git use `/tool-profile` instead of the disposable home directory:
@@ -477,61 +372,28 @@ cd /home/gaby/straylight-docker
 
 This deliberately gives one trusted engineer's task jails reusable GitHub access.
 It is appropriate for the personal pilot, but it is not a multi-user capability
-broker. Pi should call `request_access` with the developer-tools workspace when
-the CLI reports missing or expired authentication; after SSH setup, reply
-`resume` in Linear.
+broker. Claude requests Steering with the developer-tools workspace when the
+CLI reports missing or expired authentication; after SSH setup, reply `resume`
+in Linear.
 
-Pi can delegate bounded exploration, planning, review, and implementation tasks
-to helper Pi processes. Helpers share `/workspace`, inherit cancellation and the
-task jail, can use the same web-research extension, and cannot call the
-controller-only Linear, Claude, or service-supervisor tools. Parallel
-implementation should be reserved for edits that cannot overlap.
+RTK is available in the task shell as a CLI for compacting supported command
+output; invoke it explicitly (for example `rtk git status`) to reduce verbose
+output, or run the plain command directly when full output is needed.
+`rtk gain` reports the savings for commands run through it.
 
-RTK's official Pi hook rewrites supported shell commands through the pinned,
-checksum-verified binary and fails open if rewriting is unavailable. Use
-`RTK_RAW=1 <command>` when exact unfiltered output is required. `rtk gain` shows
-the estimated output savings.
-
-## Web research
-
-The runner pins `pi-web-access@0.18.0` and loads it explicitly rather than
-allowing task repositories to select extensions. It provides generic search,
-claim checking, readable/raw content fetching, and bounded retrieval of stored
-results. The task configuration selects keyless Exa MCP search and disables the
-interactive browser curator. An optional `exaApiKey` may be placed in
-`tool-profile/web-search.json` if anonymous rate limits become material; the
-workbench copies it privately into each task's Pi configuration.
-
-The runner also pins `visual-explainer@0.8.1` and loads its single tool, skill,
-and prompt set explicitly. Pi can turn architectures, schemas, plans, reviews,
-and comparisons into self-contained HTML without another provider credential.
-The package's fixed `~/.agent/diagrams` output is mounted onto the session's
-writable `/workspace/.agent/diagrams` directory, so a generated page survives
-warm follow-ups and can be shared through the existing Linear file surface.
-Headless runs set `open: false`; browser QA and screenshots still use the owned
-Playwright service. This is deterministic HTML/diagram generation, not a
-general image-generation model.
-
-## Persistent memory and task-local extensions
+## Persistent memory
 
 The host-owned `linear-agent/memory/` folder is mounted read-write at `/memory`
-in every task. Pi writes ordinary Markdown and searches it with qmd BM25. The
-index and qmd configuration are local to that folder and persistent; this basic
-mode requires no API credential, embedding model, or semantic-model download.
-Notes are context, not authority: Pi is instructed to verify drift-prone facts
-and never store secrets, authentication codes, or raw private transcripts.
-
-Pi loads the normal global extension directories plus the pinned web and visual
-explanation extensions.
-It may create task-local extensions under `/workspace/.pi/extensions` and call
-`reload_resources`. Reload is deferred until the current model turn has ended,
-is capped at three times per run, and reports extension diagnostics back to Pi.
-Those extensions persist only with the matching session workspace; installing a
-global extension for future sessions remains an explicit SSH/admin action.
+in every task. Claude writes ordinary Markdown and searches it with qmd BM25.
+The index and qmd configuration are local to that folder and persistent; this
+basic mode requires no API credential, embedding model, or semantic-model
+download. Notes are context, not authority: Claude is instructed to verify
+drift-prone facts and never store secrets, authentication codes, or raw
+private transcripts.
 
 ## Development services
 
-Pi's generic `service` tool supports `start`, `status`, `logs`, and `stop` for:
+The generic `service` tool supports `start`, `status`, `logs`, and `stop` for:
 
 - PostgreSQL 17.10, disposable by default or retained under the session's
   `.services/postgres` workspace directory when `persistent` is explicitly set
@@ -608,12 +470,11 @@ still enabled, notification dispositions, and the last registry recovery result
 file counts and bytes. `webhookInbox` reports pending/completed/dead-letter
 deliveries, retry attempts, the next retry, and safe transient/permanent failure
 summaries. Its workbench
-snapshot includes `mode: warm-session-jails`, `runnerBackend`, active/warm/queued
-tasks, actual task/service/network counts, the rolling ten-minute p75 CPU/RAM
-sample and adaptive active limit, repository-cache refresh counts and the last
-safe refresh result, the last safe task-failure diagnostic when present,
-warm-session limits, and the installed RTK version. The model policy is
-reported only when the Pi fallback is selected.
+snapshot includes `mode: warm-session-jails`, active/warm/queued tasks, actual
+task/service/network counts, the rolling ten-minute p75 CPU/RAM sample and
+adaptive active limit, repository-cache refresh counts and the last safe
+refresh result, the last safe task-failure diagnostic when present,
+warm-session limits, and the installed RTK version.
 Immediately after a clean start it should show zero active tasks.
 
 Then delegate a small issue. During the run and its warm lease, this should show
@@ -625,9 +486,9 @@ docker ps --filter label=dev.straylight.linear-agent.task=true
 
 Useful Linear smoke tests:
 
-1. Delegate a tiny repository inspection and confirm the task uses
-   `runnerBackend: claude`, reaches a QA request through the subscription-authenticated
-   capsule, and leaves no Claude profile or Pi credential mount in the task.
+1. Delegate a tiny repository inspection and confirm the task reaches a QA
+   request through the subscription-authenticated capsule, and leaves no
+   Claude profile mount in the task container.
 2. Send a nonblocking Signal and confirm it lands as a plain comment on the
    issue while the parent continues working - no new issue, no label.
 3. “Ask me to choose between alpha and beta before continuing.” Confirm the
@@ -662,8 +523,7 @@ Useful Linear smoke tests:
 11. Ask the agent to attach an HTTPS review URL, then a GitHub pull request URL;
    confirm both appear without invoking a PR-specific tool.
 12. Create and mutate a plan, stop, resume, and confirm plan IDs and statuses are
-   retained. On the Pi fallback, delegate a review helper and confirm stop
-   terminates it too.
+   retained.
 13. Ask the agent to search for a current fact and fetch one primary
     documentation page; confirm cited URLs are returned without requesting a
     credential.
@@ -682,27 +542,20 @@ Useful Linear smoke tests:
     message. Confirm only the Agent Session mention starts work; the comment is
     context-only and the reaction is recorded as an acknowledgement in
     `/healthz`.
-19. On the Pi fallback, delegate one routine and one deliberately hard issue.
-    Confirm the classifier choice appears after workspace setup, then ask the
-    hard run to size up and confirm it moves exactly one allowlisted tier without
-    losing session history.
-20. Give an issue an obsolete description, then mention Straylight in a new
+19. Give an issue an obsolete description, then mention Straylight in a new
     comment with a different request. Confirm the agent acts on the mention while
     retaining the issue description only as supporting context.
-21. On the Pi fallback, run representative Git, search, and test commands,
-    inspect `rtk gain`, then repeat one with `RTK_RAW=1` and confirm the raw
-    escape is unfiltered.
-22. Attach a PNG and a text or PDF file to the initial request, then attach
+20. Attach a PNG and a text or PDF file to the initial request, then attach
     another PNG in an active-session follow-up. Confirm the activity reports
     accepted inputs, Claude inspects the image through `view_image`, and all files appear
     only under the matching session's `.linear-inputs` directory. Try an
     oversized or unsupported file and confirm it is skipped without failing the
     run or sending Linear authorization to another host.
-23. Start a multi-step plan, leave implementation complete but deployment
+21. Start a multi-step plan, leave implementation complete but deployment
     pending, and ask the agent to close the turn. Confirm every plan item displays
     an explicit disposition, the deployment item names its owner and next
     action, and the final response does not claim customer-visible completion.
-24. Link an existing Document from an issue-backed Agent Session and ask the
+22. Link an existing Document from an issue-backed Agent Session and ask the
     agent to process its inline review threads. Confirm it receives the selected
     text plus bounded Document/thread context, revises the same Document id,
     replies `Applied`, `Declined`, or `Needs decision`, and resolves only fully
@@ -721,10 +574,8 @@ Logs:
 This is a substantial isolation improvement, not a hostile-code microVM. Docker
 containers share Straylight's kernel and task containers have outbound internet
 access for development tools. Every task can read the shared single-engineer
-GitHub tool profile while it runs; only the explicit Pi fallback additionally
-receives a private copy of the Codex OAuth credential and loads the pinned web
-and visual-explainer extensions. The Playwright image is intended for development
-QA, not as a hardened browser for hostile sites. A future credential/model broker
-would remove the fallback's reusable secret; gVisor, Kata, or a
+GitHub tool profile while it runs. The Playwright image is intended for
+development QA, not as a hardened browser for hostile sites. A future
+credential broker would remove that reusable GitHub secret; gVisor, Kata, or a
 microVM backend could strengthen kernel isolation without changing the Linear
 controller contract.

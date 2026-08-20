@@ -74,7 +74,7 @@ RUN apt-get update \
     && chmod 0755 /usr/local/bin/rtk \
     && rtk --version \
     && rm "/tmp/${RTK_ASSET}" \
-    && mkdir -p /app/state/pi-sessions /home/node/.pi/agent /workspace \
+    && mkdir -p /workspace \
     && chown -R node:node /app/state /home/node /workspace \
     && rm -rf /var/lib/apt/lists/*
 
@@ -117,9 +117,6 @@ USER node
 ENV NODE_ENV=production \
     HOME=/home/node \
     RTK_VERSION=0.45.0 \
-    PI_CODING_AGENT_DIR=/home/node/.pi/agent \
-    PI_SKIP_VERSION_CHECK=1 \
-    PI_TELEMETRY=0 \
     PATH=/opt/qmd/bin:$PATH \
     XDG_CACHE_HOME=/tmp/cache \
     npm_config_cache=/tmp/npm-cache \

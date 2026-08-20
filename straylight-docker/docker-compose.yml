@@ -290,7 +290,6 @@ services:
       HOST: 0.0.0.0
       PORT: "8788"
       PI_RUNNER_TOKEN: "${LINEAR_AGENT_RUNNER_SECRET}"
-      STRAYLIGHT_RUNNER: "${LINEAR_AGENT_RUNNER_BACKEND:-claude}"
       PI_DOCKER_SOCKET: /var/run/docker.sock
       PI_TASK_IMAGE: linear-agent-runner:local
       PI_TASK_NETWORK: linear-agent-tasks
@@ -300,8 +299,6 @@ services:
       PI_REPOSITORY_DIR: /repositories
       PI_REPOSITORY_REFRESH_TTL_MS: "${LINEAR_AGENT_REPOSITORY_REFRESH_TTL_MS:-300000}"
       PI_WORKSPACE_INSTRUCTIONS: /workbench/AGENTS.md
-      PI_CONFIG_SOURCE: /workbench/pi-config
-      PI_TOOL_PROFILE_DIR: /tool-profile
       GH_CONFIG_DIR: /tool-profile/gh
       GIT_CONFIG_GLOBAL: /tool-profile/gitconfig
       GIT_TERMINAL_PROMPT: "0"
@@ -327,8 +324,6 @@ services:
       - ./linear-agent/data/capsule-control-token:/run/secrets/capsule-control-token:ro # yadm-secret-scan: ignore
       - /var/run/docker.sock:/var/run/docker.sock
       - ./linear-agent/data:/workbench/data
-      - ./linear-agent/pi-config:/workbench/pi-config
-      - ./linear-agent/pi-config:/home/node/.pi/agent
       - ./linear-agent/tool-profile:/tool-profile
       - ./linear-agent/memory:/memory
       - ./linear-agent/workspace/repos:/repositories

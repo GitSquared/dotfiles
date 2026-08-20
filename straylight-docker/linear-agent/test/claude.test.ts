@@ -8,14 +8,10 @@ import type { RunnerConfig } from "../src/config.js";
 
 function config(workdir: string): RunnerConfig {
   return {
-    runnerBackend: "claude",
     host: "127.0.0.1",
     port: 8788,
     piWorkdir: workdir,
-    piSessionDirectory: path.join(workdir, "pi-sessions"),
-    piConfigDirectory: path.join(workdir, "pi-config"),
     memoryDirectory: path.join(workdir, "memory"),
-    piTheme: "dark",
     piTimeoutMs: 1_800_000,
     progressDebounceMs: 3_000,
     progressHeartbeatMs: 300_000,

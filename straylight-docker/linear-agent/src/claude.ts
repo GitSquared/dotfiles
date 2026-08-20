@@ -3,7 +3,7 @@ import path from "node:path";
 import { CapsuleClient } from "./capsule-client.js";
 import type { RunnerConfig } from "./config.js";
 import { LinearToolClient } from "./linear-tool-client.js";
-import { materializeLinearInputs } from "./pi.js";
+import { materializeLinearInputs } from "./linear-inputs.js";
 import { applyPlanRequest, emptyPlan, parsePlan, type PlanDetails, type PlanRequest } from "./plan.js";
 import { ProgressReporter } from "./progress.js";
 import { claudeFollowUpPrompt, claudeInitialPrompt } from "./prompts.js";

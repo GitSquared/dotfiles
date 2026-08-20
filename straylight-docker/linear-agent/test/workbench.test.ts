@@ -6,7 +6,6 @@ import { parseRepositoryRemote, repositoryCloneUrl, taskContainerSpec, Workbench
 
 function config(): WorkbenchConfig {
   return {
-    runnerBackend: "claude",
     host: "0.0.0.0",
     port: 8788,
     authToken: "r".repeat(32), // yadm-secret-scan: ignore
@@ -19,8 +18,6 @@ function config(): WorkbenchConfig {
     repositoryDirectory: "/repositories",
     repositoryRefreshTtlMs: 300_000,
     workspaceInstructions: "/workbench/AGENTS.md",
-    piConfigSource: "/workbench/pi-config",
-    toolProfileDirectory: "/tool-profile",
     memoryDirectory: "/memory",
     maxWarmSessions: 3,
     warmSessionTtlMs: 600_000,
@@ -80,13 +77,7 @@ test("builds a secretless, bounded, per-session task jail", () => {
   assert.equal(spec.HostConfig.Binds.some((value) => value.endsWith(":/app/state/pi-sessions")), false);
   assert.equal(spec.Env.some((value) => value === "PI_MEMORY_DIR=/memory"), true);
   assert.equal(spec.Env.some((value) => value === "XDG_CONFIG_HOME=/memory/.config"), true);
-  assert.equal(spec.Env.some((value) => value === "PI_THEME=dark"), true);
-  assert.equal(spec.Env.some((value) => value === "STRAYLIGHT_RUNNER=claude"), true);
   assert.equal(spec.HostConfig.Binds.some((value) => value.includes("claude")), false);
-
-  const fallback = taskContainerSpec({ ...config(), runnerBackend: "pi" }, "session-c", "fallback-token"); // yadm-secret-scan: ignore
-  assert.equal(fallback.HostConfig.Binds.some((value) => value.endsWith(":/home/node/.pi/agent")), true);
-  assert.equal(fallback.HostConfig.Binds.some((value) => value.endsWith(":/app/state/pi-sessions")), true);
 });
 
 test("reuses an idle warm task and withholds supervisor capabilities between turns", async () => {
@@ -135,13 +126,10 @@ test("reuses an idle warm task and withholds supervisor capabilities between tur
   const internals = harness as unknown as {
     active: Map<string, unknown>;
     prepareSession: () => Promise<void>;
-    syncTaskAuth: () => Promise<void>;
   };
   internals.active.set("session", active);
   internals.prepareSession = async () => {};
-  internals.syncTaskAuth = async () => {};
 
-  assert.deepEqual(await harness.askClaude(token, "idle request"), { status: "error", message: "Unauthorized." });
   await assert.rejects(harness.manageService(token, { action: "status", service: "browser" }), /Unauthorized/);
   const result = await harness.run({ agentSession: { id: "session" } }, async () => {});
   assert.equal(result.ok, true);
@@ -176,7 +164,6 @@ test("forwards a running task to the Claude capsule without mounting its identit
     listNetworksByLabel: unused,
   };
   const capsule = {
-    async ask() { return { status: "error" as const, message: "unused" }; },
     async runAgent(input: unknown, _signal?: AbortSignal, onProgress?: (event: { type: "thought"; body: string }) => void) {
       request = input;
       onProgress?.({ type: "thought", body: "Reading the repository." });
@@ -265,12 +252,10 @@ test("captures task exit diagnostics before removing a failed jail", async () =>
   const internals = harness as unknown as {
     active: Map<string, unknown>;
     prepareSession: () => Promise<void>;
-    syncTaskAuth: () => Promise<void>;
     lastTaskFailure?: Record<string, unknown>;
   };
   internals.active.set("session", active);
   internals.prepareSession = async () => {};
-  internals.syncTaskAuth = async () => {};
 
   await assert.rejects(harness.run({ agentSession: { id: "session" } }, async () => {}), /runner stream disconnected/);
   assert.ok(order.indexOf("inspect") < order.indexOf("remove"));

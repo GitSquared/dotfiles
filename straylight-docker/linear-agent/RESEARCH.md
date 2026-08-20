@@ -557,6 +557,49 @@ sidebar, anchored plan/diagram review, direct preview annotation, or a shared
 handoff envelope. Those are product hypotheses to test, not capabilities to
 imply through prompting.
 
+## Pi removed — 2026-08-20
+
+Removed the Pi fallback runner entirely rather than keep maintaining it
+unused. The trigger was concrete, not aesthetic: fixing the Signal-aware
+Stop-hook repair message for Claude and then finding the Pi fallback's copy
+had silently drifted out of parity is exactly the tax of carrying two
+runtimes through a design that is still moving every round. Claude Code has
+been the default and the only one actually live-tested this session; keeping
+Pi meant every prompt, tool, and lifecycle change had to be re-derived twice,
+and correctness verified twice, for a path with no evidence anyone exercises.
+
+Deleted outright rather than left unwired: `src/pi.ts`, `src/pi-resources.ts`,
+`src/model-policy.ts`, `pi-config/` (model allowlist, RTK extension, auth),
+the `askClaude`/`/v1/ask` shell-out-to-the-CLI path end to end (workbench,
+runner-server, capsule-client, `claude-capsule/claude-request.mjs`), the
+`STRAYLIGHT_RUNNER`/`LINEAR_AGENT_RUNNER_BACKEND` runtime switch, and every
+docker-compose env var and bind mount that only existed to configure Pi.
+`materializeLinearInputs` moved to `linear-inputs.ts` since Claude's own
+harness depended on it despite living in `pi.ts`. Kept: everything that
+turned out to be shared runner infrastructure wearing a `PI_`-prefixed name
+from when Pi was the only backend (`PI_WORKDIR`, `PI_TIMEOUT_MS`,
+`PI_MEMORY_DIR`, the warm-session pool, the Docker task-container spawner,
+`playwright-core` for the browser dev service) - renaming those now would be
+pure churn unconnected to the actual goal.
+
+Caught before it shipped: `WorkbenchHarness.runClaude` looked like more of
+the same dead Pi machinery (a "delegate to a Claude helper" path with no
+tool in `agent-request.mjs` ever calling it) and was deleted along with
+`askClaude` - until typecheck stayed green and a closer trace showed why
+that's the wrong read. Every task container's `CAPSULE_URL` deliberately
+points at the always-on workbench, not the real capsule
+(`linear-agent-claude-capsule:8790`); `ClaudeHarness`'s own direct capsule
+call (`runBrokeredAgent`, the prompt/resume/model/timeBudgetMs-only shape)
+lands on `WorkbenchHarness.runClaude`, which looks the caller's bearer token
+up against its own active-task registry, then re-issues the request to the
+real capsule with the full shape (`taskUrl`/`workbenchUrl`/`taskToken`) using
+its own privileged credential. That's the actual security boundary for the
+*primary* Claude run, not a leftover Pi delegate feature - restored it
+(and the matching `CapsuleAgentRequest`/`runAgent` full shape in
+`capsule-client.ts`) before committing anything. Only `askClaude`/`/v1/ask`
+(a distinct, always-separate "ask Claude a one-shot question" shortcut) was
+ever Pi-only.
+
 ## Next live trial — 2026-08-19
 
 The Claude-default and rationalized-attention slice converged successfully on

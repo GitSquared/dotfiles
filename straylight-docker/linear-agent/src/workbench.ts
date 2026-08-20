@@ -16,7 +16,6 @@ import {
   type LinearSessionResult,
   type LinearUploadRequest,
 } from "./linear-actions.js";
-import { loadModelPolicy, publicModelPolicy } from "./model-policy.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
 import { PiRunnerClient } from "./runner-client.js";
 import { runCommand } from "./runtime.js";
@@ -27,12 +26,6 @@ import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 const TASK_LABEL = "dev.straylight.linear-agent.task=true";
 const SERVICE_LABEL = "dev.straylight.linear-agent.service=true";
 const SESSION_NETWORK_LABEL = "dev.straylight.linear-agent.session-network=true";
-const WEB_SEARCH_CONFIG: Record<string, unknown> = {
-  provider: "exa",
-  workflow: "none",
-  autoOpenBrowser: false,
-  webSearch: { enabled: true },
-};
 
 type Sender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 type ActiveTask = {
@@ -94,7 +87,6 @@ export function taskContainerSpec(
   token: string, // yadm-secret-scan: ignore
 ): DockerContainerSpec {
   const key = sessionKey(sessionId);
-  const hostTaskRoot = path.join(config.hostRoot, "data", "tasks", key);
   const hostWorkspace = path.join(config.hostRoot, "workspace", "runs", key);
   const hostRepositories = path.join(config.hostRoot, "workspace", "repos");
   return {
@@ -105,13 +97,9 @@ export function taskContainerSpec(
       "PORT=8788",
       `PI_RUNNER_TOKEN=${token}`, // yadm-secret-scan: ignore
       "PI_WORKDIR=/workspace",
-      "PI_SESSION_DIR=/app/state/pi-sessions",
-      "PI_CODING_AGENT_DIR=/home/node/.pi/agent",
-      "PI_THEME=dark",
       "PI_PROGRESS_DEBOUNCE_MS=3000",
       "PI_PROGRESS_HEARTBEAT_MS=60000",
       "PI_TIMEOUT_MS=3600000",
-      `STRAYLIGHT_RUNNER=${config.runnerBackend}`,
       "CAPSULE_URL=http://linear-agent-runner:8788",
       `CAPSULE_AUTH_URL=${config.capsuleAuthUrl}`,
       `TOOL_AUTH_URL=${config.toolAuthUrl}`,
@@ -132,10 +120,6 @@ export function taskContainerSpec(
     HostConfig: {
       AutoRemove: false,
       Binds: [
-        ...(config.runnerBackend === "pi" ? [
-          `${path.join(hostTaskRoot, "pi-sessions")}:/app/state/pi-sessions`,
-          `${path.join(hostTaskRoot, "pi-config")}:/home/node/.pi/agent`,
-        ] : []),
         `${hostWorkspace}:/workspace`,
         `${path.join(hostWorkspace, ".agent", "diagrams")}:/home/node/.agent/diagrams`,
         `${hostRepositories}:/repositories:ro`,
@@ -157,7 +141,7 @@ export function taskContainerSpec(
 
 export class WorkbenchHarness {
   private readonly engine: ContainerEngine;
-  private readonly capsule: Pick<CapsuleClient, "ask" | "runAgent">;
+  private readonly capsule: Pick<CapsuleClient, "runAgent">;
   private readonly capacity: AdaptiveSlots;
   private readonly active = new Map<string, ActiveTask>();
   private readonly starting = new Set<string>();
@@ -174,7 +158,7 @@ export class WorkbenchHarness {
   constructor(
     private readonly config: WorkbenchConfig,
     engine?: ContainerEngine,
-    capsule?: Pick<CapsuleClient, "ask" | "runAgent">,
+    capsule?: Pick<CapsuleClient, "runAgent">,
   ) {
     this.engine = engine ?? new DockerEngine(config.dockerSocket);
     this.capsule = capsule ?? new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
@@ -207,11 +191,10 @@ export class WorkbenchHarness {
   }
 
   async health(): Promise<Record<string, unknown>> {
-    const [containers, services, networks, modelPolicy] = await Promise.all([
+    const [containers, services, networks] = await Promise.all([
       this.engine.listByLabel(TASK_LABEL),
       this.engine.listByLabel(SERVICE_LABEL),
       this.engine.listNetworksByLabel(SESSION_NETWORK_LABEL),
-      this.config.runnerBackend === "pi" ? loadModelPolicy(this.config.piConfigSource) : Promise.resolve(undefined),
     ]);
     return {
       mode: "warm-session-jails",
@@ -221,7 +204,6 @@ export class WorkbenchHarness {
       taskContainers: containers.length,
       serviceContainers: services.length,
       sessionNetworks: networks.length,
-      runnerBackend: this.config.runnerBackend,
       adaptiveConcurrency: this.capacity.status(),
       ...(this.lastTaskFailure ? { lastTaskFailure: this.lastTaskFailure } : {}),
       repositoryCache: {
@@ -230,7 +212,6 @@ export class WorkbenchHarness {
         failures: this.repositoryRefreshFailureCount,
         ...(this.lastRepositoryRefresh ? { last: this.lastRepositoryRefresh } : {}),
       },
-      ...(modelPolicy ? { modelPolicy: publicModelPolicy(modelPolicy) } : {}),
       rtkVersion: process.env.RTK_VERSION ?? "unknown",
       maxWarmSessions: this.config.maxWarmSessions,
       warmSessionTtlMs: this.config.warmSessionTtlMs,
@@ -398,17 +379,6 @@ export class WorkbenchHarness {
     await this.cleanupServices(active);
     await this.engine.stop(active.containerId).catch(() => undefined);
     return true;
-  }
-
-  async askClaude(token: string, request: string, signal?: AbortSignal) { // yadm-secret-scan: ignore
-    const allowed = [...this.active.values()].some((task) => {
-      if (!task.running || task.aborted) return false;
-      const supplied = Buffer.from(token);
-      const expected = Buffer.from(task.token);
-      return supplied.length === expected.length && crypto.timingSafeEqual(supplied, expected);
-    });
-    if (!allowed) return { status: "error" as const, message: "Unauthorized." };
-    return this.capsule.ask(request, signal);
   }
 
   async runClaude(
@@ -625,11 +595,6 @@ export class WorkbenchHarness {
     if (this.active.get(active.sessionId) !== active || active.aborted) return;
     active.running = false;
     active.lastUsedAt = Date.now();
-    await this.syncTaskAuth(active.sessionId).catch((error: unknown) => {
-      console.warn("failed to retain refreshed Pi authentication", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
     active.idleTimer = setTimeout(() => {
       if (this.active.get(active.sessionId) === active && !active.running && !this.waiters.has(active.sessionId)) {
         void this.disposeTask(active);
@@ -652,11 +617,6 @@ export class WorkbenchHarness {
     await this.engine.stop(active.containerId).catch(() => undefined);
     await this.engine.remove(active.containerId).catch(() => undefined);
     await this.engine.removeNetwork(active.networkId).catch(() => undefined);
-    await this.syncTaskAuth(active.sessionId).catch((error: unknown) => {
-      console.warn("failed to retain refreshed Pi authentication", {
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
   }
 
   private async captureTaskFailure(active: ActiveTask, error: unknown): Promise<void> {
@@ -944,8 +904,6 @@ export class WorkbenchHarness {
   private async prepareSession(sessionId: string, payload: RunRequest["payload"]): Promise<void> {
     const key = sessionKey(sessionId);
     const taskRoot = path.join(this.config.dataDirectory, "tasks", key);
-    const piConfig = path.join(taskRoot, "pi-config");
-    const piSessions = path.join(taskRoot, "pi-sessions");
     const workspace = path.join(this.config.workspaceRunsDirectory, key);
     await fs.mkdir(taskRoot, { recursive: true, mode: 0o700 });
     await fs.mkdir(workspace, { recursive: true, mode: 0o700 });
@@ -958,83 +916,8 @@ export class WorkbenchHarness {
       issueUrl: payload.agentSession?.issue?.url,
       lastStartedAt: new Date().toISOString(),
     }, null, 2)}\n`, { mode: 0o600 });
-    if (this.config.runnerBackend === "pi") {
-      await fs.mkdir(piSessions, { recursive: true, mode: 0o700 });
-      await fs.mkdir(piConfig, { recursive: true, mode: 0o700 });
-      await fs.cp(this.config.piConfigSource, piConfig, { recursive: true, force: false, errorOnExist: false });
-      await this.syncManagedPiConfig(piConfig);
-      await this.copyNewerAuth(this.config.piConfigSource, piConfig);
-      await this.prepareWebSearchConfig(piConfig);
-      const legacyName = `${sessionId.replace(/[^A-Za-z0-9_.-]/g, "_")}.jsonl`;
-      await fs.copyFile(
-        path.join(this.config.dataDirectory, "pi-sessions", legacyName),
-        path.join(piSessions, legacyName),
-        fs.constants.COPYFILE_EXCL,
-      ).catch((error: unknown) => {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT" && code !== "EEXIST") throw error;
-      });
-    }
     await fs.copyFile(this.config.workspaceInstructions, path.join(workspace, "AGENTS.md"));
     await fs.chmod(path.join(workspace, "AGENTS.md"), 0o600);
-  }
-
-  private async syncTaskAuth(sessionId: string): Promise<void> {
-    if (this.config.runnerBackend !== "pi") return;
-    const piConfig = path.join(this.config.dataDirectory, "tasks", sessionKey(sessionId), "pi-config");
-    await this.copyNewerAuth(piConfig, this.config.piConfigSource);
-  }
-
-  private async syncManagedPiConfig(destination: string): Promise<void> {
-    await fs.copyFile(
-      path.join(this.config.piConfigSource, "model-policy.json"),
-      path.join(destination, "model-policy.json"),
-    );
-    const extensions = path.join(destination, "extensions");
-    await fs.mkdir(extensions, { recursive: true, mode: 0o700 });
-    await fs.copyFile(
-      path.join(this.config.piConfigSource, "extensions", "rtk.ts"),
-      path.join(extensions, "rtk.ts"),
-    );
-  }
-
-  private async prepareWebSearchConfig(piConfig: string): Promise<void> {
-    const shared = path.join(this.config.toolProfileDirectory, "web-search.json");
-    const destination = path.join(piConfig, "web-search.json");
-    const config: Record<string, unknown> = structuredClone(WEB_SEARCH_CONFIG);
-    try {
-      const parsed = JSON.parse(await fs.readFile(shared, "utf8")) as unknown;
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Persistent web-search.json must contain a JSON object");
-      const values = parsed as Record<string, unknown>;
-      if (Object.keys(values).some((key) => key !== "exaApiKey")) {
-        throw new Error("Persistent web-search.json supports only exaApiKey");
-      }
-      const exaApiKey = values.exaApiKey; // yadm-secret-scan: ignore
-      if (typeof exaApiKey !== "string" || !exaApiKey.trim() || exaApiKey.length > 4_096) {
-        throw new Error("Persistent web-search.json may contain one non-empty exaApiKey string");
-      }
-      config.exaApiKey = exaApiKey; // yadm-secret-scan: ignore
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
-    await fs.writeFile(destination, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-    await fs.chmod(destination, 0o600);
-  }
-
-  private async copyNewerAuth(sourceDirectory: string, destinationDirectory: string): Promise<void> {
-    const source = path.join(sourceDirectory, "auth.json");
-    const destination = path.join(destinationDirectory, "auth.json");
-    const sourceStat = await fs.stat(source);
-    const destinationStat = await fs.stat(destination).catch(() => undefined);
-    if (destinationStat && destinationStat.mtimeMs >= sourceStat.mtimeMs) return;
-    const value = await fs.readFile(source, "utf8");
-    const parsed = JSON.parse(value) as unknown;
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Pi fallback auth.json is not a JSON object");
-    await fs.mkdir(destinationDirectory, { recursive: true, mode: 0o700 });
-    const temporary = `${destination}.${process.pid}.${crypto.randomUUID()}.tmp`;
-    await fs.writeFile(temporary, value, { mode: 0o600 });
-    await fs.rename(temporary, destination);
-    await fs.chmod(destination, 0o600);
   }
 
   private async waitUntilReady(client: PiRunnerClient, active: ActiveTask): Promise<void> {

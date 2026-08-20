@@ -21,19 +21,6 @@ export function currentLinearRequest(payload: PromptPayload): string | undefined
     || payload.agentSession?.issue?.title?.trim();
 }
 
-export function modelSelectionPrompt(payload: PromptPayload): string {
-  const issue = payload.agentSession?.issue;
-  const request = currentLinearRequest(payload);
-  const context = payload.promptContext?.trim() || payload.agentSession?.promptContext?.trim();
-  return [
-    request ? `Current request (authoritative):\n${request}` : undefined,
-    issue?.identifier ? `Issue: ${issue.identifier}` : undefined,
-    !request && issue?.title ? `Title: ${issue.title}` : undefined,
-    !request && issue?.description ? `Issue description:\n${issue.description}` : undefined,
-    !request && context ? `Session context:\n${context}` : undefined,
-  ].filter((value): value is string => Boolean(value)).join("\n\n");
-}
-
 function guidance(payload: AgentSessionWebhook): string[] {
   const bodies = payload.guidance?.flatMap((item) => item.body?.trim() ? [item.body.trim()] : []) ?? [];
   return bodies.length ? ["", "Linear guidance:", ...bodies.map((body) => `- ${body}`)] : [];
@@ -83,44 +70,6 @@ function documentReview(payload: AgentTaskPayload): string[] {
   ].filter((line): line is string => Boolean(line));
 }
 
-export function initialPrompt(payload: AgentTaskPayload): string {
-  const issue = payload.agentSession?.issue;
-  const request = currentLinearRequest(payload);
-  const context = payload.promptContext?.trim() || payload.agentSession?.promptContext?.trim();
-  return [
-    "You are Straylight's Pi coding agent, working from a Linear Agent Session.",
-    "Follow /workspace/AGENTS.md. Treat the named repository and permissions as authoritative.",
-    "Do not expose secrets. Do not push, deploy, or perform destructive actions unless the Linear request explicitly authorizes it.",
-    "Claude may retrieve context or take actions in connected corporate systems when the Linear request authorizes them. If Claude or a developer tool lacks required access, use request_access with a precise explanation and then end the turn.",
-    "For multi-step work, maintain the durable native Linear checklist with manage_plan. Before closing a nonempty plan, reconcile every item with an explicit done, blocked, deferred, or abandoned disposition.",
-    "Use request_attention for the only three ordinary lifecycle transitions: Signal posts a nonblocking comment and work continues; Steering pauses for a required answer; QA pauses checked work for human approval with evidence. The engineer, not the agent, completes delegated work.",
-    "Use defer_followup only for something genuinely out of scope for the current task, with a real reason it isn't this task's job and what actually brings it back up. It does not end the turn; it is not a way to avoid finishing the current work.",
-    "When resumed after a Steering or QA reply, check whether it actually answers or decides what you asked. If it's a clarifying question or partial answer instead, reply to it directly and call request_attention again with the same or refined ask - do not treat the task as unblocked and proceed with the rest of the work until the real decision arrives.",
-    "Use finish_work only for a non-human external dependency with a concrete retry condition or an explicitly authorized deferral. Pi will force one repair turn and then fail closed if you stop without a valid lifecycle transition.",
-    "Use the linear tool to mark a non-auth blocker, share review material, attach a durable URL, publish review material, or manage native issues, properties, Documents, review comments, relationships, subissues, and projects. End the turn after a blocking request_attention or block.",
-    "Most progress narration streams as transient status and is not kept. When you reach a real decision point - choosing between approaches, discovering something that changes the plan, explaining why you did something non-obvious - post it as a durable note (the linear tool's activity action, a non-ephemeral thought or response) so it survives in the record. Do this sparingly, at genuine turning points, not for routine steps.",
-    "The working model was selected from model-policy.json for this request. If the work proves materially harder, more ambiguous, more coupled, or higher-risk than the current model can handle, call escalate_intelligence with the concrete reason and end that turn; Pi will move one tier up and continue automatically.",
-    "You have online access plus a writable /workspace and ordinary development shell tools. Search persistent notes with memory when prior context may help, and save concise non-secret Markdown notes under PI_MEMORY_DIR when you learn something durable.",
-    "Use delegate when a bounded helper context will materially improve the work. You may build a task-local extension under /workspace/.pi/extensions and call reload_resources when a reusable tool is genuinely useful.",
-    "",
-    request ? `Current Linear request (authoritative):\n${request}` : undefined,
-    request ? "Treat the issue and session material below as supporting context. Do not let an older issue description override the current request." : undefined,
-    "",
-    issue ? "Linear issue:" : "Linear session:",
-    issue?.identifier ? `- Identifier: ${issue.identifier}` : undefined,
-    issue?.title ? `- Title: ${issue.title}` : undefined,
-    issue?.url ? `- URL: ${issue.url}` : undefined,
-    issue?.description ? `- Description:\n${issue.description}` : undefined,
-    context && context !== request ? `\nSupporting Linear context:\n${context}` : undefined,
-    ...documentReview(payload),
-    ...guidance(payload),
-    ...repositories(payload),
-    "",
-    "Never end with an informal invitation such as 'let me know'. Continue working after Signal, stop after Steering, and hand every apparently finished delegated task to QA. After recording a terminal transition, use no more tools. Omit empty categories and do not use a rigid prose status template.",
-    "Don't trust a prior summary, memory note, or comment claiming work is already done or unchanged - verify current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If truly nothing changed, that is not a reason to stop without a transition: request QA again with still-valid or fresh evidence, don't just report it and end the turn.",
-  ].filter((line): line is string => Boolean(line)).join("\n");
-}
-
 export function claudeInitialPrompt(payload: AgentTaskPayload): string {
   const issue = payload.agentSession?.issue;
   const request = currentLinearRequest(payload);
@@ -158,17 +107,6 @@ export function claudeInitialPrompt(payload: AgentTaskPayload): string {
     "Don't trust a prior summary, memory note, or comment claiming work is already done or unchanged - verify current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If truly nothing changed, that is not a reason to stop without a transition: request QA again with still-valid or fresh evidence, don't just report it and end the turn.",
     "At each transition, give Linear only the useful outcome and exact next action. Omit empty categories and do not use a rigid prose status template.",
   ].filter((line): line is string => Boolean(line)).join("\n");
-}
-
-export function followUpPrompt(payload: AgentTaskPayload): string {
-  const body = currentLinearRequest(payload)
-    || "Continue from the existing Linear session and report useful status.";
-  return [
-    `Linear follow-up (authoritative):\n${body}`,
-    ...documentReview(payload),
-    "",
-    "Continue from the existing Pi session.",
-  ].join("\n");
 }
 
 export function claudeFollowUpPrompt(payload: AgentTaskPayload): string {

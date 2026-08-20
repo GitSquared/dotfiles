@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
 import { githubPullRequestUrl, isStopRequest } from "../src/controller.js";
-import { claudeInitialPrompt, currentLinearRequest, followUpPrompt, initialPrompt, modelSelectionPrompt } from "../src/prompts.js";
+import { claudeFollowUpPrompt, claudeInitialPrompt, currentLinearRequest } from "../src/prompts.js";
 import { finalText, progressText, redact } from "../src/redaction.js";
 
 test("builds a repository-aware initial prompt", () => {
-  const prompt = initialPrompt({
+  const prompt = claudeInitialPrompt({
     action: "created",
     agentSession: {
       id: "session",
@@ -17,18 +17,15 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /Use the nemo repository/);
   assert.match(prompt, /Keep the change targeted/);
   assert.match(prompt, /Do not push/);
-  assert.match(prompt, /request_access/);
+  assert.match(prompt, /blocking Steering attention item/);
   assert.match(prompt, /finish_work/);
-  assert.match(prompt, /fail closed/);
   assert.match(prompt, /manage_plan/);
-  assert.match(prompt, /take actions in connected corporate systems/);
-  assert.match(prompt, /persistent notes with memory/);
-  assert.match(prompt, /reload_resources/);
+  assert.match(prompt, /persistent notes under/);
   assert.doesNotMatch(prompt, /worktree\/branch/);
 });
 
 test("uses the activity body for follow-ups", () => {
-  const prompt = followUpPrompt({ agentActivity: { content: { body: "Run the integration tests too." } } });
+  const prompt = claudeFollowUpPrompt({ agentActivity: { content: { body: "Run the integration tests too." } } });
   assert.match(prompt, /Run the integration tests too/);
 });
 
@@ -57,15 +54,10 @@ test("makes a mention comment authoritative over an older issue instruction", ()
     },
   };
   assert.equal(currentLinearRequest(payload), "@straylight generate a bitmap duck and add it to the test document.");
-  const prompt = initialPrompt(payload);
+  const prompt = claudeInitialPrompt(payload);
   assert.ok(prompt.indexOf("generate a bitmap duck") < prompt.indexOf("Report the current working directory"));
   assert.match(prompt, /Current Linear request \(authoritative\)/);
   assert.match(prompt, /Do not let an older issue description override the current request/);
-
-  const classifier = modelSelectionPrompt(payload);
-  assert.match(classifier, /generate a bitmap duck/);
-  assert.match(classifier, /Current request \(authoritative\)/);
-  assert.doesNotMatch(classifier, /Report the current working directory/);
 });
 
 test("classifies a resolved source comment instead of the stale thread root", () => {
@@ -83,8 +75,6 @@ test("classifies a resolved source comment instead of the stale thread root", ()
     },
   };
   assert.equal(currentLinearRequest(payload), "@straylight handle the review comments on the attached document.");
-  assert.match(modelSelectionPrompt(payload), /handle the review comments/);
-  assert.doesNotMatch(modelSelectionPrompt(payload), /working directory/);
 });
 
 test("classifies a follow-up prompt instead of the session's original source comment", () => {
@@ -95,12 +85,10 @@ test("classifies a follow-up prompt instead of the session's original source com
     linearSourceComment: { id: "source", body: "First inspect the document comments." },
   };
   assert.equal(currentLinearRequest(payload), "Now publish the reviewed document.");
-  assert.match(modelSelectionPrompt(payload), /Now publish the reviewed document/);
-  assert.doesNotMatch(modelSelectionPrompt(payload), /First inspect/);
 });
 
 test("includes bounded Document review context after the authoritative mention", () => {
-  const prompt = initialPrompt({
+  const prompt = claudeInitialPrompt({
     action: "created",
     agentSession: {
       id: "session",
@@ -131,7 +119,7 @@ test("recognizes explicit stop requests", () => {
 });
 
 test("includes ranked workbench repositories without choosing for the agent", () => {
-  const prompt = initialPrompt({
+  const prompt = claudeInitialPrompt({
     agentSession: { id: "session" },
     workbench: {
       repositories: [{ hostname: "github.com", repositoryFullName: "GitSquared/nemo", path: "/repositories/nemo" }],
@@ -142,7 +130,7 @@ test("includes ranked workbench repositories without choosing for the agent", ()
   assert.match(prompt, /\/repositories\/nemo/);
   assert.match(prompt, /0\.92/);
   assert.match(prompt, /https:\/\/github\.com\/GitSquared\/nemo\.git/);
-  assert.match(prompt, /linear tool/);
+  assert.match(prompt, /manage_linear/);
 });
 
 test("redacts common credentials and sensitive URL parameters", () => {

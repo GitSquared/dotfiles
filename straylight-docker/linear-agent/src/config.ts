@@ -17,14 +17,10 @@ export type ControllerConfig = {
 };
 
 export type RunnerConfig = {
-  runnerBackend: "claude" | "pi";
   host: string;
   port: number;
   piWorkdir: string;
-  piSessionDirectory: string;
-  piConfigDirectory: string;
   memoryDirectory: string;
-  piTheme: string;
   piTimeoutMs: number;
   progressDebounceMs: number;
   progressHeartbeatMs: number;
@@ -36,7 +32,6 @@ export type RunnerConfig = {
 };
 
 export type WorkbenchConfig = {
-  runnerBackend: "claude" | "pi";
   host: string;
   port: number;
   authToken: string; // yadm-secret-scan: ignore
@@ -49,8 +44,6 @@ export type WorkbenchConfig = {
   repositoryDirectory: string;
   repositoryRefreshTtlMs: number;
   workspaceInstructions: string;
-  piConfigSource: string;
-  toolProfileDirectory: string;
   memoryDirectory: string;
   maxWarmSessions: number;
   warmSessionTtlMs: number;
@@ -119,12 +112,6 @@ function absolutePath(env: NodeJS.ProcessEnv, name: string, fallback: string): s
   return path.normalize(value);
 }
 
-function runnerBackend(env: NodeJS.ProcessEnv): "claude" | "pi" {
-  const value = env.STRAYLIGHT_RUNNER?.trim().toLowerCase() || "claude";
-  if (value !== "claude" && value !== "pi") throw new Error("STRAYLIGHT_RUNNER must be claude or pi");
-  return value;
-}
-
 export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
   const installSecret = secret(env, "LINEAR_AGENT_INSTALL_SECRET"); // yadm-secret-scan: ignore
 
@@ -146,14 +133,10 @@ export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
 
 export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
   return {
-    runnerBackend: runnerBackend(env),
     host: env.HOST?.trim() || "0.0.0.0",
     port: positiveInteger(env, "PORT", 8788),
     piWorkdir: env.PI_WORKDIR?.trim() || "/workspace",
-    piSessionDirectory: env.PI_SESSION_DIR?.trim() || "/app/state/pi-sessions",
-    piConfigDirectory: env.PI_CODING_AGENT_DIR?.trim() || "/home/node/.pi/agent",
     memoryDirectory: absolutePath(env, "PI_MEMORY_DIR", "/memory"),
-    piTheme: env.PI_THEME?.trim() || "dark",
     piTimeoutMs: positiveInteger(env, "PI_TIMEOUT_MS", 3_600_000),
     progressDebounceMs: positiveInteger(env, "PI_PROGRESS_DEBOUNCE_MS", 3_000),
     progressHeartbeatMs: positiveInteger(env, "PI_PROGRESS_HEARTBEAT_MS", 60_000),
@@ -167,7 +150,6 @@ export function loadRunnerConfig(env: NodeJS.ProcessEnv): RunnerConfig {
 
 export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
   return {
-    runnerBackend: runnerBackend(env),
     host: env.HOST?.trim() || "0.0.0.0",
     port: positiveInteger(env, "PORT", 8788),
     authToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
@@ -180,8 +162,6 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     repositoryDirectory: absolutePath(env, "PI_REPOSITORY_DIR", "/repositories"),
     repositoryRefreshTtlMs: positiveInteger(env, "PI_REPOSITORY_REFRESH_TTL_MS", 300_000),
     workspaceInstructions: absolutePath(env, "PI_WORKSPACE_INSTRUCTIONS", "/workbench/AGENTS.md"),
-    piConfigSource: absolutePath(env, "PI_CONFIG_SOURCE", "/workbench/pi-config"),
-    toolProfileDirectory: absolutePath(env, "PI_TOOL_PROFILE_DIR", "/tool-profile"),
     memoryDirectory: absolutePath(env, "PI_MEMORY_DIR", "/memory"),
     maxWarmSessions: positiveInteger(env, "PI_MAX_WARM_SESSIONS", 3),
     warmSessionTtlMs: positiveInteger(env, "PI_WARM_SESSION_TTL_MS", 600_000),

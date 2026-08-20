@@ -15,7 +15,7 @@ import type {
   LinearSessionResult,
   LinearUploadRequest,
 } from "./linear-actions.js";
-import { followUpPrompt } from "./prompts.js";
+import { claudeFollowUpPrompt } from "./prompts.js";
 import { finalText } from "./redaction.js";
 import type { AgentRunner } from "./runner-client.js";
 import type { PiResult } from "./runner-protocol.js";
@@ -495,7 +495,7 @@ export class AgentController {
     }
     if (payload.action === "prompted" && state.running) {
       const inputs = await this.prepareLinearInputs(sessionId, payload);
-      if (await this.runner.followUp(sessionId, followUpPrompt(payload), inputs)) {
+      if (await this.runner.followUp(sessionId, claudeFollowUpPrompt(payload), inputs)) {
         state.active = payload;
         this.touch(state);
         await this.persist();
