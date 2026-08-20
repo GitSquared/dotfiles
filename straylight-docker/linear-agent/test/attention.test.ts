@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { isAttentionRequest, isDeferredItemRequest, renderAttentionComment, renderAttentionRequest, renderDeferredItem } from "../src/attention.js";
+import { isAttentionRequest, isDeferredItemRequest, renderAttentionComment, renderDeferredItem } from "../src/attention.js";
 
 const steering = {
   kind: "steering" as const,
@@ -20,13 +20,8 @@ const steering = {
   ],
 };
 
-test("accepts a rationalized steering request and renders the decision before detail", () => {
+test("accepts a rationalized steering request", () => {
   assert.equal(isAttentionRequest(steering), true);
-  const rendered = renderAttentionRequest(steering);
-  assert.match(rendered, /Steering · queued/);
-  assert.match(rendered, /high · blocking input/);
-  assert.ok(rendered.indexOf("Your action") < rendered.indexOf("Original intent"));
-  assert.match(rendered, /Keep old writer/);
 });
 
 test("renders a terse same-issue comment without restating intent or delta", () => {
@@ -37,7 +32,6 @@ test("renders a terse same-issue comment without restating intent or delta", () 
   assert.doesNotMatch(comment, /Original intent/);
   assert.doesNotMatch(comment, /What changed/);
   assert.doesNotMatch(comment, /Why this deserves attention/);
-  assert.ok(comment.length < renderAttentionRequest(steering).length / 2);
 });
 
 test("renders a QA comment with an approve instruction instead of an options list", () => {
@@ -62,13 +56,12 @@ test("requires review evidence before asking for QA attention", () => {
     kind: "qa",
     evidence: [{ label: "Preview", url: "https://preview.example.test", description: "Checked at 1440px." }],
   }), true);
-  const rendered = renderAttentionRequest({
+  const comment = renderAttentionComment({
     ...qa,
     kind: "qa",
     evidence: [{ label: "Preview", url: "https://preview.example.test" }],
   });
-  assert.match(rendered, /approval required/);
-  assert.match(rendered, /Approve and complete/);
+  assert.match(comment, /Reply \*\*approve\*\* to complete/);
 });
 
 test("rejects unsafe evidence and duplicate choice values", () => {

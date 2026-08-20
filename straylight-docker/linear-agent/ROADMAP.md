@@ -506,6 +506,66 @@ Acceptance:
    forced; omit it again and confirm the run fails instead of publishing an
    ordinary completion.
 
+## Slice 16 — attention rationalized by consequence, not uniformly
+
+Status: implemented and iterated against live deployment across several same-day
+rounds of real delegated tasks; acceptance below reflects what those rounds
+actually found, not a first guess.
+
+- Replace the uniform child-issue-per-request mechanism from Slice 13
+  (label creation was crashing in production - a workspace-level label never
+  matched the team-scoped lookup, so the same duplicate-name create was
+  retried every time) with tiers matched to whether the request actually
+  blocks the run: Signal is a plain comment on the issue, nothing more, and
+  never ends the turn by itself; Steering and QA flip the issue to a
+  configured workflow state (`LINEAR_ATTENTION_STATE_NAME`, resolved by name
+  and failing with an actionable error if a team lacks it - there is no
+  generic `blocked` workflow-state type to look up) and post as the session's
+  own elicitation Activity; `defer_followup` creates a genuine subissue for
+  out-of-scope discoveries, gated by a forced justification (what, why not
+  this task's job, what re-surfaces it) so an agent can't manufacture
+  busywork nobody owns.
+- Confirmed live, not assumed: a plain comment reply never resumes a paused
+  Agent Session. Comments and the session's own prompted-event delivery are
+  separate mechanisms; only the elicitation's native surface (real
+  approve/deny controls plus a dedicated reply box) actually resumes one.
+  This reverses Slice 13/15's design of posting the same content as both a
+  child issue and its own session - keeping both was never redundant polish,
+  it was one working channel and one that silently did nothing.
+- Attention now tracks which comment thread it is actually about, so a reply
+  to some unrelated earlier Signal comment on the same issue is never
+  mistaken for the answer to an open Steering/QA.
+- Extended `manage_linear`'s comment and document resources to create and
+  list directly on the current issue (previously Document-only for both),
+  removing a real gap that cost an agent 18 tool calls fighting it on one
+  live run. Replaced the resulting raw-id progress noise with a short phrase
+  table so `manage_linear` progress reads as a sentence.
+- Added prompt guidance, since a live re-delegation crashed on exactly this:
+  don't trust a prior summary's completion claim without verifying current
+  state, and "nothing changed" is never a reason to stop without a real
+  lifecycle transition - request QA again instead.
+- Tried and reverted mid-slice: bumping issue priority to match request
+  urgency, restored on resolution. The engineer's own call - priority is his
+  signal for triage order across many issues, not the agent's to touch even
+  temporarily.
+
+Acceptance:
+
+1. Request a Signal and confirm it lands as a plain issue comment - no
+   label, no subissue, no elicitation card.
+2. Request blocking Steering or QA and confirm the issue flips to the
+   configured attention state, the elicitation shows real approve/deny
+   controls (or accepts free text), and a plain comment reply elsewhere on
+   the issue does not resume the run.
+3. Reply through the elicitation itself and confirm the issue restores its
+   prior status and the run resumes using the actual reply content.
+4. Delete a delivered artifact, archive the session, and re-delegate the
+   same issue; confirm the agent verifies current state rather than trusting
+   a stale "already done" summary, and resolves through a real transition
+   instead of failing with no recorded disposition.
+5. Confirm `defer_followup` creates a real subissue carrying its
+   justification fields, without pausing the current run.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit

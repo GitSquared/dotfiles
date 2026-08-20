@@ -358,6 +358,44 @@ findings, two of them reversing what had just shipped:
   changed" is never a reason to stop without a transition - re-request QA
   with still-valid or fresh evidence instead.
 
+### Cleanup and research pass (2026-08-20)
+
+No new live test this round - an unprompted pass over what tonight's
+changes left behind, plus more of Linear's own docs.
+
+- Found real drift: `workspace/AGENTS.md` - mounted into every task and
+  read as authoritative alongside the system prompt - still described the
+  removed child-issue mechanism ("The resulting child issue... is the
+  durable human queue entry"). Live agents were reading this. Rewrote the
+  attention section to match the current design and added the same
+  stale-context-verification line the system prompts now carry, plus a
+  `defer_followup` mention that was missing entirely.
+  Added a proper Slice 16 to `ROADMAP.md` in the existing status/
+  bullets/acceptance format, rather than editing Slice 13's history -
+  that roadmap is a record of what was built when, not a live spec.
+- Removed now-dead code: `linearAttentionPriority`/`LINEAR_PRIORITY` (the
+  reverted priority bump's only caller) and `renderAttentionRequest`
+  itself (the full seven-section template) - once the elicitation moved
+  to the terse render too, nothing in production called it, only its own
+  tests. Trimmed those tests to what they actually verify now.
+- The `documentCommentMention` dead-letter flagged after the third run
+  now does something instead of nothing: when the notification carries
+  the Document's linked issue id, it posts a plain comment there quoting
+  the question and explaining why the mention didn't work, before still
+  quarantining the webhook. Fails silent exactly as before when Linear
+  doesn't supply that id - purely additive, not a behavior change for the
+  case that isn't fixable.
+- Confirmed via docs and added: when a repository match is ambiguous or
+  unscored, Linear's own guidance is to elicit rather than guess - the
+  repository-suggestion prompt now says so explicitly.
+- Considered and skipped: the docs also say an agent "should set itself
+  as the delegate" when none is set and it's doing real implementation
+  work, but explicitly *not* when an automation delegated it. There's no
+  reliable way to tell those apart from the webhook payload alone, and a
+  wrong auto-assignment would pollute a real workspace's delegate/assignee
+  fields Gaby may use for other tracking. Skipped rather than guessed;
+  flagging here rather than silently dropping it.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any

@@ -52,20 +52,8 @@ const QA_OPTIONS: AttentionOption[] = [
   { label: "Not approved", value: QA_REVISE_VALUE, tradeoff: "Reply with concrete changes instead when possible." },
 ];
 
-const LINEAR_PRIORITY: Record<AttentionPriority, number> = {
-  none: 0,
-  urgent: 1,
-  high: 2,
-  medium: 3,
-  low: 4,
-};
-
 export function attentionPriority(request: AttentionRequest): AttentionPriority {
   return request.priority ?? (request.delivery === "interrupt" ? "urgent" : "medium");
-}
-
-export function linearAttentionPriority(request: AttentionRequest): number {
-  return LINEAR_PRIORITY[attentionPriority(request)];
 }
 
 export function attentionBlocking(request: AttentionRequest): boolean {
@@ -142,47 +130,11 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
   return request.kind !== "qa" || Boolean(request.evidence?.length);
 }
 
-export function renderAttentionRequest(request: AttentionRequest): string {
-  const heading = request.kind === "signal" ? "Signal" : request.kind === "steering" ? "Steering" : "QA review";
-  const delivery = request.delivery === "interrupt" ? "interrupt" : "queued";
-  const response = request.kind === "qa" ? "approval required" : attentionBlocking(request) ? "blocking input" : "acknowledgement";
-  const sections = [
-    `## ${heading} · ${delivery} · ${attentionPriority(request)} · ${response}: ${markdownText(request.title)}`,
-    `**Your action**\n${markdownText(request.action)}`,
-    `**Recommendation**\n${markdownText(request.recommendation)}`,
-    `**Why this deserves attention**\n${markdownText(request.impact)}`,
-    `**Timing**\n${markdownText(request.timing)}`,
-    `**Original intent**\n${markdownText(request.originalIntent)}`,
-    `**What changed**\n${markdownText(request.delta)}`,
-  ];
-  if (request.kind === "qa") {
-    sections.push("**Resolution**\nChoose **Approve and complete** only when the parent work is genuinely done. Otherwise reply with concrete changes; Straylight will resume the parent run.");
-  }
-  const options = attentionOptions(request);
-  if (options?.length) {
-    sections.push([
-      "**Options**",
-      ...options.map((option) => (
-        `- **${markdownLabel(option.label)}** — ${markdownText(option.value)}`
-        + (option.tradeoff ? `\n  ${markdownText(option.tradeoff)}` : "")
-      )),
-    ].join("\n"));
-  }
-  if (request.evidence?.length) {
-    sections.push([
-      "**Evidence**",
-      ...request.evidence.map((evidence) => (
-        `- [${markdownLabel(evidence.label)}](${evidence.url})`
-        + (evidence.description ? ` — ${markdownText(evidence.description)}` : "")
-      )),
-    ].join("\n"));
-  }
-  return sections.join("\n\n");
-}
-
 /**
- * The same-issue comment version. The full renderAttentionRequest is meant
- * for a separate child issue with no shared context; on the same issue,
+ * The terse, same-issue render: a plain comment body for Signal, or the
+ * elicitation Activity body for blocking Steering/QA. renderAttentionRequest
+ * was written for a separate child issue with no shared context; on the same
+ * issue - as a comment, or as the session's own prominent elicitation card -
  * restating original intent, what changed, and why it matters is pure noise
  * since the human already has the issue open. Keep only the decision itself.
  */

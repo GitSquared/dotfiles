@@ -63,3 +63,37 @@ test("classifies Linear's unsupported Document comment anchor as permanent", asy
     PermanentWebhookDeliveryError,
   );
 });
+
+test("tells the human why a Document mention did nothing, when the Document links an issue", async () => {
+  const comments: Array<{ issueId: string; body: string }> = [];
+  const linear = {
+    async createAgentSessionOnComment() {
+      throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+    async createIssueComment(issueId: string, body: string) {
+      comments.push({ issueId, body });
+      return { id: "fallback-comment-1", body };
+    },
+  } as unknown as LinearClient;
+  const runner = { async health() { return { mode: "test" }; } } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await assert.rejects(
+    controller.handleNotification({
+      action: "documentCommentMention",
+      notification: {
+        documentId: "document-1",
+        commentId: "comment-1",
+        parentCommentId: "root-1",
+        issueId: "issue-1",
+        comment: { id: "comment-1", body: "does that consume API pricing or subscription usage?" },
+      },
+    }),
+    PermanentWebhookDeliveryError,
+  );
+
+  assert.equal(comments.length, 1);
+  assert.equal(comments[0]?.issueId, "issue-1");
+  assert.match(comments[0]?.body ?? "", /doesn't yet support Agent Sessions on Document comment threads/);
+  assert.match(comments[0]?.body ?? "", /does that consume API pricing or subscription usage\?/);
+});

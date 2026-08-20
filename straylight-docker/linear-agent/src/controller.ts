@@ -548,6 +548,24 @@ export class AgentController {
         this.notificationThreadSources.delete(rootCommentId);
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes("comment must be on an issue") || message.includes("comment threads on issues")) {
+          const linkedIssueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
+          if (linkedIssueId) {
+            const question = payload.notification?.comment?.body?.trim();
+            await this.linear.createIssueComment(
+              linkedIssueId,
+              finalText([
+                "A mention on this issue's linked Document didn't reach me - Linear doesn't yet support Agent Sessions on Document comment threads.",
+                question ? `The question there was:\n> ${question}` : undefined,
+                "Ask here on the issue instead and I'll see it.",
+              ].filter((line): line is string => Boolean(line)).join("\n\n")),
+            ).catch((commentError: unknown) => {
+              console.warn("failed to post the Document-mention fallback comment", {
+                documentId,
+                linkedIssueId,
+                message: commentError instanceof Error ? commentError.message : String(commentError),
+              });
+            });
+          }
           throw new PermanentWebhookDeliveryError(
             "Linear currently rejects Agent Sessions on Document comment threads. The mention was quarantined without its private comment body; use an issue-backed Agent Session that links the Document until Linear supports this anchor.",
           );

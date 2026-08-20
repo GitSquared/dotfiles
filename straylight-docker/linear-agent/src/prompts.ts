@@ -55,7 +55,10 @@ function repositories(payload: AgentTaskPayload): string[] {
       const cloneUrl = `https://${candidate.hostname}/${candidate.repositoryFullName.replace(/\.git$/, "")}.git`;
       return `- ${candidate.hostname}/${candidate.repositoryFullName}: cache ${candidate.path ?? "/repositories"}; clone ${cloneUrl}${score === undefined ? "" : ` (Linear confidence ${score})`}`;
     }),
-  ];
+    candidates.length > 1 || !suggestions.length
+      ? "If it's not clear which of these the request is actually about, confirm with Steering before cloning - don't guess."
+      : undefined,
+  ].filter((line): line is string => line !== undefined);
 }
 
 function documentReview(payload: AgentTaskPayload): string[] {
