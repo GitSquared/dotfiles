@@ -14,6 +14,11 @@ export type AttentionEvidence = {
   description?: string;
 };
 
+export type AttentionAccessRepair = {
+  url: string;
+  providerName: string;
+};
+
 export type AttentionRequest = {
   kind: AttentionKind;
   delivery: AttentionDelivery;
@@ -28,6 +33,7 @@ export type AttentionRequest = {
   timing: string;
   options?: AttentionOption[];
   evidence?: AttentionEvidence[];
+  accessRepair?: AttentionAccessRepair;
 };
 
 export type ActiveAttention = {
@@ -126,6 +132,13 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
     }
   }
 
+  if (request.accessRepair !== undefined) {
+    if (request.kind !== "steering") return false;
+    if (!request.accessRepair || typeof request.accessRepair !== "object" || Array.isArray(request.accessRepair)) return false;
+    const repair = request.accessRepair as Partial<AttentionAccessRepair>;
+    if (!bounded(repair.providerName, 200) || !bounded(repair.url, 2_000) || !isHttpsUrl(repair.url)) return false;
+  }
+
   if (request.kind === "qa" && request.options !== undefined) return false;
   return request.kind !== "qa" || Boolean(request.evidence?.length);
 }
@@ -146,6 +159,9 @@ export function renderAttentionComment(request: AttentionRequest): string {
   ];
   if (request.kind !== "signal" && request.recommendation) {
     lines.push(`*Recommendation:* ${markdownText(request.recommendation)}`);
+  }
+  if (request.accessRepair) {
+    lines.push(`- [${markdownLabel(request.accessRepair.providerName)}](${request.accessRepair.url})`);
   }
   const options = attentionOptions(request);
   if (request.kind === "steering" && options?.length) {

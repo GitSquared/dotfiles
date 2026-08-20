@@ -600,6 +600,63 @@ its own privileged credential. That's the actual security boundary for the
 (a distinct, always-separate "ask Claude a one-shot question" shortcut) was
 ever Pi-only.
 
+## Native `auth` signal for access repair — 2026-08-20
+
+Linear's Agent Activity API has a dedicated `auth` signal (elicitation-only):
+Linear renders a "Link account" control instead of plain text, dismissed once
+a newer activity lands, with `signalMetadata: { url, providerName }`. Straylight
+already had a missing-access Steering path (a blocking request with a link in
+its evidence) but never used the native signal - `AgentActivitySignal`/
+`AgentActivitySignalMetadata` in `types.ts` already typed `"auth"` correctly,
+just unused.
+
+Wired end to end: `request_attention` gained an optional `missingAccess:
+{workspace: "capsule" | "tools", providerName}` parameter. The capsule already
+had `capsuleAuthUrl`/`toolAuthUrl` in `RunnerConfig`, but they went nowhere -
+`ClaudeHarness` never read them, and they were never threaded through the
+`CapsuleAgentRequest` that reaches `agent-request.mjs`. Added them to the
+request shape and to `WorkbenchHarness.runClaude`'s enrichment step (the same
+place that already adds `taskUrl`/`workbenchUrl`/`taskToken`, per the relay
+mechanism above), so `context.capsuleAuthUrl`/`context.toolAuthUrl` are real
+inside the capsule. `AttentionRequest` gained `accessRepair: {url,
+providerName}`, valid only alongside `kind: "steering"`; the controller turns
+it into `signal: "auth"` on the elicitation instead of `select`/none, and
+`renderAttentionComment` still includes the link as plain markdown so
+surfaces that don't render the special auth UI (email notifications, mobile
+previews) stay usable.
+
+The model never sees or handles a raw URL - it names which workspace is
+missing access and a human-readable provider name; the actual authenticated
+URL is resolved server-side from config the model has no reason to see.
+
+## externalUrls and PR linking, closing a real gap — 2026-08-20
+
+Went looking for whether `externalUrls` (PR/preview link surfacing) was
+built at all and found the opposite of what an initial grep suggested: it
+already exists, wired through `addExternalUrl`, used for Documents,
+`share_artifact`, and a `githubPullRequestUrl` regex scrape at `finish()`.
+The real gaps were narrower than "unused": the regex only fires once, at
+the very end of a run, against the final summary text, and only matches
+`github.com/.../pull/N`; and - the actual finding worth recording - neither
+`linear_activity`'s `publish`/`external_url` actions nor the fact that
+`publish` with `kind: "attachment"` creates a proper issue-level Attachment
+(not just a session-level link chip) were ever documented to the model.
+`linear_activity`'s only tool-schema shape is a loose `z.record` passthrough,
+so a natural-language description is the *entire* interface the model has
+for it - an unwritten capability is functionally an absent one regardless of
+what the code supports.
+
+Fixed by improving the description and adding explicit system-prompt and
+`AGENTS.md` guidance: publish a pull request or live preview/deploy URL the
+moment it exists, via `publish`/`kind: "attachment"`, not just restated in
+the final summary. Left the `finish()` regex scrape exactly as it was - a
+conservative, already-tested safety net for exactly the case where the model
+forgets - rather than also upgrading it to create a full issue attachment,
+since that risks a duplicate Attachment card if the model's final summary
+happens to restate a PR URL it already published moments earlier. The
+proactive path gets the richer treatment; the fallback stays deliberately
+thin.
+
 ## Next live trial — 2026-08-19
 
 The Claude-default and rationalized-attention slice converged successfully on

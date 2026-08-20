@@ -202,6 +202,8 @@ test("forwards a running task to the Claude capsule without mounting its identit
     taskUrl: "http://linear-agent-task-abc123:8788",
     workbenchUrl: "http://linear-agent-runner:8788",
     taskToken: "task-token", // yadm-secret-scan: ignore
+    capsuleAuthUrl: "https://straylight.example.ts.net/linear/capsule/auth",
+    toolAuthUrl: "https://straylight.example.ts.net/linear/tools/auth",
     resume: "claude-0",
     timeBudgetMs: 3_600_000,
   });

@@ -296,10 +296,13 @@ export class AgentController {
       const attentionStateId = await this.linear.resolveAttentionStateId(state.teamId, this.attentionStateName);
       await this.linear.setIssueState(state.issueId, attentionStateId);
       const options = attentionOptions(req)?.map(({ label, value }) => ({ label, value }));
+      const signalPayload = req.accessRepair
+        ? { signal: "auth" as const, signalMetadata: { url: req.accessRepair.url, providerName: req.accessRepair.providerName } }
+        : options ? { signal: "select" as const, signalMetadata: { options } } : {};
       await this.linear.createActivity(sessionId, {
         type: "elicitation",
         body: finalText(renderAttentionComment(req)),
-      }, options ? { signal: "select", signalMetadata: { options } } : {});
+      }, signalPayload);
       const active: ActiveAttention = {
         kind: req.kind,
         priority: attentionPriority(req),

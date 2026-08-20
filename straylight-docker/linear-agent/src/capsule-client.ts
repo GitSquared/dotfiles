@@ -10,6 +10,8 @@ export type CapsuleAgentRequest = {
   taskUrl: string;
   workbenchUrl: string;
   taskToken: string; // yadm-secret-scan: ignore
+  capsuleAuthUrl: string;
+  toolAuthUrl: string;
   resume?: string;
   model?: string;
   timeBudgetMs?: number;

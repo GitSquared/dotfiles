@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
+import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
 
 test("communicates a wall-clock budget without imposing a turn ceiling", () => {
   const instruction = runtimeBudgetInstruction(3_600_000);
@@ -122,5 +122,28 @@ test("only request_attention can record a human-owned transition", () => {
   assert.throws(
     () => recordWorkDisposition({ awaitingInput: false }, { status: "awaiting_steering", reason: "Need access." }),
     /must use request_attention/,
+  );
+});
+
+test("resolves missing developer-tool or capsule access to the workbench's configured auth URL", () => {
+  const context = {
+    capsuleAuthUrl: "https://straylight.example.test/linear/capsule/auth",
+    toolAuthUrl: "https://straylight.example.test/linear/tools/auth",
+  };
+  assert.deepEqual(resolveAccessRepair({ workspace: "tools", providerName: "GitHub" }, context), {
+    url: "https://straylight.example.test/linear/tools/auth",
+    providerName: "GitHub",
+  });
+  assert.deepEqual(resolveAccessRepair({ workspace: "capsule", providerName: "Claude" }, context), {
+    url: "https://straylight.example.test/linear/capsule/auth",
+    providerName: "Claude",
+  });
+  assert.equal(resolveAccessRepair(undefined, context), undefined);
+});
+
+test("refuses to resolve access repair when the workbench has no configured auth URL", () => {
+  assert.throws(
+    () => resolveAccessRepair({ workspace: "tools", providerName: "GitHub" }, {}),
+    /No tools auth URL is configured/,
   );
 });

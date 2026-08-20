@@ -90,6 +90,19 @@ test("makes Signal the only nonblocking lifecycle transition", () => {
   assert.equal(isAttentionRequest({ ...steering, kind: "steering", blocking: false }), false);
 });
 
+test("accepts an access-repair steering request and renders its link", () => {
+  const accessRepair = { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" };
+  assert.equal(isAttentionRequest({ ...steering, accessRepair }), true);
+  const comment = renderAttentionComment({ ...steering, accessRepair });
+  assert.match(comment, /\[GitHub\]\(https:\/\/straylight\.example\.test\/linear\/tools\/auth\)/);
+});
+
+test("rejects access repair outside a blocking steering request or with an unsafe url", () => {
+  const accessRepair = { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" };
+  assert.equal(isAttentionRequest({ ...steering, kind: "qa", evidence: [{ label: "x", url: "https://x.test" }], accessRepair }), false);
+  assert.equal(isAttentionRequest({ ...steering, accessRepair: { ...accessRepair, url: "http://straylight.example.test/linear/tools/auth" } }), false);
+});
+
 const deferred = {
   title: "Extract the shared retry helper",
   what: "Three call sites in linear.ts duplicate the same exponential-backoff loop.",

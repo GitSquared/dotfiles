@@ -54,6 +54,10 @@ mounted at all.
 - Publish useful screenshots and reports through Linear using `share_artifact`.
   Use a native review document for substantial Markdown that should remain
   editable in Linear.
+- As soon as a pull request exists, or a preview/deploy URL is live, publish
+  it immediately with `linear_activity`'s publish action (`kind: "attachment"`)
+  rather than only mentioning it in the final summary - this attaches it to
+  the issue's own Links section, not just the Agent Session.
 - Inspect supplied mockups and browser screenshots with `view_image` before
   making visual judgments or claiming that the output matches intent.
 - When a visual belongs inside a Linear document, serve it from `/workspace` on

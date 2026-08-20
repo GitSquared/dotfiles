@@ -242,6 +242,59 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
 });
 
+test("posts an access-repair Steering request with the native auth signal", async () => {
+  const activities: Array<{ content: unknown; options?: unknown }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment() {},
+    async setIssueState() {},
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async createActivity(_sessionId: string, content: unknown, options?: unknown) {
+      activities.push({ content, ...(options ? { options } : {}) });
+    },
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-access", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-access", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "interrupt",
+      priority: "urgent",
+      blocking: true,
+      title: "GitHub access is missing",
+      action: "Restore GitHub access in the task workspace before implementation can continue.",
+      originalIntent: "Implement the requested change.",
+      delta: "The bash tool cannot reach the private repository without a GitHub credential.",
+      recommendation: "Link the GitHub account from the workbench.",
+      impact: "No further implementation work is possible until access is restored.",
+      timing: "Before implementation can continue.",
+      accessRepair: { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" },
+    },
+  });
+
+  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Steering needed"));
+  const options = elicitation?.options as { signal?: string; signalMetadata?: { url?: string; providerName?: string } };
+  assert.deepEqual(options.signal, "auth");
+  assert.deepEqual(options.signalMetadata, { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" });
+  const elicitationBody = (elicitation?.content as { body?: string }).body ?? "";
+  assert.match(elicitationBody, /\[GitHub\]\(https:\/\/straylight\.example\.test\/linear\/tools\/auth\)/);
+});
+
 test("resumes the paused parent run directly when the engineer replies on the same issue", async () => {
   const stateFlips: Array<{ issueId: string; stateId: string }> = [];
   const linear = {

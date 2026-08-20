@@ -403,6 +403,8 @@ export class WorkbenchHarness {
         taskUrl: `http://${active.containerName}:8788`,
         workbenchUrl: "http://linear-agent-runner:8788",
         taskToken: token,
+        capsuleAuthUrl: this.config.capsuleAuthUrl,
+        toolAuthUrl: this.config.toolAuthUrl,
         ...(request.resume ? { resume: request.resume } : {}),
         ...(request.model ? { model: request.model } : {}),
         ...(request.timeBudgetMs !== undefined ? { timeBudgetMs: request.timeBudgetMs } : {}),
