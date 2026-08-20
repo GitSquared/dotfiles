@@ -566,6 +566,59 @@ Acceptance:
 5. Confirm `defer_followup` creates a real subissue carrying its
    justification fields, without pausing the current run.
 
+## Slice 17 — Claude-only runtime, native auth signal, mention continuity
+
+Status: implemented and locally verified (typecheck, full `bun run check`,
+and the capsule test suite all green); deployed acceptance pending.
+
+- Removed the Pi fallback runner entirely - `src/pi.ts`, `src/pi-resources.ts`,
+  `src/model-policy.ts`, `pi-config/`, the `askClaude`/`/v1/ask` CLI-shell-out
+  path, and the `STRAYLIGHT_RUNNER` backend switch. Claude Code is now the
+  only runtime. Traced every caller rather than assuming from naming alone:
+  `WorkbenchHarness.runClaude` looked like more of the same dead machinery
+  but is the live security relay for the primary Claude run (a task
+  container's `CAPSULE_URL` points at the workbench on purpose, not the real
+  capsule), so it stayed.
+- Wired Linear's native `auth` Agent Activity signal to the existing
+  missing-access Steering path (`request_attention`'s new `missingAccess`
+  parameter): a dedicated account-linking control in Linear's UI instead of
+  a plain comment, with `capsuleAuthUrl`/`toolAuthUrl` finally threaded from
+  `RunnerConfig` through to the capsule tool rather than sitting unused.
+- Documented `linear_activity`'s `publish`/`external_url` actions to the
+  model for the first time (previously code-complete but invisible to the
+  agent through its only interface, a natural-language tool description) and
+  added explicit guidance to publish a pull request or live preview the
+  moment it exists, attaching it to the issue's own Links section, not just
+  waiting for the final summary.
+- Closed the narrower, safe half of the mention-as-thread gap: a new mention
+  on an issue with a dormant (not actively running) prior session now
+  resumes that session's own Claude Code conversation instead of starting
+  blind, using the same cross-container relay the Pi-removal trace
+  surfaced. A mid-turn sibling is left untouched - real concurrent-session
+  routing is still the larger, deliberate design flagged in RESEARCH.md, not
+  a bolt-on.
+
+Acceptance:
+
+1. Confirm `STRAYLIGHT_RUNNER`/`pi-config` are gone from the deployed
+   compose file and the controller starts with no Pi-related environment
+   variables configured.
+2. Delegate an issue with a deliberately broken developer-tool credential;
+   confirm the Steering elicitation renders Linear's native account-linking
+   control, not a plain comment link.
+3. Confirm a pull request opened mid-run appears as an issue Attachment
+   before the run ends, not only in the final summary.
+4. Mention `@straylight` on an issue with a completed (not running) prior
+   session; confirm the new session's first response shows awareness of the
+   prior conversation's specifics rather than re-deriving them from the
+   issue description, and confirm it re-clones the repository and
+   re-checks-out its branch in the new container rather than assuming the
+   old checkout is still on disk.
+5. Mention `@straylight` again while a previous session on the same issue is
+   still actively running; confirm the new session starts a genuinely fresh
+   conversation (with the existing sibling-activity warning), not a shared
+   one.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit

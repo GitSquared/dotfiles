@@ -657,6 +657,76 @@ happens to restate a PR URL it already published moments earlier. The
 proactive path gets the richer treatment; the fallback stays deliberately
 thin.
 
+## Mention-as-thread: resuming a dormant conversation across sessions — 2026-08-20
+
+The open item flagged in the "attention rationalized" experiment: an
+`@mention` on an issue that already has a dormant (completed or
+awaiting-input) session creates a second, fully independent Linear Agent
+Session with no memory of the first. Linear's own model has no notion of
+"this mention continues that work" - a new session is a new session, always.
+Scoped deliberately to the dormant case only, not the harder "sibling is
+mid-turn" case: a completed prior session's Claude conversation can be safely
+resumed from a brand-new task container; sharing one live SDK conversation
+between two concurrently-running turns cannot be done safely, so a running
+sibling still only gets the existing warning-guidance treatment from the
+`findActiveSiblingSession` mitigation, nothing more. Real cross-session
+routing while something is actively running is still the larger, deliberate
+design the earlier note flagged - this closes the narrower, safe half.
+
+This only became buildable because of the relay mechanism traced during Pi
+removal: a task container's Claude conversation is not tied to that
+container at all - the claude-capsule service holds it on a persistent named
+volume (`linear_agent_claude_profile`) shared across every task, forever.
+Passing `resume: <id>` through a brand-new container reaches the exact same
+conversation regardless of which ephemeral workspace asks. The gap was never
+infrastructure, only that the id never left the task container: `ClaudeHarness`
+wrote it to a local `.straylight/claude-session.json` scoped to that one
+Linear session's own workspace, and the controller never learned it.
+
+Wired minimally along the seam that already exists rather than inventing a
+new one: `PiResult` gained `conversationId`, surfaced from `ClaudeHarness.run`
+on every completed turn (not just cached locally). `SessionState` gained
+`claudeConversationId`, persisted (bounded by the existing 500-session cap
+and recency sort, so dormant conversations age out exactly like everything
+else already does) rather than lost across a controller restart the way it
+would have been under the old save-filter, which only kept sessions with
+live work outstanding. On a fresh `created` event, `findResumableConversation`
+walks sibling sessions on the same issue for the most recently updated one
+with a recorded conversation - bailing immediately if *any* sibling is
+running, not just one that happens to hold the target id, since resuming
+correctly isn't worth a subtle concurrency bug. The resulting
+`resumeConversationId` flows through `AgentTaskPayload`, and
+`ClaudeHarness.run` only falls back to it when this session has no local
+history of its own - a same-session follow-up in a warm container still
+takes priority, unaffected.
+
+`claudeInitialPrompt` gets one added line, only when resuming: told plainly
+that this is a continuation, not a fresh task, and - matching the existing
+stale-context guidance - not to trust its own prior conclusions without
+verifying current state either.
+
+A second-pass review caught that the prompt line only addressed *semantic*
+staleness (old conclusions may no longer hold) and missed *physical*
+staleness: the workspace itself is a brand-new container, keyed on the new
+Linear session id under `workspace/runs/<sessionKey>`, so it starts empty
+even though the resumed Claude conversation's history references a cloned
+repo, a branch, and prior edits that only ever existed in the old container.
+Without an explicit warning, the model's first move on resume would plausibly
+be an ENOENT reading a file it "remembers," or a "not a git repository" from
+a check run outside any checkout. Added a second sentence to the same
+conditional prompt line: this is a fresh, empty workspace, nothing from prior
+turns exists on disk, re-clone and re-checkout before acting on anything
+remembered. Also added the process-boundary coverage the original tests
+skipped - both new mention-routing tests exercised the feature only in
+memory (mocked `AgentRunner`, or `ClaudeHarness.run` called directly with the
+field pre-set) and never crossed the actual controller → runner-client →
+`/run` JSON → `ClaudeHarness` → NDJSON wire. Added assertions in
+`runner-protocol.test.ts` that `conversationId` survives an encode/parse
+round-trip (and that a non-string value is rejected) and in
+`runner-integration.test.ts` that `resumeConversationId` set on the client
+side arrives intact in the harness's `run(payload, ...)` call over the real
+HTTP body.
+
 ## Next live trial — 2026-08-19
 
 The Claude-default and rationalized-attention slice converged successfully on

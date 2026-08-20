@@ -13,6 +13,7 @@ export type PiResult = {
   summary: string;
   elapsedMs: number;
   disposition?: WorkDisposition;
+  conversationId?: string;
 };
 
 export type RunnerEvent =
@@ -49,7 +50,8 @@ export function parseRunnerEvent(line: string): RunnerEvent {
       || typeof result.elapsedMs !== "number"
       || (result.disposition !== undefined && !validWorkDisposition(result.disposition))
       || (result.disposition !== undefined
-        && result.awaitingInput !== ["awaiting_steering", "awaiting_qa"].includes(result.disposition.status))) {
+        && result.awaitingInput !== ["awaiting_steering", "awaiting_qa"].includes(result.disposition.status))
+      || (result.conversationId !== undefined && typeof result.conversationId !== "string")) {
       throw new Error("Runner returned an invalid event");
     }
     return event as Extract<RunnerEvent, { type: "result" }>;

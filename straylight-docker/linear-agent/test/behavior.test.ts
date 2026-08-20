@@ -39,6 +39,24 @@ test("requires Claude to finish through the human-owned lifecycle", () => {
   assert.match(prompt, /hand apparently finished work to QA/);
 });
 
+test("tells Claude it is resuming its own prior conversation on a routed mention", () => {
+  const fresh = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-5", title: "Try the repository" } },
+    agentActivity: { content: { body: "One more thing on this issue." } },
+  });
+  assert.doesNotMatch(fresh, /resumes your own prior Claude Code conversation/);
+
+  const resumed = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-5", title: "Try the repository" } },
+    agentActivity: { content: { body: "One more thing on this issue." } },
+    resumeConversationId: "prior-conversation",
+  });
+  assert.match(resumed, /resumes your own prior Claude Code conversation/);
+  assert.match(resumed, /Verify current state/);
+  assert.match(resumed, /fresh, empty workspace container/);
+  assert.match(resumed, /re-clone any repository/);
+});
+
 test("makes a mention comment authoritative over an older issue instruction", () => {
   const payload = {
     action: "created",

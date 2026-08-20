@@ -138,6 +138,72 @@ test("persists Claude's session id after a non-success result so the next turn c
   }
 });
 
+test("resumes a controller-supplied conversation for a fresh Linear session with no local history", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-mention-"));
+  try {
+    const requests: Array<{ resume?: string }> = [];
+    const capsule = {
+      async runBrokeredAgent(request: { resume?: string }) {
+        requests.push(request);
+        return {
+          status: "ok" as const,
+          answer: "Picked up where the last mention left off.",
+          sessionId: "prior-issue-conversation",
+          awaitingInput: true,
+          durationMs: 8,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+    };
+    const harness = new ClaudeHarness(config(workdir), capsule);
+    const result = await harness.run({
+      action: "created",
+      agentSession: { id: "linear-session-brand-new", issueId: "issue-1", issue: { id: "issue-1", title: "Build it" } },
+      agentActivity: { content: { body: "One more thing on this issue." } },
+      resumeConversationId: "prior-issue-conversation",
+    }, async () => {});
+    assert.equal(requests[0]?.resume, "prior-issue-conversation");
+    assert.equal(result.conversationId, "prior-issue-conversation");
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("prefers this session's own local history over a controller-supplied resume hint", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-mention-priority-"));
+  try {
+    const requests: Array<{ resume?: string }> = [];
+    const capsule = {
+      async runBrokeredAgent(request: { resume?: string }) {
+        requests.push(request);
+        return {
+          status: "ok" as const,
+          answer: "Continued this session's own thread.",
+          sessionId: "this-sessions-own-conversation",
+          awaitingInput: true,
+          durationMs: 4,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+    };
+    const harness = new ClaudeHarness(config(workdir), capsule);
+    await harness.run({
+      action: "created",
+      agentSession: { id: "linear-session-own-history", issueId: "issue-1", issue: { id: "issue-1", title: "Build it" } },
+      agentActivity: { content: { body: "Start the work." } },
+    }, async () => {});
+    await harness.run({
+      action: "prompted",
+      agentSession: { id: "linear-session-own-history", issueId: "issue-1" },
+      agentActivity: { content: { body: "Keep going." } },
+      resumeConversationId: "some-other-issue-conversation",
+    }, async () => {});
+    assert.equal(requests[1]?.resume, "this-sessions-own-conversation");
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
 test("reports visible progress while Claude is quiet", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-progress-"));
   try {

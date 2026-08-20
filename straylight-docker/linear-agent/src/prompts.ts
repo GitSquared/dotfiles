@@ -93,6 +93,9 @@ export function claudeInitialPrompt(payload: AgentTaskPayload): string {
     "",
     request ? `Current Linear request (authoritative):\n${request}` : undefined,
     request ? "Treat the issue and session material below as supporting context. Do not let an older issue description override the current request." : undefined,
+    payload.resumeConversationId
+      ? "This mention resumes your own prior Claude Code conversation on this issue from an earlier Agent Session - rely on what you already know from that conversation rather than re-deriving history from the issue description below. Verify current state before trusting anything you previously concluded; do not assume nothing has changed since. This is a fresh, empty workspace container: nothing from your prior turns exists on disk - re-clone any repository and re-checkout any branch before acting on files, branches, or test results you remember from before."
+      : undefined,
     "",
     issue ? "Linear issue:" : "Linear session:",
     issue?.identifier ? `- Identifier: ${issue.identifier}` : undefined,

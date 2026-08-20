@@ -15,6 +15,7 @@ export type ControllerSessionRecord = {
   teamId?: string;
   humanAssigneeId?: string;
   attention?: ActiveAttention[];
+  claudeConversationId?: string;
   updatedAt: number;
 };
 
@@ -51,6 +52,7 @@ export class ControllerStateStore {
         && typeof attention.previousStateId === "string"
         && typeof attention.requestedAt === "number"
       ))))
+      && (record.claudeConversationId === undefined || typeof record.claudeConversationId === "string")
       && typeof record.updatedAt === "number"
     ));
   }
@@ -59,7 +61,10 @@ export class ControllerStateStore {
     return this.store.update((state) => {
       state.version = 1;
       state.sessions = [...records]
-        .filter((record) => record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active) || Boolean(record.attention?.length))
+        .filter((record) => (
+          record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active)
+          || Boolean(record.attention?.length) || Boolean(record.claudeConversationId)
+        ))
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_STORED_SESSIONS);
     });

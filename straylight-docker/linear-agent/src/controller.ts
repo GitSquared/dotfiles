@@ -40,6 +40,7 @@ type SessionState = {
   teamId: string | undefined;
   humanAssigneeId: string | undefined;
   attention: ActiveAttention[];
+  claudeConversationId: string | undefined;
   updatedAt: number;
 };
 
@@ -112,6 +113,7 @@ export class AgentController {
         teamId: record.teamId,
         humanAssigneeId: record.humanAssigneeId,
         attention: record.attention ?? [],
+        claudeConversationId: record.claudeConversationId,
         updatedAt: record.updatedAt,
       };
       this.states.set(record.sessionId, state);
@@ -231,6 +233,7 @@ export class AgentController {
         ...(state.teamId ? { teamId: state.teamId } : {}),
         ...(state.humanAssigneeId ? { humanAssigneeId: state.humanAssigneeId } : {}),
         ...(state.attention.length ? { attention: state.attention } : {}),
+        ...(state.claudeConversationId ? { claudeConversationId: state.claudeConversationId } : {}),
         updatedAt: state.updatedAt,
       }))) ?? Promise.resolve());
     return this.persistence;
@@ -405,6 +408,7 @@ export class AgentController {
       teamId: undefined,
       humanAssigneeId: undefined,
       attention: [],
+      claudeConversationId: undefined,
       updatedAt: Date.now(),
     };
     state.issueId = session.issueId ?? session.issue?.id ?? state.issueId;
@@ -533,6 +537,23 @@ export class AgentController {
       if (other.awaitingInput) return "awaiting input";
     }
     return undefined;
+  }
+
+  /**
+   * A fresh mention on an issue that already has a dormant conversation
+   * elsewhere gets routed into the same Claude Code session instead of
+   * starting blind - resuming is only safe while no sibling on this issue
+   * is mid-turn, since two runs cannot safely share one SDK conversation.
+   */
+  private findResumableConversation(sessionId: string, issueId: string): string | undefined {
+    let best: SessionState | undefined;
+    for (const [otherId, other] of this.states) {
+      if (otherId === sessionId || other.issueId !== issueId) continue;
+      if (!other.claudeConversationId) continue;
+      if (other.running) return undefined;
+      if (!best || other.updatedAt > best.updatedAt) best = other;
+    }
+    return best?.claudeConversationId;
   }
 
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
@@ -734,6 +755,10 @@ export class AgentController {
       });
     }
     const taskPayload: AgentTaskPayload = structuredClone(payload);
+    if (payload.action === "created" && state.issueId) {
+      const resumable = this.findResumableConversation(sessionId, state.issueId);
+      if (resumable) taskPayload.resumeConversationId = resumable;
+    }
     const inputs = await this.prepareLinearInputs(sessionId, payload);
     if (inputs.length) taskPayload.linearInputs = inputs;
     const commentId = payload.agentSession?.sourceCommentId ?? payload.agentSession?.comment?.id;
@@ -772,6 +797,7 @@ export class AgentController {
     state.awaitingInput = result.awaitingInput;
     state.startedAt = undefined;
     state.active = undefined;
+    if (result.conversationId) state.claudeConversationId = result.conversationId;
     const pending = state.pending;
     state.pending = undefined;
     this.touch(state);

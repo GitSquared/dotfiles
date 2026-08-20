@@ -163,4 +163,5 @@ export type AgentTaskPayload = AgentSessionWebhook & {
     repositories?: RepositoryCandidate[];
     repositorySuggestions?: RepositorySuggestion[];
   };
+  resumeConversationId?: string;
 };

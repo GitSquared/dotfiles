@@ -14,6 +14,7 @@ test("streams structured events across the controller-runner boundary", async ()
   let viewedImage: unknown;
   let appliedPatch: unknown;
   let managedPlan: unknown;
+  let runPayload: unknown;
   const harness = {
     async runClaude(taskCredential: string, request: { prompt: string; resume?: string }, _signal?: AbortSignal, onProgress?: (progress: { type: "thought"; body: string }) => void) {
       if (taskCredential === "one-time-task-token" && request.prompt === "Implement it") {
@@ -65,13 +66,14 @@ test("streams structured events across the controller-runner boundary", async ()
       collaboration = request;
       return { ok: true as const, action: "external_url" as const };
     },
-    async run(_payload: unknown, send: (event: {
+    async run(payload: unknown, send: (event: {
       type: "activity";
       content: { type: "action"; action: string; parameter: string };
       ephemeral: true;
     }) => Promise<void>) {
+      runPayload = payload;
       await send({ type: "activity", content: { type: "action", action: "Running tests", parameter: "npm test" }, ephemeral: true });
-      return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 12 };
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 12, conversationId: "claude-conversation" };
     },
     async followUp(_sessionId: string, _prompt: string, inputs?: unknown) { followUpInputs = inputs; return true; },
     async abort(_sessionId: string) { return true; },
@@ -175,13 +177,18 @@ test("streams structured events across the controller-runner boundary", async ()
     assert.deepEqual(collaboration, { action: "external_url", label: "Review", url: "https://example.com/review" });
     const client = new PiRunnerClient(baseUrl, token);
     const events: unknown[] = [];
-    const result = await client.run({ agentSession: { id: "session" } }, async (event) => { events.push(event); });
+    const result = await client.run(
+      { agentSession: { id: "session" }, resumeConversationId: "prior-conversation" },
+      async (event) => { events.push(event); },
+    );
     assert.deepEqual(events, [{
       type: "activity",
       content: { type: "action", action: "Running tests", parameter: "npm test" },
       ephemeral: true,
     }]);
     assert.equal(result.summary, "Done.");
+    assert.equal(result.conversationId, "claude-conversation");
+    assert.deepEqual(runPayload, { agentSession: { id: "session" }, resumeConversationId: "prior-conversation" });
     const input = { filename: "screen.png", mimeType: "image/png", size: 3, dataBase64: "YWJj" };
     assert.equal(await client.followUp("session", "Continue", [input]), true);
     assert.deepEqual(followUpInputs, [input]);

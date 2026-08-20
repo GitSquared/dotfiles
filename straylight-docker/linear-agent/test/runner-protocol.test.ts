@@ -17,6 +17,32 @@ test("rejects an unknown runner event", () => {
   assert.throws(() => parseRunnerEvent('{"type":"result","result":{"ok":true}}'), /invalid event/);
 });
 
+test("round-trips a conversation id on the result event", () => {
+  const withId = {
+    type: "result" as const,
+    result: {
+      ok: true,
+      timedOut: false,
+      awaitingInput: false,
+      summary: "Done.",
+      elapsedMs: 1,
+      conversationId: "conv-123",
+    },
+  };
+  assert.deepEqual(parseRunnerEvent(encodeRunnerEvent(withId).trim()), withId);
+
+  const { conversationId: _omit, ...withoutId } = withId.result;
+  assert.deepEqual(
+    parseRunnerEvent(encodeRunnerEvent({ type: "result", result: withoutId }).trim()),
+    { type: "result", result: withoutId },
+  );
+
+  assert.throws(
+    () => parseRunnerEvent('{"type":"result","result":{"ok":true,"timedOut":false,"awaitingInput":false,"summary":"Done.","elapsedMs":1,"conversationId":42}}'),
+    /invalid event/,
+  );
+});
+
 test("requires a human-owned disposition to match awaiting input", () => {
   const valid = {
     type: "result" as const,

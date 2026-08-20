@@ -10,6 +10,37 @@ import type { LinearClient } from "../src/linear.js";
 import type { AgentRunner } from "../src/runner-client.js";
 import type { AgentTaskPayload } from "../src/types.js";
 
+test("keeps a dormant session's Claude conversation across a restart, but not one with nothing left to resume", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-conversation-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([
+      {
+        sessionId: "session-dormant-with-conversation",
+        running: false,
+        awaitingInput: false,
+        generation: 1,
+        issueId: "issue-1",
+        claudeConversationId: "conversation-worth-keeping",
+        updatedAt: Date.now(),
+      },
+      {
+        sessionId: "session-dormant-without-conversation",
+        running: false,
+        awaitingInput: false,
+        generation: 1,
+        issueId: "issue-2",
+        updatedAt: Date.now(),
+      },
+    ]);
+    const restored = await store.load();
+    assert.deepEqual(restored.map((record) => record.sessionId), ["session-dormant-with-conversation"]);
+    assert.equal(restored[0]?.claudeConversationId, "conversation-worth-keeping");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("recovers an interrupted Agent Session from durable state and Linear activity", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-"));
   try {
@@ -554,4 +585,96 @@ test("warns a freshly mentioned session that another session on the same issue i
   assert.equal(runs.length, 2);
   assert.ok(runs[1]?.guidance?.some((entry) => entry.body?.includes("actively running")));
   assert.ok(!runs[0]?.guidance?.some((entry) => entry.body?.includes("actively running")));
+});
+
+test("routes a new mention into the same Claude conversation as a dormant sibling on the same issue", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      return {
+        ok: true as const,
+        timedOut: false as const,
+        awaitingInput: false,
+        summary: "Done.",
+        elapsedMs: 1,
+        conversationId: `conversation-for-${payload.agentSession?.id}`,
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-first-mention", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 1; attempt += 1) await Bun.sleep(2);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-second-mention", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 2);
+  assert.equal(runs[0]?.resumeConversationId, undefined, "the first mention on the issue has nothing to resume");
+  assert.equal(runs[1]?.resumeConversationId, "conversation-for-session-first-mention");
+});
+
+test("never resumes a conversation whose session is still actively running", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runs: AgentTaskPayload[] = [];
+  let resolveFirstRun!: (value: { ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number; conversationId: string }) => void;
+  const firstRun = new Promise<{ ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number; conversationId: string }>((resolve) => {
+    resolveFirstRun = resolve;
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async followUp() { return false; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      if (runs.length === 1) return firstRun;
+      // The still-running first session's own second turn - never resolves
+      // for the duration of this test.
+      return new Promise(() => {});
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-running", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  resolveFirstRun({ ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1, conversationId: "conversation-in-flight" });
+  await controller.handle({
+    action: "prompted",
+    agentSession: { id: "session-running", issueId: "shared-issue" },
+    agentActivity: { content: { body: "Keep going." } },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+  assert.equal(runs.length, 2, "the follow-up should have started a second, still-running turn on session-running");
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-fresh-mention", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 3; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 3);
+  assert.equal(runs[2]?.resumeConversationId, undefined, "session-running is mid-turn, so its conversation must not be shared");
 });

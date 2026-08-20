@@ -54,7 +54,7 @@ export class ClaudeHarness {
       const linearInputs = await materializeLinearInputs(this.config.piWorkdir, payload.linearInputs);
       const basePrompt = payload.action === "prompted" ? claudeFollowUpPrompt(payload) : claudeInitialPrompt(payload);
       const prompt = `${basePrompt}${linearInputs.prompt}`;
-      const resume = await this.readSession(sessionId);
+      const resume = (await this.readSession(sessionId)) ?? payload.resumeConversationId;
       const result = await this.capsule.runBrokeredAgent({
         prompt,
         ...(resume ? { resume } : {}),
@@ -91,6 +91,7 @@ export class ClaudeHarness {
           awaitingInput: false,
           summary: finalText(result.message),
           elapsedMs: Math.round(performance.now() - startedAt),
+          ...(result.sessionId ? { conversationId: result.sessionId } : {}),
         };
       }
       await this.writeSession(sessionId, result.sessionId);
@@ -105,6 +106,7 @@ export class ClaudeHarness {
         summary: finalText(result.answer || "Claude Code ended the turn without a textual summary."),
         elapsedMs: result.durationMs || Math.round(performance.now() - startedAt),
         disposition: result.disposition,
+        conversationId: result.sessionId,
       };
     } catch (error) {
       const aborted = controller.signal.aborted;

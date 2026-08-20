@@ -130,8 +130,14 @@ comments:
 - active-turn follow-ups, queued follow-ups, and conversation history across
   warm or freshly reconstructed containers
 - ranked repository context from Linear's repository-suggestions API
-- generic session URL attachment plus automatic pull-request discovery; GitHub
-  PR URLs receive Linear's native enrichment without a PR-specific tool
+- the agent publishes a pull request or a live preview/deploy URL the moment
+  it exists, as a proper issue-level Attachment (not just a session link
+  chip); a GitHub PR URL restated in the final summary is still caught and
+  attached as a conservative fallback if the agent forgets
+- a new mention on an issue whose only prior session is dormant (completed
+  or awaiting input, not mid-turn) resumes that session's own Claude Code
+  conversation instead of starting blind - the two remain separate Linear
+  Agent Sessions, but share the one underlying conversation and its context
 - human-delegated issues move to the team's first started state when the issue is
   actually delegated to the app user
 - explicit notification policies: mentions and assignments defer to their
@@ -150,11 +156,12 @@ comments:
   Activity decide whether interrupted work resumes, remains awaiting input, or
   is left terminal without replaying completed actions
 
-Developer-access failures request blocking Steering through `request_attention`
-with the trusted workbench link and a precise repair request, posted as the
-session's own elicitation rather than a separate child issue. Capsule
-authentication failures are repaired from the interactive workbench described
-below.
+Developer-tool or capsule access failures request blocking Steering through
+`request_attention`'s `missingAccess` parameter, posted as the session's own
+elicitation with Linear's native `auth` signal - a dedicated account-linking
+control rather than a plain comment link - pointing at the trusted workbench.
+Capsule authentication failures are repaired from the interactive workbench
+described below.
 
 ## Host data layout
 
@@ -174,9 +181,11 @@ below.
   or Claude capsule.
 - `data/tasks/<session-hash>` contains Claude conversation state and a
   `session.json` mapping back to the Linear session and issue.
-- `state/controller-sessions.json` retains only active, queued, or
-  awaiting-input controller sessions, including the kind, priority, prior
-  workflow state, and request time for an active blocking attention item;
+- `state/controller-sessions.json` retains active, queued, or awaiting-input
+  controller sessions, including the kind, priority, prior workflow state,
+  and request time for an active blocking attention item, plus any dormant
+  session that still has a resumable Claude conversation worth mention
+  continuity - both bounded by the same 500-session, most-recent-first cap;
   aggregate queue pressure is exposed
   in controller health without copying request content into another database.
   `state/webhook-inbox.json` durably queues
