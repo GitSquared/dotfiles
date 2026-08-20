@@ -33,6 +33,12 @@ test("projects Claude SDK reasoning and useful tool targets", async () => {
   });
   await project({ type: "stream_event", event: { type: "content_block_delta", index: 3, delta: { type: "input_json_delta", partial_json: '{"directory":"carbonfact","patch":"diff"}' } } });
   await project({ type: "stream_event", event: { type: "content_block_stop", index: 3 } });
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 4, content_block: { type: "tool_use", id: "tool-4", name: "mcp__straylight__manage_linear", input: {} } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 4, delta: { type: "input_json_delta", partial_json: '{"resource":"comment","operation":"list","id":"145c7938-c834-4427-8400-74b9a82ffee5"}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 4 } });
   now = 1_000;
   await project({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "private chain of thought" } } });
   now = 2_000;
@@ -45,6 +51,7 @@ test("projects Claude SDK reasoning and useful tool targets", async () => {
     { type: "action", action: "Running command", parameter: "rg -n TODO src" },
     { type: "action", action: "Updating plan", parameter: "replace · 2 steps" },
     { type: "action", action: "Applying patch", parameter: "carbonfact" },
+    { type: "action", action: "Linear", parameter: "Reading comments" },
     { type: "thought", body: "Thinking: private chain of thought" },
     { type: "thought", body: "I found the relevant module." },
     { type: "action", action: "Running command", parameter: "rg -n TODO src", result: "12s elapsed" },

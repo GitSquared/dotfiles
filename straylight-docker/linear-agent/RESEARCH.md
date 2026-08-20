@@ -274,6 +274,65 @@ rejection was a routing gap, not a platform limitation. Shipped:
 
 Not yet run against a real task.
 
+### Third real run - the comment/elicitation duplication, and the priority reversal (2026-08-19)
+
+The bold round above shipped and ran on the same GAB-13 issue live. Four
+findings, two of them reversing what had just shipped:
+
+- **Confirmed empirically, not just inferred: a plain issue comment reply
+  does not resume the Agent Session at all.** Gaby typed "approve" as a
+  reply to the QA comment and nothing happened - no resume, no error, no
+  feedback. Comments and the Agent Session's own prompted-event delivery
+  are separate mechanisms; `issueNewComment` already routes to
+  `handleNotification` as context-only, by design, and evidently a plain
+  reply doesn't drive the session either. The elicitation Activity's own
+  native surface (the "Input needed to continue" card - real buttons plus
+  a dedicated text box) is the only thing that actually resumes a session.
+  This reframes the design cleanly: **comments are a one-way decision
+  log; the elicitation is the only real input channel.** Posting both for
+  the same blocking request wasn't redundant polish, it was one working
+  mechanism and one that silently does nothing when used as instructed.
+  Reverted: blocking Steering/QA no longer posts a standalone comment at
+  all - only the elicitation, using the terse render (the "big
+  bureaucratic formula" - the full seven-section template - showed up
+  directly in that same prominent card, which was the actual complaint;
+  it was never a good fit for a primary, native, buttoned surface).
+  `resolveComment`/the tracked attention comment id go with it, since
+  there's no longer a standalone comment to resolve; the checkmark
+  reaction still fires on the human's actual reply comment when one
+  exists.
+- **Reverted the priority bump entirely.** Gaby's call: issue priority is
+  his own signal for how much he cares about an issue overall, which is
+  what he uses to decide which of several open interruptions to handle
+  first. An automated bump-then-restore - even temporary - overwrites a
+  dimension that's supposed to stay under his control. `setIssuePriority`/
+  `issuePriority` removed from `linear.ts`.
+- **The progress display showed a raw UUID** ("Updating Linear list
+  comment 145c7938-..."), which turned out to be caused by a real
+  functional gap: `manage_linear`'s comment `list`/`get` still only
+  supported Document-scoped access, the same gap `create` had before last
+  night's fix. Fixed the same way - list defaults to the current issue's
+  own comments when no Document id is given. Separately fixed the display
+  itself: a truncated id ("145c7938") was tried first and rejected as
+  still meaningless - replaced with a small phrase table so `manage_linear`
+  progress reads as a sentence ("Reading comments") instead of any id at
+  all.
+- **"Zero messages / inner monologue... it was all sent as disappearing
+  thoughts."** Confirms the ephemeral-vs-durable gap flagged after the
+  first run was real, not hypothetical. Added prompt guidance (both
+  runners, system-prompt level) to post a durable, non-ephemeral note at
+  genuine decision points - not routine steps - so at least some real
+  narrative survives instead of only the final summary.
+- **A comment + `@straylight` mention inside the linked Document produced
+  no response.** This is an already-known, already-handled Linear
+  platform limitation, not a new bug: `handleNotification`'s
+  `documentCommentMention` branch has carried a `PermanentWebhookDeliveryError`
+  for this since before tonight - "Linear currently rejects Agent
+  Sessions on Document comment threads." The webhook is correctly
+  dead-lettered rather than retried forever, but nothing currently tells
+  the human why the mention did nothing. Worth a follow-up (e.g. surface
+  the failure on the parent issue) if this keeps coming up in practice.
+
 ## Next hypotheses, not commitments
 
 - An intent packet can preserve the chosen level of expression and make any

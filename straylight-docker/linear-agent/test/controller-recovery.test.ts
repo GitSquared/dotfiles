@@ -92,8 +92,6 @@ test("restores an attention wait without replaying work after a controller resta
         kind: "qa",
         priority: "medium",
         previousStateId: "state-in-progress",
-        previousPriority: 3,
-        commentId: "comment-1",
         requestedAt: Date.now() - 1_000,
       }],
       updatedAt: Date.now(),
@@ -165,17 +163,12 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   const activities: Array<{ content: unknown; options?: unknown }> = [];
   const comments: Array<{ issueId: string; body: string }> = [];
   const stateFlips: Array<{ issueId: string; stateId: string }> = [];
-  const priorityFlips: Array<{ issueId: string; priority: number }> = [];
-  const resolvedComments: string[] = [];
   const reactions: Array<{ commentId: string; emoji: string }> = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
-    async issuePriority() { return 3; },
-    async setIssuePriority(issueId: string, priority: number) { priorityFlips.push({ issueId, priority }); },
-    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
     async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-1", body }; },
@@ -230,12 +223,11 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   assert.equal(waiting.controller.attentionQueue.urgent, 1);
   assert.ok(waiting.controller.attentionQueue.oldestWaitMs >= 0);
   assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
-  assert.deepEqual(priorityFlips, [{ issueId: "issue-1", priority: 1 }]);
-  assert.equal(comments.length, 1);
-  assert.match(comments[0]?.body ?? "", /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
-  assert.doesNotMatch(comments[0]?.body ?? "", /Original intent/);
-  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Your action"));
-  assert.match((elicitation?.content as { body?: string }).body ?? "", /Your action/);
+  assert.equal(comments.length, 0, "blocking Steering/QA no longer posts a standalone comment - only the elicitation Activity");
+  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Steering needed"));
+  const elicitationBody = (elicitation?.content as { body?: string }).body ?? "";
+  assert.match(elicitationBody, /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
+  assert.doesNotMatch(elicitationBody, /Original intent/, "the elicitation must use the terse render, not the bureaucratic full template");
   assert.deepEqual((elicitation?.options as { signal?: string }).signal, "select");
 
   await controller.handle({
@@ -246,8 +238,6 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   const resumed = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(resumed.controller.attentionQueue.total, 0);
   assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" });
-  assert.deepEqual(priorityFlips[1], { issueId: "issue-1", priority: 3 });
-  assert.deepEqual(resolvedComments, ["comment-1"]);
   assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
   finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
 });
@@ -259,9 +249,6 @@ test("resumes the paused parent run directly when the engineer replies on the sa
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
-    async issuePriority() { return 3; },
-    async setIssuePriority() {},
-    async resolveComment() {},
     async reactToComment() {},
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async createIssueComment() { return { id: "comment-1", body: "" }; },
@@ -334,9 +321,6 @@ test("ignores a reply on an unrelated comment thread while a blocking attention 
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
-    async issuePriority() { return 3; },
-    async setIssuePriority() {},
-    async resolveComment() {},
     async reactToComment() {},
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
@@ -406,16 +390,12 @@ test("ignores a reply on an unrelated comment thread while a blocking attention 
 test("completes the issue directly when the engineer approves a QA attention", async () => {
   const activities: Array<{ sessionId: string; content: unknown; options?: unknown }> = [];
   const completedIssues: string[] = [];
-  const resolvedComments: string[] = [];
   const reactions: Array<{ commentId: string; emoji: string }> = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
-    async issuePriority() { return 3; },
-    async setIssuePriority() {},
-    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
     async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
     async setIssueState() {},
     async createIssueComment() { return { id: "comment-1", body: "" }; },
@@ -479,7 +459,6 @@ test("completes the issue directly when the engineer approves a QA attention", a
 
   assert.equal(runs, 1);
   assert.deepEqual(completedIssues, ["parent-issue"]);
-  assert.deepEqual(resolvedComments, ["comment-1"]);
   assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
   assert.equal(activities.some((activity) => activity.sessionId === "parent-qa-session"
     && (activity.content as { type?: string }).type === "response"), true);

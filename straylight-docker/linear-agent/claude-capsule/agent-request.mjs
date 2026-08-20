@@ -57,7 +57,7 @@ function progressAction(name) {
     case "request_attention": return "Requesting attention";
     case "defer_followup": return "Deferring a follow-up";
     case "finish_work": return "Recording work disposition";
-    case "manage_linear": return "Updating Linear";
+    case "manage_linear": return "Linear";
     case "linear_activity": return "Publishing Linear activity";
     case "manage_service": return "Managing task service";
     default: {
@@ -65,6 +65,41 @@ function progressAction(name) {
       return clean ? `Running ${clean}` : "Running tool";
     }
   }
+}
+
+const MANAGE_LINEAR_PHRASES = {
+  "get issue": "Reading the issue",
+  "update issue": "Updating the issue",
+  "create issue": "Creating an issue",
+  "list comment": "Reading comments",
+  "get comment": "Reading a comment",
+  "create comment": "Posting a comment",
+  "reply comment": "Replying to a comment",
+  "update comment": "Editing a comment",
+  "resolve comment": "Resolving a comment thread",
+  "unresolve comment": "Reopening a comment thread",
+  "delete comment": "Deleting a comment",
+  "list document": "Reading Documents",
+  "get document": "Reading a Document",
+  "create document": "Creating a Document",
+  "update document": "Updating a Document",
+  "list subissue": "Reading sub-issues",
+  "create subissue": "Creating a sub-issue",
+  "link subissue": "Linking a sub-issue",
+  "unlink subissue": "Unlinking a sub-issue",
+  "list relation": "Reading issue relations",
+  "create relation": "Linking a related issue",
+  "link relation": "Linking a related issue",
+  "delete relation": "Removing an issue relation",
+  "unlink relation": "Removing an issue relation",
+  "get project": "Reading the project",
+  "create project": "Creating a project",
+  "update project": "Updating the project",
+};
+
+function manageLinearPhrase(operation, resource) {
+  return MANAGE_LINEAR_PHRASES[[operation, resource].filter(Boolean).join(" ")]
+    || [operation, resource].filter(Boolean).join(" ");
 }
 
 function progressParameter(name, input) {
@@ -98,7 +133,7 @@ function progressParameter(name, input) {
       parameter = [values.status, values.reason].filter(Boolean).join(": ");
       break;
     case "manage_linear":
-      parameter = [values.operation, values.resource, values.id].filter(Boolean).join(" ");
+      parameter = manageLinearPhrase(values.operation, values.resource);
       break;
     case "linear_activity":
       parameter = values.request?.action ?? values.request?.type ?? values.request?.title;
@@ -495,7 +530,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "manage_linear",
-      "Get, create, update, list, link, or unlink native Linear issues, subissues, projects, Documents, review comments, and relationships through the credential broker. Document create posts directly on the current issue, no project required. Comment create with no parentId posts a plain comment on the current issue; pass a Document id as parentId to comment on a Document instead, or reply within an existing thread by id. If the session context shows more than one comment thread on the issue, reply within the one the request is actually about rather than starting an unrelated new comment.",
+      "Get, create, update, list, link, or unlink native Linear issues, subissues, projects, Documents, review comments, and relationships through the credential broker. Document create posts directly on the current issue, no project required. Comment list and create with no parentId target the current issue's own comments; pass a Document id as parentId to list or comment on a Document instead, or reply within an existing thread by id. If the session context shows more than one comment thread on the issue, reply within the one the request is actually about rather than starting an unrelated new comment.",
       {
         resource: z.enum(["issue", "project", "document", "comment", "relation", "subissue"]),
         operation: z.enum(["get", "create", "update", "delete", "list", "link", "unlink", "reply", "resolve", "unresolve"]),
@@ -603,6 +638,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
           "Use Signal for a nonblocking queued question or notification, then continue working. Use Steering when an answer is required before work can continue. If required developer-tool access is missing, request Steering with the exact repair needed. Never ask for credentials in Linear.",
           "Use defer_followup only for something genuinely out of scope for the current task, with a real reason it isn't this task's job and what actually brings it back up. It does not end the turn and is not a way to avoid finishing the current work.",
           "When resumed after a Steering or QA reply, check whether it actually answers or decides what you asked. If it's a clarifying question or partial answer instead, reply to it directly and call request_attention again with the same or refined ask - do not treat the task as unblocked and proceed with the rest of the work until the real decision arrives.",
+          "Most progress narration streams as transient status and is not kept. When you reach a real decision point - choosing between approaches, discovering something that changes the plan, explaining why you did something non-obvious - post it as a durable note (linear_activity, a non-ephemeral thought or response) so it survives in the record. Do this sparingly, at genuine turning points, not for routine steps.",
           "The engineer owns task completion. When checked work is ready, request QA with evidence and wait for approval or changes. Never say the work is complete or invite an informal follow-up without creating QA. Use finish_work only for a non-human external blocker or explicitly authorized deferral.",
           "Every turn must end in a structured lifecycle state. After blocking Steering or QA, stop and wait. A Signal is nonblocking, so continue until another lifecycle transition is reached.",
           runtimeBudgetInstruction(input.timeBudgetMs),

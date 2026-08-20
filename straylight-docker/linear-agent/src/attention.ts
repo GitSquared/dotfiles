@@ -34,8 +34,6 @@ export type ActiveAttention = {
   kind: "steering" | "qa";
   priority: AttentionPriority;
   previousStateId: string;
-  previousPriority: number;
-  commentId: string;
   requestedAt: number;
 };
 

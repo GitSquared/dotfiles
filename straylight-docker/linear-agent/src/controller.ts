@@ -3,9 +3,7 @@ import {
   attentionOptions,
   attentionPriority,
   isQaApproval,
-  linearAttentionPriority,
   renderAttentionComment,
-  renderAttentionRequest,
   renderDeferredItem,
   type ActiveAttention,
 } from "./attention.js";
@@ -295,22 +293,17 @@ export class AgentController {
         throw new Error("This Agent Session already has an unresolved blocking attention request");
       }
       const previousState = await this.linear.issueState(state.issueId);
-      const previousPriority = await this.linear.issuePriority(state.issueId);
       const attentionStateId = await this.linear.resolveAttentionStateId(state.teamId, this.attentionStateName);
       await this.linear.setIssueState(state.issueId, attentionStateId);
-      await this.linear.setIssuePriority(state.issueId, linearAttentionPriority(req));
-      const comment = await this.linear.createIssueComment(state.issueId, finalText(renderAttentionComment(req)));
       const options = attentionOptions(req)?.map(({ label, value }) => ({ label, value }));
       await this.linear.createActivity(sessionId, {
         type: "elicitation",
-        body: finalText(renderAttentionRequest(req)),
+        body: finalText(renderAttentionComment(req)),
       }, options ? { signal: "select", signalMetadata: { options } } : {});
       const active: ActiveAttention = {
         kind: req.kind,
         priority: attentionPriority(req),
         previousStateId: previousState.id,
-        previousPriority,
-        commentId: comment.id,
         requestedAt: Date.now(),
       };
       state.attention = [active];
@@ -417,12 +410,11 @@ export class AgentController {
     if (session.creatorId && session.creatorId !== appUserId) state.humanAssigneeId = session.creatorId;
     if (payload.action === "prompted" && state.attention.length) {
       const attention = state.attention[0]!;
-      const replyParentId = session.comment?.parentId;
-      if (replyParentId && replyParentId !== attention.commentId) {
-        // A reply landed on a different comment thread while a blocking
-        // attention is still open (e.g. a side question on an earlier
-        // Signal). Don't treat it as the answer - the run stays paused
-        // waiting for a reply in the tracked thread.
+      if (session.comment?.parentId) {
+        // A reply landed on some other pre-existing comment thread (e.g. a
+        // side question on an earlier Signal), not on this session's own
+        // elicitation. Don't treat it as the answer - the run stays paused
+        // waiting for a real reply through the session itself.
         this.touch(state);
         this.states.set(sessionId, state);
         await this.persist();
@@ -442,7 +434,7 @@ export class AgentController {
             message: error instanceof Error ? error.message : String(error),
           });
         });
-        await this.resolveAttentionThread(attention.commentId, replyCommentId);
+        if (replyCommentId) await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
         state.awaitingInput = false;
         this.touch(state);
         this.states.set(sessionId, state);
@@ -456,14 +448,8 @@ export class AgentController {
             message: error instanceof Error ? error.message : String(error),
           });
         });
-        await this.linear.setIssuePriority(state.issueId, attention.previousPriority).catch((error: unknown) => {
-          console.warn("failed to restore issue priority after resolving attention", {
-            sessionId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
       }
-      await this.resolveAttentionThread(attention.commentId, replyCommentId);
+      if (replyCommentId) await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
       await this.linear.createActivity(sessionId, {
         type: "thought",
         body: "Reply received; resuming the run.",
@@ -859,23 +845,6 @@ export class AgentController {
     await this.persist();
   }
 
-  private async resolveAttentionThread(commentId: string, replyCommentId: string | undefined): Promise<void> {
-    await this.linear.resolveComment(commentId).catch((error: unknown) => {
-      console.warn("failed to resolve attention comment thread", {
-        commentId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-    if (replyCommentId) {
-      await this.linear.reactToComment(replyCommentId, "white_check_mark").catch((error: unknown) => {
-        console.warn("failed to react to attention reply", {
-          replyCommentId,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-    }
-  }
-
   private async dismissAttention(
     sessionId: string,
     issueId: string | undefined,
@@ -887,7 +856,6 @@ export class AgentController {
     if (issueId) {
       try {
         await this.linear.setIssueState(issueId, item.previousStateId);
-        await this.linear.setIssuePriority(issueId, item.previousPriority);
       } catch (error) {
         console.warn("failed to restore issue state while dismissing attention", {
           issueId,
@@ -895,12 +863,6 @@ export class AgentController {
         });
       }
     }
-    await this.linear.resolveComment(item.commentId).catch((error: unknown) => {
-      console.warn("failed to resolve attention comment thread on dismissal", {
-        commentId: item.commentId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
     try {
       await this.linear.createActivity(sessionId, { type: "response", body: reason });
     } catch (error) {

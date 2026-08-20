@@ -616,24 +616,6 @@ export class LinearClient {
     if (!data.issueUpdate.success) throw new Error("Linear rejected issue status update");
   }
 
-  async issuePriority(issueId: string): Promise<number> {
-    const data = await this.graphql<{ issue: { priority: number } }>(
-      `query IssuePriority($id: String!) { issue(id: $id) { priority } }`,
-      { id: issueId },
-    );
-    return data.issue.priority;
-  }
-
-  async setIssuePriority(issueId: string, priority: number): Promise<void> {
-    const data = await this.graphql<{ issueUpdate: { success: boolean } }>(
-      `mutation SetIssuePriority($id: String!, $input: IssueUpdateInput!) {
-        issueUpdate(id: $id, input: $input) { success }
-      }`,
-      { id: issueId, input: { priority } },
-    );
-    if (!data.issueUpdate.success) throw new Error("Linear rejected issue priority update");
-  }
-
   async reactToComment(commentId: string, emoji: string): Promise<void> {
     const data = await this.graphql<{ reactionCreate: { success: boolean } }>(
       `mutation ReactToComment($input: ReactionCreateInput!) {
@@ -642,14 +624,6 @@ export class LinearClient {
       { input: { commentId, emoji } },
     );
     if (!data.reactionCreate.success) throw new Error("Linear rejected the comment reaction");
-  }
-
-  async resolveComment(commentId: string): Promise<void> {
-    const data = await this.graphql<{ commentResolve: { success: boolean } }>(
-      `mutation ResolveIssueComment($id: String!) { commentResolve(id: $id) { success } }`,
-      { id: commentId },
-    );
-    if (!data.commentResolve.success) throw new Error("Linear rejected the comment resolution");
   }
 
   async resolveAttentionStateId(teamId: string, stateName: string): Promise<string> {
@@ -833,16 +807,29 @@ export class LinearClient {
 
   private async manageComment(request: LinearManageRequest, context: LinearManageContext): Promise<unknown> {
     if (request.operation === "list") {
-      const documentId = requiredId(request.parentId, undefined, "comment list");
-      return (await this.graphql<{ document: unknown }>(
-        `query ManagedCommentDocument($id: String!) {
-          document(id: $id) {
-            id title url documentContentId
-            comments(first: 100, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
+      if (request.parentId) {
+        return (await this.graphql<{ document: unknown }>(
+          `query ManagedCommentDocument($id: String!) {
+            document(id: $id) {
+              id title url documentContentId
+              comments(first: 100, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
+            }
+          }`,
+          { id: request.parentId },
+        )).document;
+      }
+      const issueId = requiredId(request.id, context.issueId, "comment list");
+      return (await this.graphql<{ issue: unknown }>(
+        `query ManagedIssueComments($id: String!) {
+          issue(id: $id) {
+            id identifier title url
+            comments(first: 100, orderBy: createdAt) {
+              nodes { ${COMMENT_FIELDS} children(first: 20, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } } }
+            }
           }
         }`,
-        { id: documentId },
-      )).document;
+        { id: issueId },
+      )).issue;
     }
     if (request.operation === "get") {
       const id = requiredId(request.id, undefined, "comment get");
@@ -850,6 +837,7 @@ export class LinearClient {
         `query ManagedComment($id: String!) {
           comment(id: $id) {
             ${COMMENT_FIELDS}
+            issue { id identifier title url }
             documentContent { id document { id title url } }
             children(first: 50, orderBy: createdAt) { nodes { ${COMMENT_FIELDS} } }
           }
