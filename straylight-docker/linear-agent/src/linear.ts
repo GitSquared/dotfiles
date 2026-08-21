@@ -478,6 +478,20 @@ export class LinearClient {
     return data.issue.state;
   }
 
+  /**
+   * The issue's current assignee's Linear profile URL (`User.url`) - when it
+   * appears as a bare URL inside a Markdown comment body, Linear's own
+   * parser converts it into a real `@mention` and fires a notification to
+   * that person's Inbox. Returns null when the issue has nobody assigned.
+   */
+  async issueAssigneeUrl(issueId: string): Promise<string | null> {
+    const data = await this.graphql<{ issue: { assignee: { url: string } | null } }>(
+      `query IssueAssignee($id: String!) { issue(id: $id) { assignee { url } } }`,
+      { id: issueId },
+    );
+    return data.issue.assignee?.url ?? null;
+  }
+
   async agentSessionSnapshot(agentSessionId: string): Promise<AgentSessionSnapshot> {
     const data = await this.graphql<{ agentSession: AgentSessionSnapshot }>(
       `query RecoverAgentSession($id: String!) {

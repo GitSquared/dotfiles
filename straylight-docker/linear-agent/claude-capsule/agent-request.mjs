@@ -396,7 +396,7 @@ export function createStraylightTools(context) {
   const tools = [
     tool(
       "bash",
-      "Run a shell command inside the current task's isolated writable /workspace. Use this for repository inspection, tests, local servers, and ordinary development tools; use apply_patch for multi-line source edits.",
+      "Run a shell command inside the current task's isolated writable /workspace. Use this for repository inspection, tests, local servers, and ordinary development tools; use apply_patch for multi-line source edits. timeoutMs defaults to 120 seconds when omitted and is capped at 300 seconds; a command that runs past its timeout, or whose stdout or stderr alone grows past roughly 256 KB, is killed outright (SIGTERM) instead of left running. Whatever output it produced before that is still returned, with stdout and stderr each independently truncated to their last 128 KB - the tail is kept, the head is dropped, and no marker indicates where the cut happened; very large combined output can still fail the call instead of coming back truncated.",
       {
         command: z.string().min(1).max(20_000),
         timeoutMs: z.number().int().min(1_000).max(300_000).optional(),
@@ -552,7 +552,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "manage_linear",
-      "Get, create, update, list, link, or unlink native Linear issues, subissues, projects, Documents, review comments, and relationships through the credential broker. Document create posts directly on the current issue, no project required. Comment list and create with no parentId target the current issue's own comments; pass a Document id as parentId to list or comment on a Document instead, or reply within an existing thread by id. If the session context shows more than one comment thread on the issue, reply within the one the request is actually about rather than starting an unrelated new comment.",
+      "Get, create, update, list, link, or unlink native Linear issues, subissues, projects, Documents, review comments, and relationships through the credential broker - which operations are valid depends on the resource: issue and project support get, create, update, or delete; document supports list, get, create, update, or delete; comment supports list, get, create, reply, update, resolve, unresolve, or delete; relation supports list, create (alias link), or delete (alias unlink); subissue supports list, create, link, or unlink. Any other operation for a resource is rejected. Document create posts directly on the current issue, no project required, and its id field means something different per operation: on create, id names the issue to attach the Document to (defaults to the current issue), not the Document itself; on get/update/delete, id is the Document's own id; list ignores id and uses parentId instead (also defaulting to the current issue) to say which issue's Documents to enumerate. Comment list and create with no parentId target the current issue's own comments; pass a Document id as parentId to list or comment on a Document instead, or reply within an existing thread by id. If the session context shows more than one comment thread on the issue, reply within the one the request is actually about rather than starting an unrelated new comment.",
       {
         resource: z.enum(["issue", "project", "document", "comment", "relation", "subissue"]),
         operation: z.enum(["get", "create", "update", "delete", "list", "link", "unlink", "reply", "resolve", "unresolve"]),
@@ -566,7 +566,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "linear_activity",
-      "Share a durable note, HTTPS URL, review attachment, or Linear Document. Use manage_plan for the native Agent Plan. As soon as you open a pull request or have a live preview/deploy URL, publish it immediately - do not wait until the final summary. Use {action: \"publish\", publication: {kind: \"attachment\", title, url}} for a pull request, preview, or dashboard link: this attaches it to the issue's own Links section and to this Agent Session, so it survives independently of any comment. Use {action: \"external_url\", label, url} only for a lighter session-only link that doesn't warrant an issue-level attachment. Use {action: \"activity\", content: {type: \"thought\"|\"response\", body}} for a durable note.",
+      "Share a durable note, HTTPS URL, review attachment, Linear Document, or comment reaction. Use manage_plan for the native Agent Plan. As soon as you open a pull request or have a live preview/deploy URL, publish it immediately - do not wait until the final summary. Use {action: \"publish\", publication: {kind: \"attachment\", title, url}} for a pull request, preview, or dashboard link: this attaches it to the issue's own Links section and to this Agent Session, so it survives independently of any comment. Use {action: \"external_url\", label, url} only for a lighter session-only link that doesn't warrant an issue-level attachment. Use {action: \"activity\", content: {type: \"thought\"|\"response\", body}} for a durable note. Use {action: \"react\", commentId, emoji} to place a lightweight emoji reaction directly on a specific comment - such as one already shown to you as \"Comment <id>\" in a Document review thread, in Linear's own thread markers in your session context, or returned by manage_linear's comment list/get - instead of writing a whole reply just to acknowledge it. Linear's schema defines emoji as a plain string, not a fixed enum (workspaces can even register their own custom emoji names), so there is no universal allowed list; reuse a short, colon-free shortcode name such as \"white_check_mark\" unless you know a specific name this workspace supports, and expect the call to fail if Linear does not recognize the name you send.",
       {
         request: z.record(z.string(), z.unknown()),
       },
@@ -574,7 +574,7 @@ export function createStraylightTools(context) {
     ),
     tool(
       "manage_service",
-      "Start, inspect, read logs from, or stop the task's isolated PostgreSQL or Playwright browser service.",
+      "Start, inspect, read logs from, or stop the task's isolated PostgreSQL or Playwright browser service. By default, postgres starts with a fresh random password and its data directory on tmpfs each time; set persistent: true to keep a stable password and move the data directory onto host-backed storage instead, so the same database survives this session's container being recreated on resume. persistent is not valid for browser: it is always disposable, and setting persistent: true for it throws \"The browser service is always disposable\".",
       {
         action: z.enum(["start", "status", "logs", "stop"]),
         service: z.enum(["postgres", "browser"]),

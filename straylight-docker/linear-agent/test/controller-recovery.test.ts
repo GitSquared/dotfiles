@@ -678,3 +678,219 @@ test("never resumes a conversation whose session is still actively running", asy
   assert.equal(runs.length, 3);
   assert.equal(runs[2]?.resumeConversationId, undefined, "session-running is mid-turn, so its conversation must not be shared");
 });
+
+test("mentions the issue's assignee on an urgent signal, giving it real notification visibility", async () => {
+  const comments: Array<{ issueId: string; body: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-1", body }; },
+    async issueAssigneeUrl() { return "https://linear.app/acme/profiles/jdoe"; },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-signal-urgent", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  const result = await controller.collaborateLinear("session-signal-urgent", {
+    action: "attention",
+    request: {
+      kind: "signal",
+      delivery: "queue",
+      priority: "urgent",
+      title: "Third-party API is flaking",
+      action: "Retrying with backoff; noting in case it gets worse.",
+      originalIntent: "Call the billing API to reconcile invoices.",
+      delta: "The billing API returned 503 twice; retries are succeeding so far.",
+      recommendation: "No action needed unless retries start failing outright.",
+      impact: "None yet; the run is continuing on schedule.",
+      timing: "Informational only.",
+    },
+  });
+
+  assert.deepEqual(result, { ok: true, action: "attention" });
+  assert.equal(comments.length, 1);
+  assert.match(
+    comments[0]!.body,
+    /^https:\/\/linear\.app\/acme\/profiles\/jdoe\n\n/,
+    "an urgent signal must lead with a bare mention URL so Linear's own parser renders a real @mention and notifies its Inbox",
+  );
+  assert.match(comments[0]!.body, /\*\*Update:\*\* Third-party API is flaking/);
+});
+
+test("does not mention anyone on a routine signal, even when the issue has an assignee", async () => {
+  const comments: Array<{ issueId: string; body: string }> = [];
+  let assigneeLookups = 0;
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-1", body }; },
+    async issueAssigneeUrl() { assigneeLookups += 1; return "https://linear.app/acme/profiles/jdoe"; },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-signal-routine", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-signal-routine", {
+    action: "attention",
+    request: {
+      kind: "signal",
+      delivery: "queue",
+      title: "Switched to a cached dependency list",
+      action: "Using the lockfile from main since the branch's own lockfile is stale.",
+      originalIntent: "Install dependencies for the build.",
+      delta: "The branch's lockfile predates a recent dependency bump.",
+      recommendation: "No action needed.",
+      impact: "None; the build will use up-to-date, compatible versions.",
+      timing: "Informational only.",
+    },
+  });
+
+  assert.equal(assigneeLookups, 0, "a routine signal must never even look up the assignee - only urgent ones do");
+  assert.equal(comments.length, 1);
+  assert.doesNotMatch(comments[0]!.body, /linear\.app/, "a routine signal must stay a plain comment with no mention");
+});
+
+test("falls back to a plain comment when an urgent signal's issue has no assignee, or the assignee lookup fails", async () => {
+  const comments: Array<{ issueId: string; body: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-1", body }; },
+    async issueAssigneeUrl() { return null; },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-signal-unassigned", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  const result = await controller.collaborateLinear("session-signal-unassigned", {
+    action: "attention",
+    request: {
+      kind: "signal",
+      delivery: "queue",
+      priority: "urgent",
+      title: "Rate limit close to exhausted",
+      action: "Slowing down requests to stay under the API's rate limit.",
+      originalIntent: "Backfill historical records via the vendor API.",
+      delta: "The vendor's rate limit is tighter than expected for this account tier.",
+      recommendation: "No action needed unless the backfill starts timing out.",
+      impact: "The backfill will simply take longer than planned.",
+      timing: "Informational only.",
+    },
+  });
+
+  assert.deepEqual(result, { ok: true, action: "attention" });
+  assert.equal(comments.length, 1);
+  assert.doesNotMatch(comments[0]!.body, /^https:\/\/linear\.app/, "with no assignee the comment must stay plain, no mention prefix");
+  assert.match(comments[0]!.body, /\*\*Update:\*\* Rate limit close to exhausted/);
+
+  const failing = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createIssueComment(issueId: string, body: string) { comments.push({ issueId, body }); return { id: "comment-2", body }; },
+    async issueAssigneeUrl() { throw new Error("Linear GraphQL request failed: rate limited"); },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const controllerWithFailingLookup = new AgentController(failing, runner);
+  await controllerWithFailingLookup.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-signal-lookup-failure", issueId: "issue-2", creatorId: "human-1", issue: { id: "issue-2", teamId: "team-1" } },
+  });
+  const secondResult = await controllerWithFailingLookup.collaborateLinear("session-signal-lookup-failure", {
+    action: "attention",
+    request: {
+      kind: "signal",
+      delivery: "queue",
+      priority: "urgent",
+      title: "Rate limit close to exhausted",
+      action: "Slowing down requests to stay under the API's rate limit.",
+      originalIntent: "Backfill historical records via the vendor API.",
+      delta: "The vendor's rate limit is tighter than expected for this account tier.",
+      recommendation: "No action needed unless the backfill starts timing out.",
+      impact: "The backfill will simply take longer than planned.",
+      timing: "Informational only.",
+    },
+  });
+
+  assert.deepEqual(secondResult, { ok: true, action: "attention" });
+  assert.equal(comments.length, 2);
+  assert.doesNotMatch(comments[1]!.body, /^https:\/\/linear\.app/, "a failed assignee lookup must not surface as an error - just skip the mention");
+});
+
+test("routes the react action straight to reactToComment with no issue context required", async () => {
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async createActivity() {},
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 }; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({ action: "created", agentSession: { id: "session-react" } });
+
+  const result = await controller.collaborateLinear("session-react", {
+    action: "react",
+    commentId: "comment-42",
+    emoji: "white_check_mark",
+  });
+
+  assert.deepEqual(result, { ok: true, action: "react" });
+  assert.deepEqual(reactions, [{ commentId: "comment-42", emoji: "white_check_mark" }]);
+});
+
+test("does not surface a reactToComment failure - the reaction is best-effort", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async createActivity() {},
+    async reactToComment() { throw new Error("Linear GraphQL request failed: unknown emoji"); },
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 }; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({ action: "created", agentSession: { id: "session-react-failure" } });
+
+  const result = await controller.collaborateLinear("session-react-failure", {
+    action: "react",
+    commentId: "comment-42",
+    emoji: "not-a-real-emoji",
+  });
+
+  assert.deepEqual(result, { ok: true, action: "react" });
+});

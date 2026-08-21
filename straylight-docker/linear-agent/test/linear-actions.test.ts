@@ -60,6 +60,7 @@ test("accepts bounded generic Agent Session collaboration", () => {
   }), true);
   assert.equal(isLinearSessionRequest({ action: "external_url", label: "Review", url: "https://example.com/review" }), true);
   assert.equal(isLinearSessionRequest({ action: "plan", steps: [{ content: "Inspect", status: "inProgress" }] }), true);
+  assert.equal(isLinearSessionRequest({ action: "react", commentId: "comment-1", emoji: "white_check_mark" }), true);
   assert.equal(isLinearSessionRequest({
     action: "publish",
     publication: { kind: "document", id: "doc-1", title: "Review", body: "# Review", update: true },
@@ -99,4 +100,6 @@ test("rejects unsafe or malformed Agent Session collaboration", () => {
     signalMetadata: { url: "https://example.com/auth" },
   }), false);
   assert.equal(isLinearSessionRequest({ action: "plan", steps: [{ content: "Inspect", status: "surprise" }] }), false);
+  assert.equal(isLinearSessionRequest({ action: "react", commentId: "comment-1", emoji: "" }), false);
+  assert.equal(isLinearSessionRequest({ action: "react", commentId: 42, emoji: "white_check_mark" }), false);
 });

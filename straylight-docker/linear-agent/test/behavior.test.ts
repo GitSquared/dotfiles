@@ -55,6 +55,9 @@ test("tells Claude it is resuming its own prior conversation on a routed mention
   assert.match(resumed, /Verify current state/);
   assert.match(resumed, /fresh, empty workspace container/);
   assert.match(resumed, /re-clone any repository/);
+  assert.match(resumed, /local plan file is equally fresh/);
+  assert.match(resumed, /start a fresh plan or list current plan state/);
+  assert.doesNotMatch(fresh, /local plan file is equally fresh/);
 });
 
 test("makes a mention comment authoritative over an older issue instruction", () => {

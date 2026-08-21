@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
+import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, createStraylightTools, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
 
 test("communicates a wall-clock budget without imposing a turn ceiling", () => {
   const instruction = runtimeBudgetInstruction(3_600_000);
@@ -146,4 +146,113 @@ test("refuses to resolve access repair when the workbench has no configured auth
     () => resolveAccessRepair({ workspace: "tools", providerName: "GitHub" }, {}),
     /No tools auth URL is configured/,
   );
+});
+
+// The tests below exercise the real request_attention tool call, not just the
+// pure resolveAccessRepair helper: createStraylightTools(context) returns the
+// { type: "sdk", instance } wrapper createSdkMcpServer hands to the SDK, and
+// the SDK registers each tool()'s handler verbatim onto
+// instance._registeredTools[name].handler (see
+// @anthropic-ai/claude-agent-sdk's createSdkMcpServer, which forwards straight
+// into @modelcontextprotocol/sdk's McpServer.registerTool). Reaching into
+// that registry is the only way to invoke the actual destructuring/guard/
+// spread logic inside the request_attention handler, as opposed to a
+// hand-rolled stand-in for it.
+function accessRepairWorkbenchContext() {
+  return {
+    workbenchUrl: "https://workbench.example.test",
+    taskToken: "task-token",
+    capsuleAuthUrl: "https://workbench.example.test/capsule/auth",
+    toolAuthUrl: "https://workbench.example.test/tools/auth",
+    awaitingInput: false,
+    disposition: undefined,
+  };
+}
+
+function requestAttentionHandler(context) {
+  const { instance } = createStraylightTools(context);
+  return instance._registeredTools.request_attention.handler;
+}
+
+function baseAttentionRequest(overrides) {
+  return {
+    delivery: "interrupt",
+    title: "Push blocked",
+    action: "Push the branch.",
+    originalIntent: "Ship the fix.",
+    delta: "git push fails with a 403.",
+    recommendation: "Link GitHub access.",
+    impact: "Work is stalled until access is granted.",
+    timing: "Before the next push.",
+    ...overrides,
+  };
+}
+
+test("the request_attention tool call rejects missingAccess on a non-blocking Signal or a QA request", async (t) => {
+  const context = accessRepairWorkbenchContext();
+  const fetchCalls = [];
+  t.mock.method(globalThis, "fetch", async (...args) => {
+    fetchCalls.push(args);
+    throw new Error("fetch should not be called when missingAccess is rejected");
+  });
+  const handler = requestAttentionHandler(context);
+
+  for (const kind of ["signal", "qa"]) {
+    await assert.rejects(
+      () => handler(baseAttentionRequest({ kind, missingAccess: { workspace: "tools", providerName: "GitHub" } }), {}),
+      /missingAccess requires kind: steering/,
+    );
+  }
+  assert.equal(fetchCalls.length, 0);
+});
+
+test("the request_attention tool call assembles a correctly-populated accessRepair onto the forwarded attention for a blocking Steering request", async (t) => {
+  const context = accessRepairWorkbenchContext();
+  const missingAccess = { workspace: "tools", providerName: "GitHub" };
+  const expectedAccessRepair = resolveAccessRepair(missingAccess, context);
+
+  let capturedUrl;
+  let capturedBody;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, text: async () => JSON.stringify({ ok: true }) };
+  });
+  const handler = requestAttentionHandler(context);
+
+  await handler(baseAttentionRequest({ kind: "steering", missingAccess }), {});
+
+  assert.equal(capturedUrl, "https://workbench.example.test/v1/linear-session");
+  assert.equal("missingAccess" in capturedBody.request, false);
+  assert.deepEqual(capturedBody.request.accessRepair, expectedAccessRepair);
+  assert.deepEqual(capturedBody.request.accessRepair, { url: "https://workbench.example.test/tools/auth", providerName: "GitHub" });
+});
+
+// linear_activity has no per-action logic of its own - unlike request_attention
+// it just forwards whatever { request } shape it was called with straight to
+// the workbench (the real validation lives server-side in isLinearSessionRequest/
+// AgentController.collaborateLinear). This still earns its own test: it is the
+// only thing that proves a new action like "react" reaches the wire unmodified,
+// through the same _registeredTools reflection used for request_attention above.
+function linearActivityHandler(context) {
+  const { instance } = createStraylightTools(context);
+  return instance._registeredTools.linear_activity.handler;
+}
+
+test("the linear_activity tool call forwards a react request verbatim to the workbench", async (t) => {
+  const context = accessRepairWorkbenchContext();
+  let capturedUrl;
+  let capturedBody;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, text: async () => JSON.stringify({ ok: true, action: "react" }) };
+  });
+  const handler = linearActivityHandler(context);
+
+  const result = await handler({ request: { action: "react", commentId: "comment-42", emoji: "white_check_mark" } }, {});
+
+  assert.equal(capturedUrl, "https://workbench.example.test/v1/linear-session");
+  assert.deepEqual(capturedBody, { action: "react", commentId: "comment-42", emoji: "white_check_mark" });
+  assert.deepEqual(result, { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "react" }, null, 2) }] });
 });

@@ -727,6 +727,117 @@ round-trip (and that a non-string value is rejected) and in
 side arrives intact in the harness's `run(payload, ...)` call over the real
 HTTP body.
 
+## Empty plan on resume — 2026-08-21
+
+Same gap as the workspace-empty fix above, just the other piece of state
+living under the same fresh container's `.straylight/` directory. The
+workspace-empty note already established that a resumed Claude conversation
+carries semantic memory (what it concluded) into a container that has none
+of the physical state (files, checkouts) that memory refers to. The native
+plan is exactly that kind of physical state, stored right next to the
+session file this was traced from: `ClaudeHarness.planFilename()` in
+`src/claude.ts` resolves `.straylight/plan.json` under the task's own
+`piWorkdir`, scoped to one Linear session's one container, same as
+`.straylight/claude-session.json`. A brand-new container for a resumed
+mention has neither file on disk.
+
+Missing `claude-session.json` was already handled deliberately -
+`readSession` catches ENOENT and returns `undefined`, which is exactly the
+"no local history, fall back to `resumeConversationId`" path `ClaudeHarness.run`
+needs. `readPlan` does the same for a missing `plan.json`: ENOENT falls back
+to `emptyPlan()` in `src/plan.ts`, silently. That fallback is correct
+behavior, not a bug - the new container legitimately has no plan yet. The gap
+was that a resumed Claude conversation doesn't know that. It remembers
+calling `manage_plan` with, say, `{action: "update", id: 3}` in its prior
+turn, and nothing in the prompt told it that id died with the old container.
+
+The failure mode is `applyPlanRequest` in `src/plan.ts` throwing
+`Plan item 3 does not exist` (the exact message the `update` and `remove`
+branches raise when `findIndex` comes back `< 0` against an empty-plan
+lookup) - a real error, correctly raised, but one the model would plausibly
+read as "my plan got corrupted" rather than "I'm in a fresh container and
+never re-created it here." `reconcilePlan` raises the same message for an
+unknown id, and it's arguably the likelier trigger: the initial prompt
+itself instructs reconciling every item before a terminal transition, so a
+resumed session closing out is more likely to reconcile a remembered id than
+to `update` one first. Same shape as the pre-fix ENOENT-on-a-remembered-file
+or not-a-git-repository confusion, just for plan item ids instead of file
+paths.
+
+Fixed the same way, in the same place: one more clause appended to the
+existing conditional line in `claudeInitialPrompt` (`src/prompts.ts`) that
+already warns about the empty workspace on `resumeConversationId`. Told to
+treat the local plan as equally fresh and empty, and to start a new plan or
+list current plan state via `manage_plan` rather than referencing a
+remembered item id - which covers `reconcile` too, since the guidance is to
+stop trusting old ids at all, not just for one action. Checked
+`claude-capsule/agent-request.mjs` before touching anything: its
+`manage_plan` case only builds a progress-display phrase (`item ${id}`) and
+forwards the request over HTTP to `/v1/plan`; storage, the ENOENT fallback,
+and the "does not exist" error all live purely in `src/claude.ts` and
+`src/plan.ts`, so no capsule change was needed.
+
+## Testing the missingAccess tool-handler path - 2026-08-21
+
+Went back over the native `auth` signal work from 2026-08-20 looking for
+test coverage gaps, since every test that touched it exercised one of two
+things: `resolveAccessRepair(missingAccess, context)` directly as a pure
+function (`claude-capsule/agent-request.test.mjs`), or a controller test
+that hands `collaborateLinear` an already-fully-formed `accessRepair` object
+(`test/controller-recovery.test.ts`'s "posts an access-repair Steering
+request"). Nothing actually called the `request_attention` tool the way
+Claude calls it. The real logic - `const { missingAccess, ...attention } =
+request;` then the `attention.kind !== "steering"` guard then
+`attention.accessRepair = resolveAccessRepair(...)` inside the tool's own
+handler in `claude-capsule/agent-request.mjs` - sits between those two
+tested layers and neither test walks through it.
+
+Confirmed this was a real gap, not a hunch, by mutating it two ways and
+re-running the untouched capsule suite each time: deleting the `kind !==
+"steering"` guard line, and replacing the `{ action: "attention", request:
+attention }` forward with a hand-picked subset of fields that dropped
+`accessRepair`. Both mutations passed all 11 existing tests clean. Linear
+would have silently rendered a plain evidence link instead of the
+account-linking control, or let a Signal/QA request quietly attach
+`accessRepair` without the model ever asking for `steering`, and nothing
+would have caught it.
+
+The obstacle to testing the handler directly is that `createStraylightTools`
+returns `createSdkMcpServer(...)`'s output, not the raw tool array - so the
+closure with the destructuring/guard/spread isn't reachable as an exported
+function. Traced how `@anthropic-ai/claude-agent-sdk`'s `createSdkMcpServer`
+actually wires it up: it builds an `McpServer` instance and calls
+`instance.registerTool(name, {...}, handler)` per tool, and
+`@modelcontextprotocol/sdk`'s `McpServer._createRegisteredTool` stores that
+exact handler function, unwrapped, on
+`instance._registeredTools[name].handler`. So
+`createStraylightTools(context).instance._registeredTools.request_attention.handler`
+*is* the real closure from `agent-request.mjs`, reachable without changing
+any non-test source. Confirmed empirically with a throwaway script before
+committing to the approach, then re-ran both mutations against the new tests
+specifically: both were caught (the guard deletion produced an unexpected
+fetch call and a mismatched error message; the spread-breaking change left
+`capturedBody.request.accessRepair` `undefined` against the expected
+value).
+
+Added two tests exercising that handler:
+
+- `missingAccess` alongside `kind: "signal"` or `kind: "qa"` rejects with
+  exactly the error the code throws, `missingAccess requires kind:
+  steering`, and - mocked via `t.mock.method(globalThis, "fetch", ...)`
+  rather than trusting network behavior in a sandboxed run - confirmed no
+  HTTP call is attempted either.
+- `missingAccess` alongside `kind: "steering"` forwards a `request` body
+  whose `accessRepair` field deep-equals what `resolveAccessRepair` itself
+  returns for the same input (computed by calling the already-tested pure
+  helper, not duplicated by hand), and confirmed `missingAccess` itself does
+  not leak into the forwarded object.
+
+`bun run test:capsule` (13/13, up from 11) and `bun run check` (typecheck
+plus the full `test/*.ts` suite, 115/115) both stayed green throughout, and
+neither `agent-request.mjs` nor any other non-test file needed to change -
+`createStraylightTools` was already exported.
+
 ## Next live trial — 2026-08-19
 
 The Claude-default and rationalized-attention slice converged successfully on
@@ -736,3 +847,263 @@ written normally without harness-specific prompt scaffolding. Observe the run
 before expanding the system, especially whether it respects the requested
 intent level, works autonomously without needless questions, and produces a
 useful Steering or QA transition only when warranted.
+
+## Tool-description corrections - 2026-08-21
+
+Same bug class as the `request_attention` fix in 9e08ffe: a tool's
+natural-language description is the model's only interface to what the tool
+actually does, and an undocumented capability or an inaccurate description is
+functionally as bad as a bug. Four more of `agent-request.mjs`'s descriptions
+turned out stale, incomplete, or silently assuming knowledge the model has no
+way to have. None of these needed a behavior change - the underlying code was
+already correct; only the string Claude reads was wrong or missing something
+load-bearing.
+
+**`manage_service`'s `persistent` flag was undocumented.**
+`WorkbenchHarness.startService`/`createPostgresService` in `src/workbench.ts`
+show the real behavior: postgres defaults to a fresh random 24-byte password
+(`crypto.randomBytes(24)`) and a tmpfs data directory every start;
+`persistent: true` instead reads/writes a stable password to
+`.services/postgres/connection.json` under the session's own workspace and
+binds the data directory onto host-backed storage, so the same database
+survives this session's container being recreated on resume. `startService`
+also has `if (service === "browser" && persistent) throw new Error("The
+browser service is always disposable")` - a hard rejection the description
+never mentioned, so a model that reasonably assumed persistence was
+orthogonal to service kind had no way to anticipate the runtime error.
+
+**`manage_linear` never said which operations are valid for which
+resource.** The description listed every verb (get/create/update/list/
+link/unlink) against every resource noun as one undifferentiated list, which
+reads as "any verb works on any resource" without ever having claimed it
+outright. `src/linear.ts`'s six `manage*` dispatch functions each end in
+their own `throw new Error(\`${resource} does not support ${operation}; use
+...\`)` fallthrough, which is the actual authority: issue/project take
+get/create/update/delete; document adds list; comment adds
+reply/resolve/unresolve; relation only takes list plus create-aliased-link
+and delete-aliased-unlink; subissue treats create/link/unlink as four
+distinct operations. Checked `isLinearManageRequest` in
+`src/linear-actions.ts` first, since if that guard enforced its own
+per-resource allowlist upstream of `linear.ts` the matrix would have to come
+from there instead - it doesn't; it only validates shape (resource and
+operation are each in the full enum, id/parentId/relatedId are strings if
+present), so the six dispatch functions' own error clauses are ground truth
+and the matrix was lifted verbatim from them.
+
+**Document's `id` field silently meant three different things.** On
+`create`, `manageDocument` reads `request.id` as the issue to attach the new
+Document to, defaulting to `context.issueId` (the current issue) - not the
+Document. On `get`/`update`/`delete` it's the Document's own id, with no
+fallback. `list` ignores `id` entirely and reads `request.parentId` instead
+(also defaulting to the current issue) for which issue's Documents to
+enumerate. Nothing in the old description said any of this, so a model
+reasoning by analogy from `update`/`delete` - where `id` is unambiguously
+"the thing you're touching" - had no signal that `create` breaks that
+pattern.
+
+**The `bash` tool's timeout and truncation behavior was never stated.**
+`ClaudeHarness.shell` in `src/claude.ts` defaults `timeoutMs` to 120 seconds
+when omitted and clamps it to the tool schema's own 300-second ceiling
+(`z.number().int().min(1_000).max(300_000)` on the tool definition itself).
+The more interesting gap was `maxBuffer: 256 * 1024`, passed straight through
+to `Bun.spawn` inside `runtime.ts`'s `captureCommand`. Read Bun's own type
+declarations first (`node_modules/bun-types/bun.d.ts`), which document that
+both a timeout and a `maxBuffer` overrun kill the subprocess with
+`killSignal` (default SIGTERM) - then didn't take that on faith and wrote a
+throwaway probe script spawning a slow-emitting subprocess under the
+installed Bun (1.3.14): confirmed empirically that once a single stream
+crosses roughly 256 KB the process is actually killed mid-run, well before it
+would otherwise finish, not just capped after the fact. Whatever partial
+output survives that gets `redact()`-ed and then `.slice(-128 * 1024)`-ed
+independently per stream in `shell()`'s return - tail kept, head dropped, no
+marker showing where the cut happened. None of that was in the description,
+so the model had no way to know a large-output command might be killed
+outright rather than merely truncated, or that a visible tail could silently
+be missing its beginning.
+
+`bun run test:capsule` (13/13) and `bun run check` (typecheck plus 115/115 in
+`test/*.ts`) both stayed green throughout - no test in either suite asserts
+on tool description text today, and none needed to change, since nothing
+about the dispatch logic, zod shapes, or runtime behavior moved.
+
+## Urgent-signal escalation - 2026-08-21
+
+A `kind: "signal"` attention request is deliberately, permanently
+non-blocking: `isAttentionRequest` in `src/attention.ts` hard-forces
+`delivery: "queue"` for every signal regardless of stated urgency, and that
+does not change here. What did change is what a signal's own comment can
+carry when the caller marks it `priority: "urgent"` - the question was
+whether Linear's API actually gives an agent a way to make one comment more
+visible than another without touching status, without expecting a reply,
+and without any decorative text that only looks like it does something.
+
+**What I verified, and where.** `src/linear.ts`'s `createIssueComment` calls
+`commentCreate(input: CommentCreateInput!)` with only `{ issueId, body }` -
+`body` is plain Markdown, the same Markdown the Linear editor itself parses.
+Linear's own developer docs (`https://linear.app/developers/graphql`,
+"Adding mentions in Markdown" section) state the mechanism directly: a bare
+URL to a user's profile page - `https://<workspace>/profiles/<handle>` -
+appearing anywhere in Markdown gets converted into a real `@mention` in the
+rendered comment, identical to typing `@` and picking a person in the editor.
+A companion line I found while reading the agent-interaction guide
+(`https://linear.app/developers/agent-interaction`) makes the payoff
+explicit for the exact case here: for a user mention, "this will send a
+notification to their Inbox." This is not the same claim as a plain
+`@DisplayName` string doing something - Linear's editor does not parse `@`
+followed by text at all when it arrives as raw Markdown from the API; it
+parses a specific URL shape into a mention node. I confirmed the exact field
+needed to build that URL by pulling Linear's full public schema SDL
+(`https://raw.githubusercontent.com/linear/linear/refs/heads/master/packages/sdk/src/schema.graphql`)
+and finding `User.url: String!`, documented plainly as "User's profile URL."
+That means the codebase never has to reconstruct a workspace URL key itself -
+asking Linear for `assignee { id url }` on the issue returns an
+already-correct, ready-to-embed mention URL.
+
+**Why this is a comment concern, not a `signal`/`delivery` concern.** The
+`isAttentionRequest` validator and `attentionBlocking`/`attentionPriority` in
+`src/attention.ts` are untouched. The mention is not a new delivery channel;
+it is an optional extra token glued onto the same plain-comment body that
+non-urgent signals already get, decided purely by whether
+`attentionPriority(req) === "urgent"`. I added `LinearClient.issueAssigneeUrl`
+in `src/linear.ts` - a one-shot `issue(id) { assignee { url } }` query
+returning just the URL (there was never a second caller for the assignee's
+`id`, so it never got fetched). `collaborateLinear`'s `signal` branch calls
+it only on the urgent path, inline with the same `.catch(() => null)`
+one-liner used roughly fifteen other places in this file for exactly this
+"best-effort side lookup, never let it fail the request" shape - an
+adversarial review pass caught that a first draft had instead grown a
+dedicated `urgentSignalMention` method with its own try/catch and a
+paragraph of doc comment to do the same thing, which was more machinery
+than the behavior needed. `collaborateLinear` then does
+`mention ? `${mention}\n\n${comment}` : comment` before the same
+`finalText(...)` call that already existed - so a routine signal's rendered
+comment is byte-for-byte what it was before this change, and an urgent
+signal with no resolvable assignee (or a failed lookup) degrades to that
+exact same plain comment. `finalText`'s `redact()` step already URL-parses
+every `https://` substring in the body for credential/query stripping; a
+bare profile URL with no credentials or query string round-trips through it
+unchanged, so it survives to reach Linear exactly as the mention parser
+expects it.
+
+One risk the same review pass surfaced and I'm recording rather than
+papering over: the claim that a bare profile URL renders as a real
+`@mention` and fires an Inbox notification is verified against Linear's
+public docs and schema, not against an actual posted comment on live
+Linear. If that's wrong or has changed, the failure mode is silent
+degradation - an urgent signal posts a plain URL above the comment instead
+of a real mention - not a crash, so it won't show up in tests or logs. The
+next live trial should specifically check that an urgent signal actually
+produces a rendered `@mention` and an Inbox notification, not just that the
+comment contains the right substring.
+
+**Net effect:** an urgent signal now additionally puts the issue's current
+assignee in their own Linear Inbox via a real mention notification, using
+only a mechanism Linear's parser already treats as a first-class mention -
+not a look-alike. A routine signal, or an urgent signal on an unassigned
+issue, is unchanged. Nothing here can flip issue state, block the run, or
+require a reply; only who gets tapped on the shoulder for the same comment
+changed, and only for the priority tier that already meant "worth a human's
+attention sooner."
+
+Added four cases to `test/controller-recovery.test.ts` alongside the existing
+`collaborateLinear`/attention tests: an urgent signal with an assignee gets
+the mention prefix; a routine signal never even calls `issueAssigneeUrl`,
+let alone mentions anyone; an urgent signal on an unassigned issue falls
+back to the plain comment; and an urgent signal whose assignee lookup
+throws falls back the same way instead of surfacing the error.
+`claude-capsule/*` was not touched, so `bun run test:capsule` did not need a
+rerun for this feature specifically.
+
+## Reaction tool for Claude - 2026-08-21
+
+The system already auto-reacts with a ✅ on a resolving reply (the
+`reactToComment(replyCommentId, "white_check_mark")` calls in
+`controller.ts:470/485`), but Claude itself had no way to do the same thing
+on purpose - it could only post a whole new comment or activity to
+acknowledge something. `LinearClient.reactToComment(commentId, emoji)` in
+`src/linear.ts:634` already existed and does nothing fancier than call
+`reactionCreate(input: ReactionCreateInput!)`; the gap was entirely on the
+routing side.
+
+**Fit the existing broker instead of adding one.** `collaborateLinear` in
+`src/controller.ts` already switches on a `LinearSessionRequest["action"]`
+discriminated union (`attention`/`defer`/`activity`/`external_url`/`plan`/
+`publish`), validated shape-first by `isLinearSessionRequest` in
+`src/linear-actions.ts`, and exposed to Claude as the single generic
+`linear_activity` tool in `claude-capsule/agent-request.mjs` (`{ request:
+z.record(...) }`, forwarded verbatim to `/v1/linear-session`). Added one more
+member to the union instead of a parallel path: `{ action: "react";
+commentId: string; emoji: string }`, a validator branch
+(`isString(request.commentId, 200) && isString(request.emoji, 100)`), and a
+`collaborateLinear` branch that calls `this.linear.reactToComment(...)` and
+returns `{ ok: true, action: "react" }` - the same shape `external_url`
+already returns, no `data` needed since `reactToComment` is void. It had to
+land as an explicit `if` before the trailing `publish` handling, which relies
+on every other member of the union having already been eliminated by the
+time it runs; appending after that block instead would have broken that
+narrowing.
+
+**Where a `commentId` actually comes from.** Checked this before settling on
+the shape, since a reaction verb Claude can't target is the same class of
+gap as an undocumented tool. Three real sources already reach Claude:
+`documentReview()` in `src/prompts.ts:55` renders each thread entry as
+`` - Comment ${comment.id} `` directly into the initial and follow-up
+prompts; `manage_linear`'s comment `list`/`get` operations return the raw
+`COMMENT_FIELDS` object (which includes `id`) as JSON tool output; and
+Linear's own `promptContext` XML (surfaced as "Supporting Linear context")
+already tags each thread with a `comment-id`, per the earlier "Going bold"
+research entry. No new plumbing was needed to expose an id - only a verb
+that could use one.
+
+**`emoji` is not gated to a fixed list, and the tool description says so
+honestly instead of guessing.** Pulled Linear's public schema SDL
+(`https://raw.githubusercontent.com/linear/linear/refs/heads/master/packages/sdk/src/schema.graphql`)
+and confirmed directly: `input ReactionCreateInput { commentId: String,
+emoji: String!, ... }` - a plain string, not an enum. The schema also
+defines a per-workspace `CustomEmoji` type ("uploaded by users... unique
+name within the workspace"), which is why there's no universal allowed set
+to enumerate even in principle. The only concrete value seen anywhere in
+this codebase is `"white_check_mark"`, so the `linear_activity` description
+names that one as the example shortcode to reuse and states plainly that an
+unrecognized name gets rejected, rather than inventing a plausible-looking
+list the way the `manage_service`/`manage_linear` descriptions were wrong
+about undocumented behavior in the "Tool-description corrections" entry
+above.
+
+**Deliberately not added: any issue-scoping on `commentId`.** `manage_linear`'s
+comment `update`/`resolve`/`delete` already accept an arbitrary
+caller-supplied comment id with no check that it belongs to the current
+issue (`requiredId(request.id, undefined, ...)`, no `state.issueId`
+involved). Giving `react` alone a narrower guard would be inconsistent with
+the rest of the broker's surface for no stated reason, so it was left the
+same.
+
+**Checked the third caller of `/v1/linear-session`, not just the two in the
+capsule/controller path.** `src/linear-tool-client.ts`'s `LinearToolClient`
+is a separate client of the same endpoint, used by the legacy Pi harness in
+`src/claude.ts` (plan mirroring, `shareArtifact`'s activity note). Its
+`collaborate(request: LinearSessionRequest, signal?)` takes the whole typed
+union verbatim rather than enumerating actions itself, so widening
+`LinearSessionRequest` with `react` reaches it automatically - confirmed by
+`bun run check`'s full typecheck passing with no changes needed there.
+
+Added acceptance/rejection cases for `{ action: "react", ... }` to
+`test/linear-actions.test.ts`; a `collaborateLinear` routing test to
+`test/controller-recovery.test.ts` asserting it calls `reactToComment` with
+the exact `commentId`/`emoji` and needs no `issueId` on the session; and,
+since `linear_activity` has no per-action logic of its own (unlike
+`request_attention`, it just forwards `{ request }` verbatim), one test in
+`claude-capsule/agent-request.test.mjs` reaching into
+`instance._registeredTools.linear_activity.handler` the same way the
+`missingAccess` tests already do, to prove a `react` body reaches the wire
+unmodified. `claude-capsule/agent-request.mjs`'s tool description changed,
+so `bun run test:capsule` needed a rerun this time, not just `bun run check`.
+
+An adversarial review pass afterward caught that the `react` branch's
+`reactToComment` call had no `.catch`, unlike the identical call at
+`controller.ts:474` and the other best-effort Linear side-effects throughout
+this file - an unrecognized emoji or a transient Linear failure would have
+surfaced as an unhandled rejection instead of the reaction simply not
+landing. Added `.catch(() => undefined)` to match the existing pattern, plus
+a test asserting a throwing `reactToComment` still returns `{ ok: true,
+action: "react" }` rather than rejecting.

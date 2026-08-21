@@ -289,7 +289,12 @@ export class AgentController {
       if (!state.issueId || !state.teamId) throw new Error("Attention requests require an issue-backed Agent Session");
       const req = request.request;
       if (req.kind === "signal") {
-        await this.linear.createIssueComment(state.issueId, finalText(renderAttentionComment(req)));
+        const comment = renderAttentionComment(req);
+        // Never blocks or touches issue status; urgent priority only adds a real Linear @mention (an Inbox notification) to the same comment.
+        const mention = attentionPriority(req) === "urgent"
+          ? await this.linear.issueAssigneeUrl(state.issueId).catch(() => null)
+          : null;
+        await this.linear.createIssueComment(state.issueId, finalText(mention ? `${mention}\n\n${comment}` : comment));
         return { ok: true, action: request.action };
       }
       if (state.attention.length) {
@@ -348,6 +353,10 @@ export class AgentController {
     if (request.action === "plan") {
       const mirrored = await this.updatePlan(sessionId, request.steps);
       return { ok: true, action: request.action, data: { mirrored } };
+    }
+    if (request.action === "react") {
+      await this.linear.reactToComment(request.commentId, request.emoji).catch(() => undefined);
+      return { ok: true, action: request.action };
     }
     if (request.publication.kind === "document") {
       const document = request.publication.update
