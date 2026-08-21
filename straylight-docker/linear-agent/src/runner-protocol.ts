@@ -20,7 +20,7 @@ export type RunnerEvent =
   | {
       type: "activity";
       content: AgentActivityContent;
-      ephemeral: true;
+      ephemeral: boolean;
     }
   | { type: "result"; result: PiResult };
 
@@ -35,7 +35,7 @@ export function parseRunnerEvent(line: string): RunnerEvent {
   const event = JSON.parse(line) as Partial<RunnerEvent>;
   if (!event || typeof event !== "object") throw new Error("Runner returned an invalid event");
   if (event.type === "activity") {
-    if (event.ephemeral !== true || !event.content || typeof event.content !== "object") {
+    if (typeof event.ephemeral !== "boolean" || !event.content || typeof event.content !== "object") {
       throw new Error("Runner returned an invalid event");
     }
     return event as Extract<RunnerEvent, { type: "activity" }>;

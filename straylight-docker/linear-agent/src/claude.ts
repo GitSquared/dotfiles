@@ -61,6 +61,12 @@ export class ClaudeHarness {
         model: "sonnet",
         timeBudgetMs: this.config.piTimeoutMs,
       }, controller.signal, (progress) => {
+        // A completed action - one that already carries its result - is durable:
+        // it's the same "here's what happened" record Linear's own docs show
+        // (`{action: "Searched", result: "..."}`), not routine narration. An
+        // action still in flight (no result yet) and raw thought streaming are
+        // both unchanged: transient status, discarded once superseded.
+        const completedAction = progress.type === "action" && Boolean(progress.result);
         reporter.report({
           type: "activity",
           content: progress.type === "thought"
@@ -71,7 +77,7 @@ export class ClaudeHarness {
                 parameter: progressText(progress.parameter),
                 ...(progress.result ? { result: progressText(progress.result) } : {}),
               },
-          ephemeral: true,
+          ephemeral: !completedAction,
         });
       });
       if (timedOut) {

@@ -807,7 +807,7 @@ export class AgentController {
     }
     const result = await this.runner.run(taskPayload, async (event) => {
       if (state.generation !== generation) return;
-      await this.createEphemeralActivity(sessionId, event.content);
+      await this.publishActivity(sessionId, event.content, event.ephemeral);
     });
     if (state.generation !== generation) return;
     if (!result.awaitingInput) {
@@ -829,8 +829,16 @@ export class AgentController {
     sessionId: string,
     content: Parameters<LinearClient["createActivity"]>[1],
   ): Promise<void> {
-    await this.linear.createActivity(sessionId, content, { ephemeral: true }).catch((error: unknown) => {
-      console.warn("failed to publish ephemeral Linear activity; agent run continues", {
+    await this.publishActivity(sessionId, content, true);
+  }
+
+  private async publishActivity(
+    sessionId: string,
+    content: Parameters<LinearClient["createActivity"]>[1],
+    ephemeral: boolean,
+  ): Promise<void> {
+    await this.linear.createActivity(sessionId, content, { ephemeral }).catch((error: unknown) => {
+      console.warn(`failed to publish ${ephemeral ? "ephemeral" : "durable"} Linear activity; agent run continues`, {
         sessionId,
         message: finalText(error instanceof Error ? error.message : String(error)),
       });

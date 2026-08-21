@@ -54,8 +54,83 @@ test("projects Claude SDK reasoning and useful tool targets", async () => {
     { type: "action", action: "Linear", parameter: "Reading comments" },
     { type: "thought", body: "Thinking: private chain of thought" },
     { type: "thought", body: "I found the relevant module." },
-    { type: "action", action: "Running command", parameter: "rg -n TODO src", result: "12s elapsed" },
+    { type: "action", action: "Running command", parameter: "rg -n TODO src · 12s elapsed" },
     { type: "thought", body: "Claude is retrying a model request (2/4, HTTP 529)." },
+  ]);
+});
+
+test("logs a completed tool call as a durable action carrying its real result", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "message_start" },
+  });
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-1", name: "mcp__straylight__bash", input: {} } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"echo hi"}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 1 } });
+  // Still in flight: an elapsed-time heartbeat, folded into parameter and never a result.
+  await project({ type: "tool_progress", tool_use_id: "tool-1", tool_name: "mcp__straylight__bash", elapsed_time_seconds: 3 });
+  // The genuine completion: a real tool_result block for the same tool_use_id.
+  await project({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-1", content: "hi\n" }] },
+  });
+
+  assert.deepEqual(events, [
+    { type: "action", action: "Running command", parameter: "echo hi" },
+    { type: "action", action: "Running command", parameter: "echo hi · 3s elapsed" },
+    { type: "action", action: "Running command", parameter: "echo hi", result: "hi" },
+  ]);
+});
+
+test("extracts tool_result text from a structured content block array", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-9", name: "mcp__straylight__manage_linear", input: { operation: "get", resource: "issue" } } },
+  });
+  await project({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-9", content: [{ type: "text", text: "Issue ENG-1: Fix it" }] }] },
+  });
+
+  assert.deepEqual(events, [
+    { type: "action", action: "Linear", parameter: "Reading the issue" },
+    { type: "action", action: "Linear", parameter: "Reading the issue", result: "Issue ENG-1: Fix it" },
+  ]);
+});
+
+test("never reports a tool_result for a tool_use_id this projector instance never saw start", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  // Simulates a resumed session where a prior turn's tool_use/tool_result pair
+  // could otherwise resurface: this instance's tracking maps start empty, so
+  // an unrecognized id must never be logged as a fresh completion.
+  await project({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-from-a-prior-turn", content: "stale output" }] },
+  });
+  assert.deepEqual(events, []);
+});
+
+test("skips a tool_result with no extractable text instead of logging an empty durable entry", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-2", name: "mcp__straylight__view_image", input: { path: "shot.png" } } },
+  });
+  await project({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-2", content: [{ type: "image", source: {} }] }] },
+  });
+  assert.deepEqual(events, [
+    { type: "action", action: "Inspecting image", parameter: "shot.png" },
   ]);
 });
 

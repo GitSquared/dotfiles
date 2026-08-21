@@ -272,6 +272,55 @@ test("publishes safe semantic Claude progress into Linear activity", async () =>
   }
 });
 
+test("posts a completed action durably while in-progress actions and thoughts stay ephemeral", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-durable-progress-"));
+  try {
+    const progressConfig = { ...config(workdir), progressDebounceMs: 1, progressHeartbeatMs: 300_000 };
+    const capsule = {
+      async runBrokeredAgent(
+        _request: unknown,
+        _signal?: AbortSignal,
+        onProgress?: (progress:
+          | { type: "thought"; body: string }
+          | { type: "action"; action: string; parameter: string; result?: string }) => void,
+      ) {
+        onProgress?.({ type: "thought", body: "Looking at the failing test." });
+        await Bun.sleep(3);
+        onProgress?.({ type: "action", action: "Running bash", parameter: "bun test" });
+        await Bun.sleep(3);
+        onProgress?.({ type: "action", action: "Running bash", parameter: "bun test", result: "12 passed" });
+        await Bun.sleep(3);
+        return {
+          status: "ok" as const,
+          answer: "Ready for review.",
+          sessionId: "claude-durable-progress-session",
+          awaitingInput: true,
+          durationMs: 9,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+    };
+    const events: Array<{ ephemeral: boolean; content: { type: string; body?: string; result?: string } }> = [];
+    const harness = new ClaudeHarness(progressConfig, capsule);
+    await harness.run({
+      action: "created",
+      agentSession: { id: "linear-durable-progress-session", issueId: "issue-1" },
+      agentActivity: { content: { body: "Fix the failing test." } },
+    }, async (event) => { events.push(event as typeof events[number]); });
+
+    const thought = events.find((event) => event.content.type === "thought");
+    assert.equal(thought?.ephemeral, true);
+
+    const inProgress = events.find((event) => event.content.type === "action" && event.content.result === undefined);
+    assert.equal(inProgress?.ephemeral, true);
+
+    const completed = events.find((event) => event.content.type === "action" && event.content.result === "12 passed");
+    assert.equal(completed?.ephemeral, false);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
 test("runs shell commands in the task workspace and strips broker credentials", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-shell-"));
   const previous = process.env.PI_RUNNER_TOKEN;

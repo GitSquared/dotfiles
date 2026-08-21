@@ -167,6 +167,15 @@ function assistantText(message) {
     .join("\n"));
 }
 
+function toolResultText(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((part) => part?.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n");
+}
+
 export function createProgressProjector(report, clock = Date.now) {
   let partialText = "";
   let partialTextReported = false;
@@ -180,6 +189,12 @@ export function createProgressProjector(report, clock = Date.now) {
   const toolBuckets = new Map();
   const streamedToolCalls = new Map();
   const toolTargets = new Map();
+  // Survives past content_block_stop (which drops streamedToolCalls) so a later
+  // tool_result can still be matched to the tool that produced it and durably
+  // logged. Scoped to this projector instance (one per runAgent() call), which
+  // is what stops a resumed session's replayed history from being re-logged:
+  // a tool_use_id this instance never saw start has no entry here and is skipped.
+  const toolNames = new Map();
 
   return async (message) => {
     let progress;
@@ -206,6 +221,7 @@ export function createProgressProjector(report, clock = Date.now) {
           reportedParameter: undefined,
         };
         streamedToolCalls.set(key, entry);
+        if (entry.id) toolNames.set(entry.id, entry.name);
         const parameter = progressParameter(entry.name, parsedToolInput(entry));
         if (parameter) {
           entry.reportedParameter = parameter;
@@ -257,18 +273,35 @@ export function createProgressProjector(report, clock = Date.now) {
       const body = assistantText(message);
       if (body && !partialTextReported) progress = { type: "thought", body };
     } else if (message?.type === "tool_progress") {
+      // Still running, not completed - the elapsed/retry status belongs in
+      // parameter (which stays ephemeral), not result. result is reserved for
+      // a genuinely finished action below, so this can't be mistaken for one
+      // and posted durably once per 10-second bucket of a long-running call.
       const bucket = Math.floor(Math.max(0, message.elapsed_time_seconds ?? 0) / 10);
       if (toolBuckets.get(message.tool_use_id) !== bucket) {
         toolBuckets.set(message.tool_use_id, bucket);
-        const parameter = toolTargets.get(message.tool_use_id) ?? "In progress";
-        progress = {
-          type: "action",
-          action: progressAction(message.tool_name),
-          parameter,
-          result: message.subagent_retry
-            ? `Retry ${message.subagent_retry.attempt}/${message.subagent_retry.max_retries}`
-            : `${Math.max(0, Math.round(message.elapsed_time_seconds ?? 0))}s elapsed`,
-        };
+        const target = toolTargets.get(message.tool_use_id) ?? "In progress";
+        const status = message.subagent_retry
+          ? `Retry ${message.subagent_retry.attempt}/${message.subagent_retry.max_retries}`
+          : `${Math.max(0, Math.round(message.elapsed_time_seconds ?? 0))}s elapsed`;
+        progress = { type: "action", action: progressAction(message.tool_name), parameter: `${target} · ${status}` };
+      }
+    } else if (message?.type === "user" && Array.isArray(message.message?.content)) {
+      // The tool's actual completion: a real tool_result block for a tool_use
+      // this same run started. Each qualifying block is reported directly
+      // (not via the shared `progress` variable) so parallel tool calls that
+      // complete in one user message each get their own durable entry instead
+      // of all but the last being overwritten.
+      for (const block of message.message.content) {
+        if (block?.type !== "tool_result" || !block.tool_use_id) continue;
+        const name = toolNames.get(block.tool_use_id);
+        if (!name) continue; // not a tool_use this projector instance ever saw start
+        const parameter = toolTargets.get(block.tool_use_id) ?? "In progress";
+        const result = boundedProgress(toolResultText(block.content));
+        toolNames.delete(block.tool_use_id);
+        toolTargets.delete(block.tool_use_id);
+        toolBuckets.delete(block.tool_use_id);
+        if (result) await report({ type: "action", action: progressAction(name), parameter, result });
       }
     } else if (message?.type === "system" && message.subtype === "init") {
       progress = {
@@ -658,7 +691,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
           "Use Signal for a nonblocking queued question or notification, then continue working. Use Steering when an answer is required before work can continue. If required developer-tool or capsule access is missing, request Steering with missingAccess set to the exact workspace (capsule or tools) and a specific providerName - Linear renders a dedicated account-linking control instead of a plain comment. Never ask for credentials in Linear.",
           "Use defer_followup only for something genuinely out of scope for the current task, with a real reason it isn't this task's job and what actually brings it back up. It does not end the turn and is not a way to avoid finishing the current work.",
           "When resumed after a Steering or QA reply, check whether it actually answers or decides what you asked. If it's a clarifying question or partial answer instead, reply to it directly and call request_attention again with the same or refined ask - do not treat the task as unblocked and proceed with the rest of the work until the real decision arrives.",
-          "Most progress narration streams as transient status and is not kept. When you reach a real decision point - choosing between approaches, discovering something that changes the plan, explaining why you did something non-obvious - post it as a durable note (linear_activity, a non-ephemeral thought or response) so it survives in the record. Do this sparingly, at genuine turning points, not for routine steps.",
+          "Every completed action - a finished bash command, tool call, or Linear operation - is now posted to the record automatically, so you don't need to narrate the what. Reserve an explicit linear_activity call (a non-ephemeral thought or response) for the why the automatic log can't capture: comparing tradeoffs between approaches, explaining a non-obvious choice, flagging a discovery that changes the plan, or explaining why an approach was abandoned. Do this sparingly, at genuine turning points, not for routine steps.",
           "The engineer owns task completion. When checked work is ready, request QA with evidence and wait for approval or changes. Never say the work is complete or invite an informal follow-up without creating QA. Use finish_work only for a non-human external blocker or explicitly authorized deferral.",
           "Every turn must end in a structured lifecycle state. After blocking Steering or QA, stop and wait. A Signal is nonblocking, so continue until another lifecycle transition is reached - a Signal alone never ends a turn.",
           "Don't trust a prior summary, memory note, or comment claiming work is already done, approved, or unchanged - verify the current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If re-delegated and truly nothing changed, that is not a reason to stop without a transition: request QA again with the still-valid evidence (or fresh evidence if the old artifact is gone), don't just report it and end the turn.",

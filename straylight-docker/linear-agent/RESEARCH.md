@@ -1587,3 +1587,145 @@ already gone and there's no automatic recovery - same character of gap as
 the reaction-based QA approval entry above, where a missed signal has no
 durable trace to reconcile from later. This is a prompt nudging behavior,
 not a constraint the runtime enforces.
+
+## Durable action log, and refocusing manual durable notes on reasoning - 2026-08-21
+
+Every progress event Claude's own working process produces - `type:
+"thought"` or `type: "action"` - was hardcoded `ephemeral: true` at the
+harness level, unconditionally, in `ClaudeHarness.run()`'s callback
+(`src/claude.ts`). Ephemeral activities in Linear replace each other and
+leave nothing behind once the run ends (Linear's own docs:
+linear.app/developers/agent-interaction). So Claude's natural "here's what
+I'm doing, here's what happened" narration vanished completely unless it
+stopped to make a separate `linear_activity` call - which the prompt
+actively discouraged for routine steps. The brief: make a genuinely
+completed action durable automatically, for free, and refocus the prompt's
+manual-note guidance onto reasoning the automatic log can't capture.
+
+**Tracing the real shape mattered more than the fix itself.** The brief's
+working assumption was that a `type: "action"` event carrying a `result` is
+Linear's documented completion shape (`{action: "Searched", result: "12°C,
+mostly clear"}`), and that becoming durable was a pure reclassification of
+an event already flowing through the callback - no new correlation to
+build. Tracing `createProgressProjector` in `claude-capsule/agent-request.mjs`
+top to bottom, that assumption was wrong in a way that would have shipped
+an inverted feature. Before this change, the *only* place an `action`
+event ever carried a `result` was the `tool_progress` branch - a heartbeat
+the SDK fires in 10-second elapsed-time buckets *while a tool call is
+still running* (confirmed against the SDK's own `SDKToolProgressMessage`
+type and the existing test at `agent-request.test.mjs` asserting
+`result: "12s elapsed"`). A genuinely finished tool call's real output
+arrives as a *separate* SDK message type, `SDKUserMessage`/`SDKUserMessageReplay`
+(`type: "user"`, with `tool_result` content blocks carrying the tool's
+actual text) - and nothing in this codebase read it. It flows through the
+same `for await` loop in `runAgent()` untouched.
+
+Gating on "has a result" against the code as it stood would have inverted
+the intent on both sides: a bash command that finishes in under 10 seconds
+(the common case) would log nothing, while one that runs for five minutes
+would get a durable Linear post every 10 seconds, each just saying "N s
+elapsed" - real spam, and not the "what happened" record the feature was
+for. So this became a two-part fix instead of a one-line reclassification:
+
+- `tool_progress`'s elapsed/retry text moved out of `result` and into
+  `parameter` (e.g. `"rg -n TODO src · 12s elapsed"`). It's still-running
+  status, not a completion, and it now can't be mistaken for one no matter
+  what gates on `result`.
+- A new branch handles `message.type === "user"`, reads each `tool_result`
+  block's actual text, and reports one genuine `{type: "action", action,
+  parameter, result}` completion per finished tool call. The correlation
+  this needed already existed in a nearby, narrower form: `toolTargets`
+  (tool_use_id → parameter) was already being populated at
+  `content_block_start`/`content_block_stop` for the heartbeat's benefit. I
+  added a sibling map, `toolNames` (tool_use_id → SDK tool name), because
+  the transient `streamedToolCalls` entry that holds the name is deleted at
+  `content_block_stop`, before the tool actually finishes.
+- Both maps are scoped to one `createProgressProjector()` closure, i.e. one
+  `runAgent()` call. That turned out to double as the guard against a
+  second, harder-to-verify risk: whether a resumed session's `resume`
+  replays prior turns' `SDKUserMessageReplay` messages through this same
+  stream. I could not confirm either way from the SDK's type definitions or
+  docs available here. It doesn't need resolving, because a `tool_result`
+  for a `tool_use_id` this projector instance never saw start via its own
+  `content_block_start` is skipped unconditionally (`toolNames.get(...)` is
+  `undefined`) - old history from a prior process's projector instance
+  can never be re-logged as a fresh completion, whatever the SDK's replay
+  behavior turns out to be.
+
+With `result` now meaning what it was assumed to mean, `src/claude.ts`'s
+callback gates on exactly that: `ephemeral: !(progress.type === "action" &&
+progress.result)`. An in-progress action (no result) and a thought both
+stay ephemeral, unchanged.
+
+**The plumbing between that callback and Linear turned out to have two more
+places that would have silently eaten the whole feature.** `RunnerEvent`'s
+activity variant (`src/runner-protocol.ts`) typed `ephemeral` as the
+literal `true` - not `boolean` - and `parseRunnerEvent` rejected anything
+else (`event.ephemeral !== true` threw). Left alone, the first durable
+event crossing the runner's ndjson wire would have made
+`PiRunnerClient.run()` throw and kill the run outright, not just drop the
+event. And in `src/controller.ts`, the callback passed to `this.runner.run()`
+(inside `execute()`, well clear of the sub-turn negotiation/clear-and-reopen
+region around the Steering-reply branches) called `createEphemeralActivity`,
+which hardcoded `{ ephemeral: true }` on every event regardless of what the
+event actually said. Both were part of the same fix: the type widened to
+`boolean`, the parser now checks `typeof event.ephemeral === "boolean"`, and
+the controller callback (renamed to `publishActivity`, with
+`createEphemeralActivity` kept as a thin `publishActivity(..., true)`
+wrapper for its one always-ephemeral call site) now forwards `event.ephemeral`
+instead of overwriting it.
+
+**`ProgressReporter` (`src/progress.ts`) had two mechanisms built
+specifically for ephemeral status that would have quietly broken a durable
+log.** Its single `pending` slot is last-write-wins by design - correct for
+"only the latest status matters," wrong for "every one of these must be
+kept." And its dedup check drops a report whose JSON matches the last one
+sent - correct for not re-showing the same ephemeral message, wrong for two
+genuinely separate completions that happen to render identically. Durable
+activities now go into their own FIFO queue, untouched by either mechanism:
+`flush()` drains it in full, in order, before sending the ephemeral slot (if
+any), and every entry is awaited and sent individually so one failure
+doesn't block or drop the rest.
+
+Updated the existing `agent-request.test.mjs` assertion for the
+now-relocated elapsed-time text, and added: a completed-tool-call test
+asserting the real `tool_result` text comes through as `result`; a
+structured-content-block variant (an array of blocks rather than a plain
+string); the never-seen-tool_use_id guard test described above; and an
+empty-result test (an image `tool_result` with no extractable text logs no
+durable entry rather than one with a blank result). In the main suite:
+`runner-protocol.test.ts` gained a durable round-trip case and inverted the
+old "ephemeral: false is rejected" assertion into "a non-boolean ephemeral
+is rejected"; `claude.test.ts` gained a test asserting a completed action is
+non-ephemeral while an in-progress action and a thought both stay ephemeral
+in the same run; `progress.test.ts` gained two tests - a burst of two
+durable events plus two ephemeral ones inside one debounce window comes out
+as both durables in order followed by only the latest ephemeral, and a
+durable event repeated verbatim is delivered every time rather than
+deduplicated away.
+
+`src/prompts.ts`'s guidance line (and its exact duplicate in
+`claude-capsule/agent-request.mjs`'s system prompt, per `grep`) no longer
+claims "most progress narration ... is not kept" - that's now false for
+completed actions. It reads: "Every completed action ... is now posted to
+the record automatically, so you don't need to narrate the what. Reserve an
+explicit linear_activity call ... for the why the automatic log can't
+capture: comparing tradeoffs between approaches, explaining a non-obvious
+choice, flagging a discovery that changes the plan, or explaining why an
+approach was abandoned." `test/behavior.test.ts` doesn't assert on this
+line's exact text, so nothing there needed updating.
+
+`bun run check` (132 tests, up from 128) and `bun run test:capsule` (18/18,
+up from 14) both stayed green.
+
+**What I couldn't fully rule out.** Volume is now bounded by tool-call
+count rather than wall-clock time, which is the right shape - but a burst
+of several tool calls that all complete within the same debounce window
+(parallel bash/manage_linear/apply_patch calls in one turn, say) produces
+that many uncoalesced `createActivity` POSTs to Linear back-to-back, each
+awaited in sequence rather than spaced out. I have no way from here to
+check Linear's actual per-session or per-app rate ceiling against that, so
+I can't rule out a burst large enough to get throttled. This is a real,
+unresolved risk, not a hedge - distinct from the SDK-replay question above,
+which the per-instance tracking maps genuinely close off regardless of the
+answer.
