@@ -69,8 +69,19 @@ export interface ContainerEngine {
 
 type DockerError = { message?: string };
 
+// Most Docker Engine API calls (create/start/stop/inspect/list/...) are local, in-memory
+// operations against dockerd and should return in milliseconds; 30s is generous headroom
+// for a busy daemon while still failing fast on a wedged one.
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+// Image pulls legitimately take minutes over the network on a cold cache. This only
+// guards against a fully hung daemon, not a slow-but-progressing pull.
+const PULL_REQUEST_TIMEOUT_MS = 10 * 60_000;
+
 export class DockerEngine implements ContainerEngine {
-  constructor(private readonly socketPath: string) {}
+  constructor(
+    private readonly socketPath: string,
+    private readonly requestTimeoutMs: number = DEFAULT_REQUEST_TIMEOUT_MS,
+  ) {}
 
   async create(name: string, spec: DockerContainerSpec): Promise<string> {
     const result = await this.request<{ Id?: string }>("POST", `/containers/create?name=${encodeURIComponent(name)}`, spec, [201]);
@@ -115,6 +126,7 @@ export class DockerEngine implements ContainerEngine {
       `/images/create?fromImage=${encodeURIComponent(image)}`,
       undefined,
       [200],
+      PULL_REQUEST_TIMEOUT_MS,
     );
     for (const line of raw.toString("utf8").split("\n")) {
       if (!line.trim()) continue;
@@ -161,8 +173,9 @@ export class DockerEngine implements ContainerEngine {
     requestPath: string,
     body: unknown,
     expected: number[],
+    timeoutMs?: number,
   ): Promise<T> {
-    return this.requestBuffer(method, requestPath, body, expected).then((raw) => {
+    return this.requestBuffer(method, requestPath, body, expected, timeoutMs).then((raw) => {
       if (!raw.length) return {} as T;
       try { return JSON.parse(raw.toString("utf8")) as T; }
       catch { return { message: raw.toString("utf8") } as T; }
@@ -174,9 +187,25 @@ export class DockerEngine implements ContainerEngine {
     requestPath: string,
     body: unknown,
     expected: number[],
+    timeoutMs: number = this.requestTimeoutMs,
   ): Promise<Buffer> {
     const encoded = body === undefined ? undefined : Buffer.from(JSON.stringify(body));
     return new Promise<Buffer>((resolve, reject) => {
+      const controller = new AbortController();
+      let settled = false;
+      const settleResolve = (value: Buffer) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      };
+      const settleReject = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(error);
+      };
+
       const request = http.request({
         socketPath: this.socketPath,
         path: requestPath,
@@ -195,13 +224,26 @@ export class DockerEngine implements ContainerEngine {
             let parsed: DockerError = {};
             try { parsed = JSON.parse(raw) as DockerError; } catch { parsed = { message: raw }; }
             const message = parsed.message ?? `HTTP ${status}`;
-            reject(new Error(`Docker Engine request failed: ${message}`));
+            settleReject(new Error(`Docker Engine request failed: ${message}`));
             return;
           }
-          resolve(Buffer.concat(chunks));
+          settleResolve(Buffer.concat(chunks));
         });
       });
-      request.on("error", reject);
+      const timeoutError = () => new Error(`Docker Engine request timed out after ${timeoutMs}ms: ${method} ${requestPath}`);
+      // Bun's node:http compat neither honors a `signal` request option nor reliably emits
+      // 'error' from destroy() over a Unix domain socket (confirmed empirically against a real
+      // socket server; Node's own ClientRequest does both). So the timer itself - not an event -
+      // is the sole authority for a timeout: it settles the promise directly via the AbortSignal
+      // it flags, then destroys the request purely to release the underlying socket. Relying on
+      // any event here (abort/'error'/'close') risks the same hang this is meant to fix, on
+      // whichever runtime or failure shape doesn't happen to emit that event.
+      const timer = setTimeout(() => {
+        controller.abort();
+        settleReject(timeoutError());
+        request.destroy();
+      }, timeoutMs);
+      request.on("error", (error) => settleReject(controller.signal.aborted ? timeoutError() : error));
       if (encoded) request.write(encoded);
       request.end();
     });

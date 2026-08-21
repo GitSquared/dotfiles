@@ -25,6 +25,9 @@ const OAUTH_URL = "https://api.linear.app/oauth/token";
 const GRAPHQL_URL = "https://api.linear.app/graphql";
 const STATE_LIFETIME_MS = 10 * 60_000;
 const REFRESH_SKEW_MS = 5 * 60_000;
+// A hung Linear GraphQL call blocks everything awaiting it, including controller startup
+// recovery (see AgentController.initialize()) before Bun.serve ever opens its port.
+const GRAPHQL_TIMEOUT_MS = 15_000;
 
 const ISSUE_CREATE_FIELDS = new Set([
   "assigneeId", "cycleId", "delegateId", "description", "dueDate", "estimate", "labelIds", "parentId",
@@ -1038,6 +1041,7 @@ export class LinearClient {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ query, variables }),
+      signal: AbortSignal.timeout(GRAPHQL_TIMEOUT_MS),
     });
     const payload = await response.json() as GraphqlResponse<T>;
     if (!response.ok || payload.errors?.length) {

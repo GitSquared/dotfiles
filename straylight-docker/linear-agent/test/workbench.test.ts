@@ -22,6 +22,7 @@ function config(): WorkbenchConfig {
     maxWarmSessions: 3,
     warmSessionTtlMs: 600_000,
     taskStartupTimeoutMs: 30_000,
+    dockerRequestTimeoutMs: 30_000,
     taskMemoryBytes: 4 * 1024 * 1024 * 1024,
     taskNanoCpus: 2_000_000_000,
     taskPidsLimit: 512,

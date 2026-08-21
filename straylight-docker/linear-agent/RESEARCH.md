@@ -1172,3 +1172,172 @@ Only field-stripping was needed, no test logic rewrites.
 
 `bun run check` (typecheck plus all 120 tests in `test/*.ts`) and
 `bun run test:capsule` (14/14) both stayed green after the change.
+
+## Timeout hardening for Docker Engine and Linear GraphQL calls - 2026-08-21
+
+Two independent operability gaps, both with the same root cause: a bare
+network call with no timeout and no abort path, sitting underneath code that
+has no fallback if that call simply never comes back.
+
+The first is the whole Docker Engine HTTP surface. `DockerEngine`'s private
+`requestBuffer` in `src/docker-engine.ts` issued a raw `node:http` request
+against the Docker socket with no `.setTimeout(...)` and nothing watching it -
+every public method (`create`, `start`, `stop`, `remove`, `inspect`, `logs`,
+`pull`, the network calls) funnels through it and inherited the same
+unboundedness. `workbench.ts`'s task-startup timeout only bounds the
+readiness poll *after* a container already exists in Docker's own state; it
+never wrapped the `engine.create()` / `engine.start()` calls themselves. If
+dockerd wedges mid-create, `start()` → `execute()` → `workbench.run()` never
+returns, and the session just sits "running" forever with no error and no
+recovery path. Worse, it chains: `PiRunnerClient.health()` in
+`src/runner-client.ts` was a bare `fetch()` with no signal, so a hung Docker
+call inside `workbench.health()` hangs the runner's own `/healthz`, which
+hangs `controller.health()`'s call into `runner.health()`, which hangs the
+controller's own `/healthz`. One stuck Docker call took down health
+reporting for all three services at once.
+
+The second is `AgentController.initialize()`, which `src/index.ts` awaits
+*before* it ever calls `Bun.serve(...)`. For every persisted session,
+`initialize()` calls `this.linear.agentSessionSnapshot(...)`, which bottoms
+out in `LinearClient.graphqlWithToken`'s bare `fetch(GRAPHQL_URL, ...)` in
+`src/linear.ts` - also no signal, also unbounded. Records are reconciled
+sequentially with `await` inside a `for` loop, so the very first snapshot
+call hanging is enough to wedge the whole boot sequence: no later record
+ever gets processed, and the controller's HTTP port never opens. There is no
+code path that recovers from this short of a human noticing and restarting
+the process - and even then, on the next restart, the same record hits the
+same hang again.
+
+Reading the existing `catch` block in that `for` loop surfaced a second,
+subtler bug behind the first: when a recovery snapshot call rejected (for any
+reason, not just a new timeout), the handler did nothing but
+`console.warn(...)`, then fell through to the unconditional `this.touch(state)`
+below the `try`/`catch`. `touch()` bumps `updatedAt` to "now", and
+`ControllerStateStore.save()` sorts by `updatedAt` descending and keeps only
+the top `MAX_STORED_SESSIONS` (500) - so a session whose recovery keeps
+failing gets bumped to the *front* of that list on every single restart,
+permanently occupying a slot, permanently inert, and permanently invisible:
+nobody except whoever reads the process's stdout ever learns it happened. A
+wedged controller that never opens its port is loud (someone notices the
+service is down); a controller that boots fine but quietly carries a
+zombie session forever is the worse failure mode, because there is no signal
+telling anyone to look.
+
+The fix is the same shape in both places: give the network call a timeout so
+a hang degrades into a bounded, catchable rejection instead of an unbounded
+wait, then make sure the code around that rejection actually does something
+useful with it instead of swallowing it.
+
+For `DockerEngine`, checked `src/config.ts` first rather than inventing a
+second timeout knob next to `taskStartupTimeoutMs` - but that field is a
+different concept (bounding the readiness poll *after* a container exists),
+not the Docker socket HTTP call itself, so a new `dockerRequestTimeoutMs`
+field was added to `WorkbenchConfig` (env `PI_DOCKER_REQUEST_TIMEOUT_MS`,
+default 30s, loaded with the same `positiveInteger` helper as its sibling)
+and threaded into `new DockerEngine(config.dockerSocket,
+config.dockerRequestTimeoutMs)` in `workbench.ts`. 30 seconds is generous
+headroom for a busy-but-alive daemon on every method except `pull()`, which
+legitimately takes minutes on a cold image cache over the network; `pull()`
+passes its own longer constant (10 minutes) straight into `requestBuffer`'s
+now-optional per-call `timeoutMs` parameter, so a slow-but-progressing pull
+isn't punished by the same budget that should catch a truly wedged daemon.
+
+Actually wiring the timeout up was not as simple as `AbortSignal.timeout()`.
+The first attempt passed `signal: controller.signal` straight into
+`http.request(...)`'s options, mirroring how `fetch()` takes a signal
+elsewhere in this codebase - and the new `test/docker-engine.test.ts`'s
+"never responds" case just hung until Bun's own 5-second test timeout killed
+it. A throwaway repro script (`node:http.request` against a `node:net` Unix
+socket server that never writes anything back) confirmed empirically that
+Bun's `node:http` compat does not honor the `signal` request option for a
+Unix domain socket. Switching to manually calling `request.destroy(error)`
+on abort didn't work either: per Node's own documented `ClientRequest`
+semantics, `destroy()` with **no** error argument only emits `'close'`, not
+`'error'`, and the same repro script showed that on Bun, even
+`destroy(error)` *with* an error argument only emits `'close'` - Node emits
+both events; Bun emits neither in the expected combination. An intermediate
+version tried making `'close'` the fallback settlement path instead, guarded
+by an `aborted` flag - and a second empirically-failing test run caught that
+`'close'` fires on *every* request, including a completely normal,
+already-successfully-completed one, sometimes before the response's own
+`'end'` event fires; an unconditional close-handler rejection broke the
+success-path and non-2xx-error tests, which got a generic "closed
+unexpectedly" message instead of the real response body. The working
+implementation abandons events as the timeout signal entirely: the
+`setTimeout` callback is the sole authority - it settles the promise
+directly (`settleReject`, guarded against double-settling so a real
+response arriving a moment later is a no-op) and only afterward calls
+`request.destroy()` purely to release the socket, ignoring whatever that
+destroy does or doesn't emit. The `'error'` handler is left as a second,
+independent path for connection failures that were never a timeout (socket
+missing, connection refused) - unaffected by any of this. All of this is
+Bun-runtime-specific behavior discovered by writing and running the test
+against a real Unix socket server, not assumed from Node's documentation.
+
+`PiRunnerClient`'s `health()`, `repositories()`, and the shared `command()`
+helper behind `followUp()`/`abort()` (src/runner-client.ts) each got
+`signal: AbortSignal.timeout(this.controlTimeoutMs)` (default 15s, a
+constructor parameter). `run()` was deliberately left untouched - it already
+sets Bun's own `timeout: false` on purpose, because it's a long-lived
+streaming call bounded by `piTimeoutMs` (up to an hour) rather than a quick
+control round-trip, and touching it isn't part of this gap.
+
+`LinearClient.graphqlWithToken`'s `fetch(GRAPHQL_URL, ...)` in `src/linear.ts`
+got the same treatment: `signal: AbortSignal.timeout(GRAPHQL_TIMEOUT_MS)`,
+15s. This is the one that actually closes gap 2 for real network conditions
+- once this fetch is bounded, `agentSessionSnapshot()`'s rejection propagates
+normally, `initialize()`'s `for` loop moves on to the next record, and
+`Bun.serve` opens on schedule even if Linear itself is having a bad day.
+
+The `initialize()` recovery `catch` block now does two things it didn't
+before: it clears `state.pending` and `state.active` so an unrecoverable
+session stops being treated as resumable - it no longer forces the record
+to survive `ControllerStateStore.save()`'s retention filter on the next
+persist purely because "resume this" markers were left dangling, though a
+session that still carries an open `attention` or a `claudeConversationId`
+correctly keeps its slot regardless, same as any other dormant session
+(that's what the very first test in this file exists to protect). It
+deliberately leaves `state.awaitingInput` alone: we can't disprove a real
+open Steering/QA wait just because this one snapshot call failed, and
+forcing it false while `attention` stays populated would leave the session
+in a self-contradictory state that a later human reply can no longer route
+into correctly. Second, the catch block calls
+`this.linear.createActivity(record.sessionId, { type: "error", body: ... })`
+- the same activity-posting pattern used everywhere else in this file for
+reporting a run-level failure onto the Agent Session (e.g. the crash handler
+in `start()`) - to tell a human the session could not be recovered after a
+restart, instead of leaving that information sitting only in
+`console.warn`. That call is itself wrapped in `.catch(...)` with a second
+`console.warn`, because if Linear is the reason recovery failed in the first
+place, the report may fail too, and a failed report must not throw out of
+`initialize()` and re-wedge the boot sequence this fix exists to prevent.
+
+New test coverage: `test/docker-engine.test.ts` (previously nonexistent -
+there was no unit coverage of `DockerEngine`'s HTTP layer at all, only
+`decodeDockerStream` via `test/workbench.test.ts`) spins up a real
+`node:http` server on a short-lived Unix socket (deliberately under `/tmp`
+directly rather than `os.tmpdir()`, since macOS caps `sun_path` at ~104
+bytes and `os.tmpdir()` alone can already eat half that budget) and covers:
+a normal response resolving well inside its timeout, a server that never
+responds getting aborted at its configured timeout instead of hanging (using
+a 30ms timeout so the test itself stays fast), a non-2xx response surfacing
+Docker's own JSON error message rather than a generic one, and a connection
+to a socket nobody is listening on failing immediately with the real error
+rather than waiting out the timeout. `test/controller-recovery.test.ts` got
+a new test with two persisted records: one whose fake `agentSessionSnapshot`
+sleeps 20ms then rejects (standing in for what the now-timeout-bounded real
+client does on a hang, without the suite actually waiting out a real 15s
+timeout), and one that resolves normally. It asserts `initialize()` still
+completes in well under a second despite the first record never resolving
+quickly, that a `type: "error"` activity naming the stranded session and
+mentioning it "could not be recovered" gets posted, that
+`lastRecovery.errors` reflects the failure, and that the stranded session's
+record eventually drops out of `ControllerStateStore` entirely rather than
+surviving indefinitely.
+
+`bun run check` (typecheck plus all 125 tests in `test/*.ts`, up from 120)
+and `bun run test:capsule` (14/14, unaffected by this change) both stayed
+green. The full suite runs in under 2 seconds - the new Docker socket tests
+included, since their timeouts are all configured in the tens-of-milliseconds
+range rather than waiting out anything close to the real 30s/10min/15s
+production defaults.

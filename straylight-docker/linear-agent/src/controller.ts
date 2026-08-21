@@ -151,9 +151,27 @@ export class AgentController {
         }
       } catch (error) {
         errors += 1;
+        const message = error instanceof Error ? error.message : String(error);
         console.warn("could not reconcile persisted Linear Agent Session", {
           sessionId: record.sessionId,
-          message: error instanceof Error ? error.message : String(error),
+          message,
+        });
+        // We don't know this session's true state (Linear may just be unreachable), so stop
+        // treating it as resumable - a stuck-forever "resume this" marker would keep it
+        // occupying a slot in the 500-session cap on every restart (touch() below bumps it to
+        // the front) while nobody is ever told it's stuck. Leave awaitingInput/attention alone:
+        // those describe a real open Steering/QA wait we can't disprove from here, and are
+        // still what lets a later human reply route back to this session correctly.
+        state.pending = undefined;
+        state.active = undefined;
+        await this.linear.createActivity(record.sessionId, {
+          type: "error",
+          body: finalText(`This session could not be recovered after a controller restart: ${message}`),
+        }).catch((activityError: unknown) => {
+          console.warn("failed to report an unrecoverable Agent Session", {
+            sessionId: record.sessionId,
+            message: activityError instanceof Error ? activityError.message : String(activityError),
+          });
         });
       }
       this.touch(state);

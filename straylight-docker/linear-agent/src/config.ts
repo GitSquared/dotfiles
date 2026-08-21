@@ -48,6 +48,7 @@ export type WorkbenchConfig = {
   maxWarmSessions: number;
   warmSessionTtlMs: number;
   taskStartupTimeoutMs: number;
+  dockerRequestTimeoutMs: number;
   taskMemoryBytes: number;
   taskNanoCpus: number;
   taskPidsLimit: number;
@@ -166,6 +167,7 @@ export function loadWorkbenchConfig(env: NodeJS.ProcessEnv): WorkbenchConfig {
     maxWarmSessions: positiveInteger(env, "PI_MAX_WARM_SESSIONS", 3),
     warmSessionTtlMs: positiveInteger(env, "PI_WARM_SESSION_TTL_MS", 600_000),
     taskStartupTimeoutMs: positiveInteger(env, "PI_TASK_STARTUP_TIMEOUT_MS", 30_000),
+    dockerRequestTimeoutMs: positiveInteger(env, "PI_DOCKER_REQUEST_TIMEOUT_MS", 30_000),
     taskMemoryBytes: positiveInteger(env, "PI_TASK_MEMORY_BYTES", 4 * 1024 * 1024 * 1024),
     taskNanoCpus: positiveInteger(env, "PI_TASK_NANO_CPUS", 2_000_000_000),
     taskPidsLimit: positiveInteger(env, "PI_TASK_PIDS_LIMIT", 512),

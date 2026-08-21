@@ -11,10 +11,16 @@ export interface AgentRunner {
   health(): Promise<Record<string, unknown>>;
 }
 
+// Bounds the short, synchronous control calls (health checks, follow-up/abort commands,
+// repository discovery) that are expected to return quickly. The long-lived streaming
+// run() request is intentionally excluded - it can legitimately take up to piTimeoutMs.
+const DEFAULT_CONTROL_TIMEOUT_MS = 15_000;
+
 export class PiRunnerClient implements AgentRunner {
   constructor(
     private readonly baseUrl: string,
     private readonly token: string, // yadm-secret-scan: ignore
+    private readonly controlTimeoutMs: number = DEFAULT_CONTROL_TIMEOUT_MS,
   ) {}
 
   async run(payload: AgentTaskPayload, onEvent: RunnerEventHandler): Promise<PiResult> {
@@ -69,14 +75,17 @@ export class PiRunnerClient implements AgentRunner {
   }
 
   async repositories(): Promise<RepositoryCandidate[]> {
-    const response = await fetch(`${this.baseUrl}/repositories`, { headers: this.headers() });
+    const response = await fetch(`${this.baseUrl}/repositories`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(this.controlTimeoutMs),
+    });
     if (!response.ok) throw new Error(`Agent runner repository discovery failed: HTTP ${response.status}`);
     const payload = await response.json() as { repositories?: RepositoryCandidate[] };
     return Array.isArray(payload.repositories) ? payload.repositories : [];
   }
 
   async health(): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.baseUrl}/healthz`);
+    const response = await fetch(`${this.baseUrl}/healthz`, { signal: AbortSignal.timeout(this.controlTimeoutMs) });
     const payload = await response.json() as Record<string, unknown>;
     if (!response.ok) throw new Error(`Agent runner is unhealthy: HTTP ${response.status}`);
     return payload;
@@ -87,6 +96,7 @@ export class PiRunnerClient implements AgentRunner {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.controlTimeoutMs),
     });
     if (!response.ok) throw new Error(`Agent runner command failed: HTTP ${response.status}`);
     const payload = await response.json() as { accepted?: boolean };

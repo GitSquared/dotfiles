@@ -160,7 +160,7 @@ export class WorkbenchHarness {
     engine?: ContainerEngine,
     capsule?: Pick<CapsuleClient, "runAgent">,
   ) {
-    this.engine = engine ?? new DockerEngine(config.dockerSocket);
+    this.engine = engine ?? new DockerEngine(config.dockerSocket, config.dockerRequestTimeoutMs);
     this.capsule = capsule ?? new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
     this.capacity = new AdaptiveSlots(
       () => this.runningSlots + this.waiters.size,

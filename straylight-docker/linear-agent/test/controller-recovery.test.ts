@@ -107,6 +107,107 @@ test("recovers an interrupted Agent Session from durable state and Linear activi
   }
 });
 
+test("reports a stranded session to Linear instead of silently abandoning it when its recovery snapshot times out", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-stranded-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([
+      {
+        sessionId: "session-stranded",
+        running: true,
+        awaitingInput: false,
+        generation: 2,
+        startedAt: Date.now() - 5_000,
+        active: {
+          type: "AgentSessionEvent",
+          action: "created",
+          appUserId: "agent-1",
+          agentSession: { id: "session-stranded", issueId: "issue-1" },
+        },
+        issueId: "issue-1",
+        teamId: "team-1",
+        updatedAt: Date.now(),
+      },
+      {
+        sessionId: "session-recoverable",
+        running: true,
+        awaitingInput: false,
+        generation: 1,
+        startedAt: Date.now() - 5_000,
+        active: {
+          type: "AgentSessionEvent",
+          action: "created",
+          appUserId: "agent-1",
+          agentSession: { id: "session-recoverable", issueId: "issue-2" },
+        },
+        issueId: "issue-2",
+        teamId: "team-1",
+        updatedAt: Date.now(),
+      },
+    ]);
+
+    const activities: Array<{ sessionId: string; content: { type?: string; body?: string } }> = [];
+    const linear = {
+      async agentSessionSnapshot(sessionId: string) {
+        if (sessionId === "session-stranded") {
+          // Stands in for the real LinearClient: with the new AbortSignal-based timeout in
+          // graphqlWithToken, a hung Linear GraphQL call now rejects after its own timeout
+          // instead of hanging forever. A short real delay here is enough to prove the
+          // controller doesn't need this call to resolve quickly, without slowing the suite.
+          await Bun.sleep(20);
+          throw new Error("Linear GraphQL request timed out after 15000ms");
+        }
+        return {
+          id: sessionId,
+          status: "active",
+          appUser: { id: "agent-1" },
+          issue: { id: "issue-2", identifier: "LIN-2", title: "Recoverable", team: { id: "team-1" } },
+          activities: { nodes: [] },
+        };
+      },
+      async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+      async createActivity(sessionId: string, content: { type?: string; body?: string }) {
+        activities.push({ sessionId, content });
+      },
+    } as unknown as LinearClient;
+    const runner = {
+      async abort() { return true; },
+      async repositories() { return []; },
+      async run() { return { ok: true, timedOut: false, awaitingInput: false, summary: "Recovered.", elapsedMs: 1 }; },
+      async health() { return { mode: "test" }; },
+    } as unknown as AgentRunner;
+
+    const controller = new AgentController(linear, runner, directory);
+    const startedAt = Date.now();
+    await controller.initialize();
+    const elapsedMs = Date.now() - startedAt;
+    // The core of the bug: initialize() is awaited before Bun.serve ever starts listening
+    // (see src/index.ts). One record's snapshot call taking a while - or, before this fix,
+    // never resolving at all - must not stop the controller from finishing startup.
+    assert.ok(elapsedMs < 2_000, `initialize() should not block on a single stuck recovery snapshot (took ${elapsedMs}ms)`);
+
+    const strandedActivity = activities.find((entry) => entry.sessionId === "session-stranded");
+    assert.ok(strandedActivity, "expected a Linear activity reporting the stranded session instead of pure silence");
+    assert.equal(strandedActivity?.content.type, "error");
+    assert.match(strandedActivity?.content.body ?? "", /could not be recovered/i);
+
+    const health = await controller.health() as {
+      controller: { registry: { lastRecovery: { errors: number; resumed: number } } };
+    };
+    assert.equal(health.controller.registry.lastRecovery.errors, 1);
+    assert.equal(health.controller.registry.lastRecovery.resumed, 1);
+
+    // A session we could not reconcile must not survive the 500-session cap forever: once
+    // we've reported it, it should no longer be treated as pending/active/awaiting input.
+    for (let attempt = 0; attempt < 100 && (await store.load()).some((record) => record.sessionId === "session-stranded"); attempt += 1) {
+      await Bun.sleep(2);
+    }
+    assert.equal((await store.load()).some((record) => record.sessionId === "session-stranded"), false);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("restores an attention wait without replaying work after a controller restart", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-attention-controller-"));
   try {
