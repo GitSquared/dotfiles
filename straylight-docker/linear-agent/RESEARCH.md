@@ -1341,3 +1341,174 @@ green. The full suite runs in under 2 seconds - the new Docker socket tests
 included, since their timeouts are all configured in the tens-of-milliseconds
 range rather than waiting out anything close to the real 30s/10min/15s
 production defaults.
+
+## Reaction-based QA approval - 2026-08-21
+
+A paused QA elicitation only unblocked on a reply matching the exact
+`QA_APPROVE_VALUE` string. A ✅ reaction on the same content did nothing -
+`handleNotification`'s `issueEmojiReaction`/`issueCommentReaction` branch
+(`controller.ts`) just counted it as an "acknowledgement" and returned. The
+brief was explicit that this should count as approval; the actual work was
+figuring out how the controller would even learn a reaction happened, since
+this whole system is webhook-driven and there was no polling loop anywhere
+to fall back on.
+
+**First question: does Linear send a webhook for a reaction at all, and is
+it real-time?** Pulled the public schema SDL (same
+`raw.githubusercontent.com/linear/linear/.../schema.graphql` source used in
+the "Reaction tool for Claude" entry above) and Linear's own agent docs
+(`linear.app/developers/agents`, `/agent-interaction`). Two things settled
+this quickly:
+
+- `WebhookResourceType` (the enum of subscribable webhook categories) does
+  list a standalone `Reaction` resource - but that's a generic, workspace-wide
+  data-change stream (`ReactionWebhookPayload`, create/update/remove on *any*
+  reaction anywhere) that this app doesn't subscribe to and that isn't scoped
+  to the bot's own sessions at all. Turning it on would mean a new webhook
+  category, a firehose to filter, and no obvious way to tie a random reaction
+  back to a specific session without a lot of extra bookkeeping.
+- Far more useful: Linear already folds reaction events into the
+  `AppUserNotification` category this app *already* receives, as
+  `action: "issueEmojiReaction"` (react on an issue) and
+  `action: "issueCommentReaction"` (react on a comment) - confirmed by
+  extracting `IssueEmojiReactionNotificationWebhookPayload` and
+  `IssueCommentReactionNotificationWebhookPayload` from the SDL directly.
+  Both carry `reactionEmoji: String!` (the normalized shortcode, e.g.
+  `"white_check_mark"` - matching the exact string this codebase already
+  writes via `reactToComment`), `actorId` (who reacted), and `issueId`/
+  `commentId`. This is the same webhook `handleNotification` already pattern
+  -matches on today, just discarding it (`controller.ts`'s
+  `["issueEmojiReaction", "issueCommentReaction"].includes(action)` branch
+  predates this work). No polling, no new webhook subscription, no new
+  infrastructure needed on paper.
+
+  This is inferred from the schema and from the fact that a branch already
+  exists to catch these action strings, not from having watched a real
+  `issueEmojiReaction` payload land - I don't have production traffic to
+  confirm against. Two things are worth an operator actually checking against
+  a live workspace before trusting this: whether the app receives an
+  `AppUserNotification` for a reaction on an issue at all when it's only a
+  session's *delegate* rather than a human collaborator who'd normally get
+  notified (`health().controller.notifications.counts.acknowledgement`
+  ticking up with `action: "issueEmojiReaction"` in the logs is the tell),
+  and whether the OAuth app's webhook configuration has the `AppUserNotification`
+  category enabled at all (it must, for the existing `issueMention`/
+  `issueCommentMention` handling to work, but confirm rather than assume).
+
+**Second question, the one that actually changed the design: what can a
+human physically react to?** The brief's premise was "a reaction on the
+specific comment/activity holding the QA elicitation." That assumes the
+elicitation itself is a reactable thing. It isn't. Cross-checked two facts
+in the same SDL:
+
+- `type Reaction` only has parent-entity fields for `comment`, `issue`,
+  `initiativeUpdate`, `post`, and `projectUpdate`. There is no `agentActivity`
+  field.
+- `type AgentActivity` (the query-side object backing every elicitation) has
+  no `reactions` field and no `comment` field of its own - only
+  `sourceComment: Comment`, documented as "the source comment this activity
+  is linked to. Null if the activity was not triggered by a comment." That's
+  the comment that *caused* the activity (e.g. a mention), not a comment
+  *representing* it. `collaborateLinear`'s `agentActivityCreate` call
+  (`linear.ts`) never sets one, and the mutation only ever returns the new
+  activity's own `id`, which this codebase doesn't even keep (`ActiveAttention`
+  has no comment/activity id field at all).
+
+So there is no Comment, and no reactable entity, standing in for the QA
+elicitation bubble itself. Reacting to it is not a thing Linear's data model
+supports. The only reaction that can plausibly mean "I'm responding to the
+open QA on this issue" is an **issue-level** reaction
+(`issueEmojiReaction`) - the elicitation lives inside the issue's Agent
+Session panel, and the issue is the thing `collaborateLinear` moves into
+"In Review" for exactly as long as the QA is open. That's the mechanism this
+entry wires up. `issueCommentReaction` is deliberately left exactly as it
+was - a pure acknowledgement, no side effect - because scoping it to "any
+comment on this issue" would silently approve QA on an unrelated ✅ left on
+some other, older comment thread; that's precisely the misleading
+half-measure the brief warned against building.
+
+**The wiring itself** reuses the existing approval path rather than growing
+a parallel one. The QA-completion logic inside `handle()`'s `prompted`
+branch (create the "QA approved" response activity, `completeIssue`, react
+back on the reply comment, clear `awaitingInput`) was pulled out into a new
+private `approveQa(sessionId, state, issueId, ackCommentId?)` on
+`AgentController` (`controller.ts`) - `handle()`'s original QA-approval-by-
+text branch now just calls it. A new `handleQaReactionApproval(issueId,
+emoji, actorId, appUserId)` checks `emoji === "white_check_mark"`, skips if
+the reacting actor is the app's own user (defensive - this app doesn't react
+to issues anywhere today, but it's a free guard against ever
+self-triggering if it someday did), finds every tracked session whose
+`state.issueId` matches and whose `state.attention[0]?.kind === "qa"`, clears
+that attention, and calls `approveQa` for each (no `ackCommentId` - there is
+no reply comment to react back on in this path, unlike the text-reply case).
+`handleNotification`'s `issueEmojiReaction` branch now calls it, passing
+`payload.notification?.reactionEmoji`/`actorId` (both newly added to
+`AppUserNotificationWebhook["notification"]` in `types.ts`, matching the SDL
+payload fields 1:1) and `payload.appUserId`. Since `handleNotification`
+already does `JSON.parse(rawBody) as LinearWebhook` with no runtime schema
+validation (`server.ts`), these fields were already arriving on the wire
+whenever a real `issueEmojiReaction` fired - widening the type was the only
+change needed to start reading them; nothing about what Linear sends had to
+change.
+
+Scoping deliberately keys off `state.attention[0]?.kind === "qa"` rather
+than also checking `state.awaitingInput` - the two are set together
+wherever attention is opened (`collaborateLinear`'s `attention` branch), so
+checking one is checking both, same as the existing text-reply branch only
+ever checks `attention.kind`.
+
+Added three tests to `test/controller-recovery.test.ts`, next to the
+existing "completes the issue directly when the engineer approves a QA
+attention" test whose setup they mirror: reacting with `white_check_mark` on
+the issue while a QA attention is open completes the issue exactly like the
+text-reply case (and, correctly, never calls `reactToComment` - there's no
+comment to ack); reacting with a different emoji (`thumbsup`) leaves the
+attention open and never calls `completeIssue`; and a checkmark reaction
+does nothing on a session with no attention open at all, and does nothing on
+a session whose open attention is a Steering rather than a QA.
+
+The approval branch also gets its own `console.info` naming `sessionId`,
+`issueId`, and `actorId` distinct from the generic "observed as
+acknowledgement" line every reaction already logs - this is a consequential,
+auto-completing action taken on a comparatively coarse signal, and needs to
+be traceable back to the reaction that triggered it after the fact.
+
+`bun run check` (128 tests now, up from 125) and `bun run test:capsule`
+(14/14, untouched by this change) both stayed green.
+
+**This is a tradeoff to ratify, not just a caveat.** The brief asked for a
+reaction on "the specific comment/activity holding the open QA elicitation."
+What got built approves on a reaction to the *issue* instead, because
+nothing else is reactable (see above) - which means any ✅ left on that
+issue for an unrelated reason while a QA happens to be open will complete
+the parent work too. That's a real false-positive surface on a consequential
+action, not a cosmetic gap, and it was resolved in this codebase's favor
+without a human sign-off on that specific tradeoff. There is a narrower
+alternative that matches the brief literally: `collaborateLinear`'s
+`signal` branch already posts a plain comment via `createIssueComment` for
+non-blocking Signals; the QA `attention` branch could do the same
+alongside the elicitation Activity, store that comment's id on
+`ActiveAttention`, and have `handleQaReactionApproval` match
+`issueCommentReaction` where `notification.commentId` equals that stored id
+instead of matching on `issueEmojiReaction` at the issue level. That closes
+the ambiguity entirely, at the cost of one extra comment (and one extra
+field to persist) per QA elicitation. It was not built, in keeping with
+"don't rebuild unless asked" once the coarser version was already working
+and typechecked - but it is the option to reach for if the false-positive
+risk above turns out to matter in practice.
+
+**A second limitation, about recovery rather than ambiguity: a missed
+reaction cannot be reconciled the way a missed reply can.** `initialize()`'s
+restart recovery walks each session's persisted `agentSessionSnapshot` and
+inspects its latest non-ephemeral `AgentActivity` to decide whether a wait is
+still open - which works for the text-reply path because a human's reply
+*is* an `AgentActivity`/`Comment` that shows up in that history. A reaction
+creates neither. If the webhook carrying an `issueEmojiReaction` is lost -
+say, the controller is down for the few seconds it's in flight - there is
+nothing left anywhere in Linear's API for a later restart to notice; the
+session simply stays `awaitingInput` forever, exactly the failure mode this
+feature exists to fix, until the human notices and falls back to the
+text-reply path (or reacts again, if they happen to). The text-reply path
+has no equivalent blind spot. This is inherent to reactions carrying no
+durable history entry to reconcile from, not something a retry or a bigger
+timeout would fix.

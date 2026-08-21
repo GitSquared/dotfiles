@@ -458,21 +458,7 @@ export class AgentController {
       const replyCommentId = session.comment?.id;
       state.attention = [];
       if (attention.kind === "qa" && isQaApproval(answer) && state.issueId) {
-        await this.linear.createActivity(sessionId, {
-          type: "response",
-          body: "QA approved. The delegated work is complete.",
-        }).catch(() => undefined);
-        await this.linear.completeIssue(state.issueId).catch((error: unknown) => {
-          console.warn("failed to complete approved QA issue", {
-            sessionId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
-        if (replyCommentId) await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
-        state.awaitingInput = false;
-        this.touch(state);
-        this.states.set(sessionId, state);
-        await this.persist();
+        await this.approveQa(sessionId, state, state.issueId, replyCommentId);
         return;
       }
       if (state.issueId) {
@@ -600,6 +586,13 @@ export class AgentController {
     if (["issueEmojiReaction", "issueCommentReaction"].includes(action)) {
       this.recordNotification(action, "acknowledgement");
       console.info("Linear reaction notification observed as acknowledgement", { action, issueId });
+      // Only an issue-level reaction can stand in for "react to the QA elicitation": Linear has
+      // no way to react to an Agent Activity directly (see RESEARCH.md), so issueCommentReaction
+      // is left as a pure acknowledgement - scoping it to "any comment on the issue" would be a
+      // misleading half-measure, since no comment actually represents the elicitation itself.
+      if (action === "issueEmojiReaction" && issueId) {
+        await this.handleQaReactionApproval(issueId, payload.notification?.reactionEmoji, payload.notification?.actorId, payload.appUserId);
+      }
       return;
     }
     if (action === "documentCommentMention") {
@@ -965,6 +958,56 @@ export class AgentController {
         sessionId,
         message: error instanceof Error ? error.message : String(error),
       });
+    }
+  }
+
+  /**
+   * Completes the parent work for an approved QA attention. Shared by the two ways a human
+   * can approve: replying with the exact QA_APPROVE_VALUE text (handled inline in `handle()`),
+   * and reacting with a checkmark emoji (handled by `handleQaReactionApproval` below). Callers
+   * are responsible for having already cleared `state.attention` and for confirming the
+   * attention being resolved was actually a QA (not a Steering) request.
+   */
+  private async approveQa(sessionId: string, state: SessionState, issueId: string, ackCommentId?: string): Promise<void> {
+    await this.linear.createActivity(sessionId, {
+      type: "response",
+      body: "QA approved. The delegated work is complete.",
+    }).catch(() => undefined);
+    await this.linear.completeIssue(issueId).catch((error: unknown) => {
+      console.warn("failed to complete approved QA issue", {
+        sessionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+    if (ackCommentId) await this.linear.reactToComment(ackCommentId, "white_check_mark").catch(() => undefined);
+    state.awaitingInput = false;
+    this.touch(state);
+    this.states.set(sessionId, state);
+    await this.persist();
+  }
+
+  /**
+   * A checkmark reaction on the issue holding an open QA attention approves it exactly like
+   * replying with the approve text - see RESEARCH.md's "Reaction-based QA approval" entry for
+   * why an issue-level reaction (rather than a reaction on the elicitation itself) is the only
+   * signal Linear can actually deliver here.
+   */
+  private async handleQaReactionApproval(
+    issueId: string,
+    emoji: string | undefined,
+    actorId: string | undefined,
+    appUserId: string | undefined,
+  ): Promise<void> {
+    if (emoji !== "white_check_mark") return;
+    if (appUserId && actorId === appUserId) return; // ignore the app's own reactions, if it ever adds any
+    const matches = [...this.states].filter(([, state]) => state.issueId === issueId && state.attention[0]?.kind === "qa");
+    for (const [sessionId, state] of matches) {
+      // This is a consequential, auto-approving action taken on a coarse (issue-level, not
+      // elicitation-level) signal - log it distinctly from the generic acknowledgement line
+      // above so a wrongly-completed issue can actually be traced back to the reaction that did it.
+      console.info("Linear checkmark reaction approved an open QA attention", { sessionId, issueId, actorId });
+      state.attention = [];
+      await this.approveQa(sessionId, state, issueId);
     }
   }
 }

@@ -68,6 +68,15 @@ export type AppUserNotificationWebhook = {
     issueId?: string;
     issue?: LinearIssue;
     type?: string;
+    /**
+     * Set by Linear on `issueEmojiReaction`/`issueCommentReaction` notifications
+     * (IssueEmojiReactionNotificationWebhookPayload / IssueCommentReactionNotificationWebhookPayload
+     * in Linear's schema): the normalized name of the emoji that was reacted with,
+     * e.g. "white_check_mark".
+     */
+    reactionEmoji?: string;
+    /** The id of the actor who caused the notification - who placed the reaction, for reaction notifications. */
+    actorId?: string;
   };
 };
 

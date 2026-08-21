@@ -631,6 +631,219 @@ test("completes the issue directly when the engineer approves a QA attention", a
   assert.equal(health.controller.attentionQueue.total, 0);
 });
 
+test("completes the issue directly when the engineer reacts with a checkmark instead of replying", async () => {
+  const activities: Array<{ sessionId: string; content: unknown }> = [];
+  const completedIssues: string[] = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async setIssueState() {},
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async createActivity(sessionId: string, content: unknown) { activities.push({ sessionId, content }); },
+  } as unknown as LinearClient;
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const pending = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return pending; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("parent-qa-session", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Review the checked fix",
+      action: "Approve the preview and complete the parent work, or reply with changes.",
+      recommendation: "Approve after checking the linked preview.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+  finishRun({ ok: true, timedOut: false, awaitingInput: true, summary: "Ready for QA.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  // The engineer reacts with a checkmark on the issue instead of replying with the approve
+  // text - Linear cannot deliver a reaction on the elicitation itself (see RESEARCH.md), so
+  // this is the AppUserNotification an issue-level reaction actually produces.
+  await controller.handleNotification({
+    type: "AppUserNotification",
+    action: "issueEmojiReaction",
+    appUserId: "agent-1",
+    notification: { issueId: "parent-issue", reactionEmoji: "white_check_mark", actorId: "human-1" },
+  });
+
+  assert.deepEqual(completedIssues, ["parent-issue"]);
+  assert.equal(activities.some((activity) => activity.sessionId === "parent-qa-session"
+    && (activity.content as { type?: string }).type === "response"), true);
+  // No comment was ever replied to, so there is nothing to react back on.
+  assert.deepEqual(reactions, []);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 0);
+});
+
+test("ignores a non-checkmark reaction on an issue with an open QA attention", async () => {
+  const completedIssues: string[] = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment() {},
+    async setIssueState() {},
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const pending = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return pending; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("parent-qa-session", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Review the checked fix",
+      action: "Approve the preview and complete the parent work, or reply with changes.",
+      recommendation: "Approve after checking the linked preview.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+  finishRun({ ok: true, timedOut: false, awaitingInput: true, summary: "Ready for QA.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  await controller.handleNotification({
+    type: "AppUserNotification",
+    action: "issueEmojiReaction",
+    appUserId: "agent-1",
+    notification: { issueId: "parent-issue", reactionEmoji: "thumbsup", actorId: "human-1" },
+  });
+
+  assert.deepEqual(completedIssues, []);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 1, "the QA attention must remain open");
+});
+
+test("ignores a checkmark reaction when there is no open QA attention, or the open attention is a Steering", async () => {
+  const completedIssues: string[] = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment() {},
+    async setIssueState() {},
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return { ok: true as const, timedOut: false as const, awaitingInput: false, summary: "Done.", elapsedMs: 1 }; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  // A session with no attention open at all.
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "idle-session", issueId: "idle-issue", creatorId: "human-1", issue: { id: "idle-issue", teamId: "team-1" } },
+  });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+  await controller.handleNotification({
+    type: "AppUserNotification",
+    action: "issueEmojiReaction",
+    appUserId: "agent-1",
+    notification: { issueId: "idle-issue", reactionEmoji: "white_check_mark", actorId: "human-1" },
+  });
+  assert.deepEqual(completedIssues, [], "a reaction with nothing awaiting input must do nothing");
+
+  // A session with an open Steering (not QA) attention.
+  let finishFirst!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const first = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishFirst = resolve;
+  });
+  const steeringRunner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return first; },
+  } as unknown as AgentRunner;
+  const steeringController = new AgentController(linear, steeringRunner);
+  await steeringController.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "steering-session", issueId: "steering-issue", creatorId: "human-1", issue: { id: "steering-issue", teamId: "team-1" } },
+  });
+  await steeringController.collaborateLinear("steering-session", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "high",
+      blocking: true,
+      title: "Choose the boundary",
+      action: "Choose the safe migration boundary.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+  finishFirst({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await steeringController.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+  await steeringController.handleNotification({
+    type: "AppUserNotification",
+    action: "issueEmojiReaction",
+    appUserId: "agent-1",
+    notification: { issueId: "steering-issue", reactionEmoji: "white_check_mark", actorId: "human-1" },
+  });
+  assert.deepEqual(completedIssues, [], "a checkmark on an open Steering (not QA) must not complete the issue");
+  const health = await steeringController.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 1, "the Steering attention must remain open");
+});
+
 test("warns a freshly mentioned session that another session on the same issue is already active", async () => {
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
