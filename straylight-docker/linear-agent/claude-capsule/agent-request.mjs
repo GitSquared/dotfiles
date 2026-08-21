@@ -591,6 +591,7 @@ export function createStraylightTools(context) {
         fields: z.record(z.string(), z.unknown()).optional(),
       },
       async (request, extra) => text(await forward("/v1/linear", request, extra?.signal)),
+      { alwaysLoad: true },
     ),
     tool(
       "linear_activity",
@@ -599,6 +600,7 @@ export function createStraylightTools(context) {
         request: z.record(z.string(), z.unknown()),
       },
       async ({ request }, extra) => text(await forward("/v1/linear-session", request, extra?.signal)),
+      { alwaysLoad: true },
     ),
     tool(
       "manage_service",
