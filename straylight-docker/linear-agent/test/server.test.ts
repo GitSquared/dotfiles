@@ -19,6 +19,7 @@ const config: ControllerConfig = {
   runnerUrl: "http://runner.test:8788",
   runnerToken: "r".repeat(32), // yadm-secret-scan: ignore
   attentionStateName: "In Review",
+  graphqlTimeoutMs: 15_000,
 };
 
 test("serves controller health through a Web Response", async () => {

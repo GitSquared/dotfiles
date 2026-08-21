@@ -96,14 +96,14 @@ function requiredId(value: string | undefined, fallback: string | undefined, lab
 
 type OAuthState = { value: string; expiresAt: number };
 type StateFile = { states: OAuthState[] };
-type Token = { // yadm-secret-scan: ignore
+export type Token = { // yadm-secret-scan: ignore
   accessToken: string; // yadm-secret-scan: ignore
   refreshToken?: string;
   expiresAt: number;
   scope?: string | string[];
   updatedAt: number;
 };
-type TokenFile = { defaultAppUserId?: string; installations: Record<string, Token> }; // yadm-secret-scan: ignore
+export type TokenFile = { defaultAppUserId?: string; installations: Record<string, Token> }; // yadm-secret-scan: ignore
 type TokenResponse = { // yadm-secret-scan: ignore
   access_token?: string;
   refresh_token?: string;
@@ -202,7 +202,17 @@ export class LinearClient {
   private readonly tokens: JsonStore<TokenFile>; // yadm-secret-scan: ignore
   private refreshInFlight: Promise<string> | undefined;
 
-  constructor(private readonly config: ControllerConfig) {
+  constructor(
+    private readonly config: ControllerConfig,
+    // Mirrors DockerEngine's own constructor-injectable requestTimeoutMs (src/docker-engine.ts):
+    // an independent default here, with the production value threaded in explicitly from
+    // ControllerConfig.graphqlTimeoutMs at the one real call site (src/index.ts).
+    private readonly graphqlTimeoutMs: number = GRAPHQL_TIMEOUT_MS,
+    // Test-only seam, matching this file's existing FetchLike injection point on
+    // putPreparedLinearUpload - never wired to config, since the production GraphQL endpoint
+    // is intentionally not an operator-facing knob.
+    private readonly fetchImpl: FetchLike = fetch,
+  ) {
     this.states = new JsonStore(path.join(config.stateDirectory, "oauth-states.json"), { states: [] });
     this.tokens = new JsonStore(path.join(config.stateDirectory, "linear-tokens.json"), { installations: {} }); // yadm-secret-scan: ignore
   }
@@ -1037,11 +1047,11 @@ export class LinearClient {
   }
 
   private async graphqlWithToken<T>(token: string, query: string, variables?: Record<string, unknown>): Promise<T> { // yadm-secret-scan: ignore
-    const response = await fetch(GRAPHQL_URL, {
+    const response = await this.fetchImpl(GRAPHQL_URL, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify({ query, variables }),
-      signal: AbortSignal.timeout(GRAPHQL_TIMEOUT_MS),
+      signal: AbortSignal.timeout(this.graphqlTimeoutMs),
     });
     const payload = await response.json() as GraphqlResponse<T>;
     if (!response.ok || payload.errors?.length) {

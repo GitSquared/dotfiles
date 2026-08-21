@@ -14,6 +14,7 @@ export type ControllerConfig = {
   runnerUrl: string;
   runnerToken: string; // yadm-secret-scan: ignore
   attentionStateName: string;
+  graphqlTimeoutMs: number;
 };
 
 export type RunnerConfig = {
@@ -129,6 +130,7 @@ export function loadControllerConfig(env: NodeJS.ProcessEnv): ControllerConfig {
     runnerUrl: serviceUrl(env, "PI_RUNNER_URL", "http://linear-agent-runner:8788"),
     runnerToken: secret(env, "PI_RUNNER_TOKEN"), // yadm-secret-scan: ignore
     attentionStateName: env.LINEAR_ATTENTION_STATE_NAME?.trim() || "In Review",
+    graphqlTimeoutMs: positiveInteger(env, "LINEAR_GRAPHQL_TIMEOUT_MS", 15_000),
   };
 }
 
@@ -194,6 +196,7 @@ export function publicControllerConfig(config: ControllerConfig) {
     stateDirectory: config.stateDirectory,
     runnerUrl: config.runnerUrl,
     attentionStateName: config.attentionStateName,
+    graphqlTimeoutMs: config.graphqlTimeoutMs,
   };
 }
 

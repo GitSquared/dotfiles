@@ -6,7 +6,7 @@ import { createServer, dispatchLinearWebhook, MAX_LINEAR_UPLOAD_BODY_BYTES } fro
 import { DurableWebhookInbox } from "./webhook-inbox.js";
 
 const config = loadControllerConfig(process.env);
-const linear = new LinearClient(config);
+const linear = new LinearClient(config, config.graphqlTimeoutMs);
 const runner = new PiRunnerClient(config.runnerUrl, config.runnerToken);
 const controller = new AgentController(linear, runner, config.stateDirectory, config.attentionStateName);
 await controller.initialize();

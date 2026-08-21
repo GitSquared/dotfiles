@@ -20,6 +20,14 @@ test("loads safe defaults", () => {
   assert.equal(config.host, "0.0.0.0");
   assert.equal(config.port, 8787);
   assert.equal(config.runnerUrl, "http://linear-agent-runner:8788");
+  assert.equal(config.graphqlTimeoutMs, 15_000);
+});
+
+test("overrides the GraphQL timeout via environment", () => {
+  const env = environment();
+  env.LINEAR_GRAPHQL_TIMEOUT_MS = "5000";
+  const config = loadControllerConfig(env);
+  assert.equal(config.graphqlTimeoutMs, 5_000);
 });
 
 test("rejects a short install secret", () => {

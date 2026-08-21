@@ -231,10 +231,15 @@ test("reports a stranded session to Linear instead of silently abandoning it whe
     const linear = {
       async agentSessionSnapshot(sessionId: string) {
         if (sessionId === "session-stranded") {
-          // Stands in for the real LinearClient: with the new AbortSignal-based timeout in
-          // graphqlWithToken, a hung Linear GraphQL call now rejects after its own timeout
-          // instead of hanging forever. A short real delay here is enough to prove the
-          // controller doesn't need this call to resolve quickly, without slowing the suite.
+          // This fake stands in for any rejection from the real LinearClient - including, but
+          // not limited to, graphqlWithToken's AbortSignal-based timeout rejecting a hung
+          // GraphQL call. It does not exercise that timeout mechanism itself (it never touches
+          // fetch/AbortSignal/GRAPHQL_TIMEOUT_MS); that real fetch+abort path is covered
+          // separately by test/linear.test.ts's real-connection tests. What this test proves is
+          // initialize()'s handling of such a rejection: a slow-then-failing recovery snapshot
+          // for one record must not block startup, and the failure must be reported rather than
+          // silently swallowed. A short real delay here is enough to prove the controller
+          // doesn't need this call to resolve quickly, without slowing the suite.
           await Bun.sleep(20);
           throw new Error("Linear GraphQL request timed out after 15000ms");
         }

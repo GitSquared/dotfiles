@@ -2002,3 +2002,102 @@ feature exists to provide. Closing that fully would need Linear itself
 notified some other way (a dead-letter surface like `webhook-inbox.ts`'s,
 replayed once Linear recovers, or an out-of-band alert) - genuinely more
 mechanism than this task asked for, and I didn't build it speculatively.
+
+## Real timeout coverage for graphqlWithToken - 2026-08-21
+
+A gap in the "Timeout hardening for Docker Engine and Linear GraphQL calls"
+section above (earlier tonight): that work gave `graphqlWithToken` a real
+`AbortSignal.timeout(GRAPHQL_TIMEOUT_MS)`, same as `DockerEngine`'s socket
+calls, but only `DockerEngine` got the rigor to go with it.
+`test/docker-engine.test.ts` spins up a real hung Unix-socket listener and
+proves the abort actually fires within a short bound. The GraphQL side got
+no equivalent. Worse, `test/controller-recovery.test.ts`'s stranded-session
+test carried a comment claiming otherwise - "Stands in for the real
+LinearClient: with the new AbortSignal-based timeout in graphqlWithToken, a
+hung Linear GraphQL call now rejects..." - describing a mechanism its own
+fake `agentSessionSnapshot` (`await Bun.sleep(20); throw new Error(...)`)
+never touches: no `fetch`, no `AbortSignal`, no `GRAPHQL_TIMEOUT_MS`. What
+it actually and correctly proves is `initialize()`'s handling of *any*
+rejection from that call - real value, wrong claim.
+
+Closing the gap needed the timeout to be genuinely injectable, not just a
+module constant, so a test could set it low without waiting out 15
+real seconds. `DockerEngine`'s own shape was the model: a constructor
+parameter with an independent default, with the config-driven production
+value threaded in explicitly at its one call site
+(`new DockerEngine(config.dockerSocket, config.dockerRequestTimeoutMs)` in
+`workbench.ts`). `LinearClient` got the same treatment: a second
+constructor parameter `graphqlTimeoutMs = GRAPHQL_TIMEOUT_MS` (still
+15s), and a new `graphqlTimeoutMs` field on `ControllerConfig`
+(env `LINEAR_GRAPHQL_TIMEOUT_MS`, same `positiveInteger` helper, same 15s
+default, surfaced in `publicControllerConfig` for the same startup-log
+knob-visibility `dockerRequestTimeoutMs` already gets). `src/index.ts`
+threads it through explicitly: `new LinearClient(config,
+config.graphqlTimeoutMs)` - the one production call site, mirroring the
+Docker one exactly.
+
+A timeout knob alone doesn't make a *test* possible, though: unlike
+`DockerEngine`, whose target (`socketPath`) was already a first-class
+constructor argument, `LinearClient`'s GraphQL endpoint is a hardcoded
+module constant (`GRAPHQL_URL = "https://api.linear.app/graphql"`) - and it
+should stay that way; nobody should be able to point production at a
+different GraphQL endpoint, unlike a Docker socket path, which genuinely
+varies per host. So the seam is the fetch call itself, not the URL: a third
+constructor parameter, `fetchImpl: FetchLike = fetch`, reusing the
+`FetchLike` type this same file already defines for
+`putPreparedLinearUpload`'s injectable fetch. In the new test, `fetchImpl`
+discards whatever URL `graphqlWithToken` passes it and calls the real
+`fetch()` against a local test server instead, forwarding every other
+option - method, headers, body, and critically the real
+`AbortSignal.timeout()` - untouched. The timeout, the signal, the abort,
+and the hung TCP connection are all genuine; only the destination hostname
+is substituted, because the real one can't be dialed from a test.
+
+New tests landed in `test/linear.test.ts` (previously two tests of pure
+functions only; `LinearClient` itself had no coverage). Reaching a real
+`graphqlWithToken` call without a live OAuth exchange needed one more
+small change: exporting the previously-private `Token`/`TokenFile` types
+so a test can seed a non-expiring access token directly into
+`LinearClient`'s own token-store file before construction - the same
+"seed state on disk, then construct the real object over it" shape
+`controller-recovery.test.ts` already uses for `ControllerStateStore`, just
+via a raw `JsonStore` write since there's no dedicated seeding method here.
+Two tests: a normal 200 response resolving well inside a 1s timeout (proof
+the redirect plumbing doesn't itself break the happy path), and the actual
+gap-closer - a real `node:http` server that accepts the connection and
+never responds, a `LinearClient` constructed with a 30ms timeout pointed at
+it via `fetchImpl`, asserting `issueState()` rejects with `/timed out/i`
+and that it does so within 1 second, not by hanging out to the real 15s
+default.
+
+Getting the second test to actually pass took its own empirical detour,
+independent of the fix under test - a reminder of exactly why the earlier
+Docker section argues for writing these tests against a real listener
+instead of trusting the mechanism from documentation. The test initially
+hung for the full 5-second Bun test timeout, but not inside
+`graphqlWithToken`: the abort fired correctly at ~30ms every time; the hang
+was in my own test helper's cleanup, `await
+new Promise((resolve) => server.close(() => resolve()))`. Bisecting by
+removing one variable at a time (indirection, headers, request body, in
+every combination) isolated the actual cause: a POST **body** that's still
+being written when the client aborts never delivers a graceful FIN to the
+server's side of the socket, so the accepted connection sits open
+indefinitely from the server's perspective; `server.close()` only stops
+accepting *new* connections and waits for existing ones to end on their
+own, and Bun's own `closeAllConnections()` didn't unstick it either.
+Confirmed by writing a dozen throwaway variants that each toggled exactly
+one factor - a bodyless request (headers only, or a plain GET) always
+closed cleanly, and a body always hung, regardless of whether the URL was
+redirected through `fetchImpl` or dialed directly. The fix: track accepted
+sockets via the server's own `connection` event and `socket.destroy()`
+each one before calling `close()`, making teardown deterministic instead of
+waiting on a FIN that was never coming. This is a real, low-level TCP
+behavior - not a Bun bug and not particular to `LinearClient` - but it
+would have silently produced exactly the kind of flaky-looking timeout this
+whole task exists to avoid trusting, had it not been chased down to a
+concrete, repeatable cause the way the Docker section's own quirks were.
+
+`bun run check` (140 tests, up from 137) and `bun run test:capsule` (20/20,
+unaffected) both green, run three times each to be sure - two of those
+runs were of `test/linear.test.ts` alone, after the socket-cleanup fix, to
+confirm the timing wasn't a lucky race.
