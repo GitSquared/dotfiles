@@ -67,6 +67,14 @@ mounted at all.
   copy the returned private asset URL, then update the existing document with
   `![descriptive alt text](private-asset-url)`. Do not rely on Linear rendering
   a fenced Mermaid block as a diagram.
+- For a code change that affects browser-rendered UI, use that same browser
+  mechanic proactively: navigate the affected flow and capture a screenshot
+  of the before/broken state during orientation, before the first edit
+  (recovering it later means stashing the change), then one after the fix.
+  Inspect both with `view_image` before claiming the fix looks right, publish
+  both through `share_artifact`, and cite them in `request_attention`'s QA
+  evidence - a real screenshot beats a description of the change. Skip this
+  when the change has no browser-rendered surface (pure backend/API work).
 - Before creating a similarly named document, list the current issue's documents
   and update the intended document by id when one already exists.
 - Treat a direct Document or Document-comment mention as the current request.

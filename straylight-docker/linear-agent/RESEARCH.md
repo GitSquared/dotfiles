@@ -1512,3 +1512,78 @@ text-reply path (or reacts again, if they happen to). The text-reply path
 has no equivalent blind spot. This is inherent to reactions carrying no
 durable history entry to reconcile from, not something a retry or a bigger
 timeout would fix.
+
+## Before/after screenshot guidance for browser-affecting changes - 2026-08-21
+
+Linear's own coding-session changelog entry (2026-08-20, "Coding sessions:
+environments, browser use, and updated pricing") describes its agent
+verifying UI work "where users experience it: in the browser," navigating
+the affected flow and capturing before-and-after screenshots so a reviewer
+can see the visual change directly. Read that against this codebase and the
+gap wasn't missing plumbing - it was missing instruction. Every piece
+Linear's write-up describes already exists here, unused by any standing
+guidance:
+
+- `manage_service` with `service: "browser"` starts an isolated, per-task
+  Playwright browser (`claude-capsule/agent-request.mjs`, `src/workbench.ts`);
+  the tool description already documents it as always disposable.
+- `view_image` (`ClaudeHarness.viewImage`, `src/claude.ts:244-248`) reads a
+  PNG/JPEG/GIF/WebP from `/workspace` as visual model input - the gate that
+  lets Claude actually look at a screenshot before making a claim about it.
+- `share_artifact` (`ClaudeHarness.shareArtifact`, `src/claude.ts:223-241`)
+  uploads a workspace file to Linear and posts it as a `type: "thought"`
+  activity with no `ephemeral` flag set - durable, not transient status -
+  rendered as `![label](assetUrl)` for an image. Its own tool description
+  (`claude-capsule/agent-request.mjs:529`) already points at this exact use:
+  "Use the returned private HTTPS asset URL as evidence in a QA attention
+  issue."
+- `request_attention`'s QA path already structurally requires evidence -
+  `attention.ts:133` refuses a `qa` request with an empty `evidence` array -
+  it just never required that evidence be a screenshot instead of a prose
+  description.
+
+So the fix here is guidance-only: two new lines, no new tool, no schema
+change, no behavior change. `src/prompts.ts`'s `claudeInitialPrompt` gets one
+new line directly after the existing "Use view_image ... Use share_artifact
+..." line, telling Claude that a change touching browser-rendered UI should
+use the browser service to actually navigate the affected flow, capture a
+before screenshot and an after screenshot, share both, and put them in QA's
+evidence - not describe the change in words when a picture is available.
+`workspace/AGENTS.md` gets the same instruction as a new bullet directly
+after the existing document-embedding bullet (the one that already walks
+through starting the browser, connecting with `playwright-core`, and saving
+a PNG under `/workspace`), phrased as "use that same browser mechanic
+proactively" so it doesn't re-explain mechanics already spelled out one
+bullet up. Both explicitly scope this to changes with a real browser-rendered
+surface, so Claude doesn't invent a browser-QA requirement for a pure
+backend/API change.
+
+One clause earns its place in both: capture the *before* screenshot during
+orientation, before the first edit, not after the fix is already in.
+Without that, "before" naturally gets read in the moment as "the current
+state, whatever that now is" - by the time Claude remembers to take a
+screenshot it has usually already made the change, and recovering the true
+before-state means stashing or checking out the pre-edit tree. Both new
+lines say this explicitly.
+
+Added one assertion to the existing `behavior.test.ts` prompt test
+(`assert.match(prompt, /browser-rendered UI/)`, next to the existing
+`/manage_plan/` and `/persistent notes under/` checks) so a future prompt
+trim can't silently drop this without a test noticing - prompt-content
+coverage in that neighborhood was otherwise zero. `bun run check` (128
+tests, same count - one assertion added to an existing test, not a new one)
+and `bun run test:capsule` (14/14) both stayed green; neither suite's
+counts moved because nothing about tool schemas, dispatch logic, or runtime
+behavior changed.
+
+**What this doesn't fix:** nothing enforces that the before shot actually
+happens before the edit. There's no hook gating a code change on a prior
+screenshot, and a QA request's evidence array accepts any HTTPS links
+regardless of whether they're actually a before/after pair or even images
+at all (`attention.ts`'s validation checks `label`/`url` shape and array
+bounds, not content). If Claude skips straight to implementing and only
+remembers the screenshot workflow afterward, the true "before" state is
+already gone and there's no automatic recovery - same character of gap as
+the reaction-based QA approval entry above, where a missed signal has no
+durable trace to reconcile from later. This is a prompt nudging behavior,
+not a constraint the runtime enforces.

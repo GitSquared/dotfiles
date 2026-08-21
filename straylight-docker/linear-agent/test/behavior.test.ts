@@ -21,6 +21,7 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /finish_work/);
   assert.match(prompt, /manage_plan/);
   assert.match(prompt, /persistent notes under/);
+  assert.match(prompt, /browser-rendered UI/);
   assert.doesNotMatch(prompt, /worktree\/branch/);
 });
 
