@@ -1107,3 +1107,68 @@ surfaced as an unhandled rejection instead of the reaction simply not
 landing. Added `.catch(() => undefined)` to match the existing pattern, plus
 a test asserting a throwing `reactToComment` still returns `{ ok: true,
 action: "react" }` rather than rejecting.
+
+## Trimming request_attention's unused fields - 2026-08-21
+
+Not a speculative cleanup - the codebase owner's own explicit call, after
+reading `request_attention`'s shape and judging it "good internal
+rationalization of signals but too much context for decisions to be taken
+with." The root cause was mechanical to confirm: `request_attention`'s zod
+schema in `claude-capsule/agent-request.mjs` required `originalIntent`,
+`delta`, `impact`, and `timing` on every single call (plus an optional
+`evidence[].description`), and `src/attention.ts`'s `AttentionRequest` type
+and `isAttentionRequest` validator mirrored the same shape - but
+`renderAttentionComment`, the only function anywhere in this codebase that
+ever turns an `AttentionRequest` into something a human actually sees
+(either a plain Signal comment, or the Steering/QA elicitation Activity
+body), never reads any of those five fields. It reads `title`, `action`,
+`recommendation` (non-signal only), `accessRepair`, `options` (steering
+only), and `evidence.label`/`evidence.url`. Confirmed by grep before
+touching anything: no other file in `src/` or `claude-capsule/` reads
+`originalIntent`, `delta`, `impact`, `timing`, or `evidence.description`
+either - not in redaction logic, not in logging, not in any other
+prompt-building path. Four required fields and one optional field were
+being validated as mandatory or allowed, then silently discarded, on what is
+very likely the highest-frequency tool call in the whole system - every
+Signal, every Steering ask, every QA gate paid the cost of composing prose
+nobody downstream would ever read.
+
+Removed `originalIntent`, `delta`, `impact`, and `timing` from the
+`AttentionRequest` type, `isAttentionRequest`'s bounded-field validation, and
+the `request_attention` zod schema; removed `evidence[].description` from
+`AttentionEvidence`, its evidence-array validation, and the corresponding
+zod shape. `recommendation` stayed everywhere - `renderAttentionComment`
+genuinely reads it (only for `kind !== "signal"`) and renders it as
+`*Recommendation:* ...`. `defer_followup`'s neighboring `what`/`whyNotNow`/
+`resurface` fields were deliberately left alone: `renderDeferredItem` reads
+all three, so that tool's shape was never part of this problem and touching
+it would have been the same mistake in reverse. The `request_attention` tool
+description string didn't name any of the removed fields, so no wording
+change was needed there.
+
+Grepping the whole repo afterward for `originalIntent`, `\bdelta\b`,
+`\bimpact\b`, and `\btiming\b` turned up only unrelated hits worth noting
+explicitly, since the names are generic enough to collide with real code:
+`delta` all through `agent-request.mjs`'s SSE stream-projection code
+(`content_block_delta`, `event.delta.thinking`, etc.) and a test title
+string referencing "delta" in English prose, plus `timing` inside an
+unrelated recommendation string ("...unless the backfill starts timing
+out."). None of those are the removed field and none were touched.
+
+Every test fixture constructing an `AttentionRequest`-shaped object needed
+the same five fields stripped: `test/attention.test.ts` (the shared
+`steering` fixture and one `evidence[].description` fixture in the QA-gate
+test), `test/linear-actions.test.ts` (two fixtures, one accept case and one
+reject case), `test/controller-recovery.test.ts` (nine fixtures across nine
+different integration tests), and `claude-capsule/agent-request.test.mjs`
+(the shared `baseAttentionRequest` helper). None of the surviving assertions
+had their premise broken by the removal - nothing in any of these four files
+asserted that `isAttentionRequest` rejects a payload for lacking
+`originalIntent`/`delta`/`impact`/`timing` specifically; the "rejects" cases
+that happened to include a stripped fixture were all rejecting for an
+unrelated reason (missing QA evidence, an unsafe URL, a duplicate option
+value), so those still fail for the same reason after the fields are gone.
+Only field-stripping was needed, no test logic rewrites.
+
+`bun run check` (typecheck plus all 120 tests in `test/*.ts`) and
+`bun run test:capsule` (14/14) both stayed green after the change.

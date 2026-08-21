@@ -179,11 +179,7 @@ function baseAttentionRequest(overrides) {
     delivery: "interrupt",
     title: "Push blocked",
     action: "Push the branch.",
-    originalIntent: "Ship the fix.",
-    delta: "git push fails with a 403.",
     recommendation: "Link GitHub access.",
-    impact: "Work is stalled until access is granted.",
-    timing: "Before the next push.",
     ...overrides,
   };
 }

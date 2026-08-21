@@ -458,11 +458,7 @@ export function createStraylightTools(context) {
         priority: z.enum(["urgent", "high", "medium", "low", "none"]).optional(),
         title: z.string().min(1).max(160),
         action: z.string().min(1).max(1_000),
-        originalIntent: z.string().min(1).max(2_000),
-        delta: z.string().min(1).max(2_000),
         recommendation: z.string().min(1).max(1_000),
-        impact: z.string().min(1).max(1_000),
-        timing: z.string().min(1).max(500),
         options: z.array(z.object({
           label: z.string().min(1).max(200),
           value: z.string().min(1).max(1_000),
@@ -471,7 +467,6 @@ export function createStraylightTools(context) {
         evidence: z.array(z.object({
           label: z.string().min(1).max(200),
           url: z.string().url().max(2_000),
-          description: z.string().min(1).max(500).optional(),
         })).min(1).max(8).optional(),
         missingAccess: z.object({
           workspace: z.enum(["capsule", "tools"]).describe("capsule: the Claude/Straylight identity itself needs re-authentication. tools: a developer tool (GitHub, npm, ...) in the task workspace needs a credential."),

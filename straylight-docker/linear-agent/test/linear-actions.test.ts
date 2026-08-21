@@ -35,11 +35,7 @@ test("accepts bounded generic Agent Session collaboration", () => {
       blocking: true,
       title: "Review the preview",
       action: "Approve or point to the first visual mismatch.",
-      originalIntent: "Match the reviewed account header design.",
-      delta: "The implementation and responsive states are ready.",
       recommendation: "Approve; the checked states match the reference.",
-      impact: "Nothing ships until review; waiting has no customer impact.",
-      timing: "No immediate deadline; review at the next normal break.",
       evidence: [{ label: "Preview", url: "https://preview.example.test" }],
     },
   }), true);
@@ -75,11 +71,7 @@ test("rejects unsafe or malformed Agent Session collaboration", () => {
       delivery: "queue",
       title: "Review this",
       action: "Approve it.",
-      originalIntent: "Build it.",
-      delta: "It is done.",
       recommendation: "Approve.",
-      impact: "Work remains paused.",
-      timing: "Whenever.",
     },
   }), false);
   assert.equal(isLinearSessionRequest({

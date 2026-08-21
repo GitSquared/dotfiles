@@ -11,7 +11,6 @@ export type AttentionOption = {
 export type AttentionEvidence = {
   label: string;
   url: string;
-  description?: string;
 };
 
 export type AttentionAccessRepair = {
@@ -26,11 +25,7 @@ export type AttentionRequest = {
   blocking?: boolean;
   title: string;
   action: string;
-  originalIntent: string;
-  delta: string;
   recommendation: string;
-  impact: string;
-  timing: string;
   options?: AttentionOption[];
   evidence?: AttentionEvidence[];
   accessRepair?: AttentionAccessRepair;
@@ -101,11 +96,7 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
   if (!(["interrupt", "queue"] as unknown[]).includes(request.delivery)) return false;
   if (!bounded(request.title, 160)
     || !bounded(request.action, 1_000)
-    || !bounded(request.originalIntent, 2_000)
-    || !bounded(request.delta, 2_000)
-    || !bounded(request.recommendation, 1_000)
-    || !bounded(request.impact, 1_000)
-    || !bounded(request.timing, 500)) return false;
+    || !bounded(request.recommendation, 1_000)) return false;
   if (request.priority !== undefined && !(["urgent", "high", "medium", "low", "none"] as unknown[]).includes(request.priority)) return false;
   if (request.blocking !== undefined && request.blocking !== attentionBlocking(request as AttentionRequest)) return false;
   if (request.kind === "signal" && request.delivery !== "queue") return false;
@@ -128,7 +119,6 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
     for (const evidence of request.evidence) {
       if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return false;
       if (!bounded(evidence.label, 200) || !bounded(evidence.url, 2_000) || !isHttpsUrl(evidence.url)) return false;
-      if (evidence.description !== undefined && !bounded(evidence.description, 500)) return false;
     }
   }
 

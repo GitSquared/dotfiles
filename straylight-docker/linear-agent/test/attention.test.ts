@@ -9,11 +9,7 @@ const steering = {
   blocking: true,
   title: "Choose the migration boundary",
   action: "Confirm whether the old table must remain writable during backfill.",
-  originalIntent: "Migrate without losing customer data.",
-  delta: "The old writer cannot dual-write without changing its transaction boundary.",
   recommendation: "Keep the old writer authoritative until the independent verification passes.",
-  impact: "Choosing a destructive cutover could lose writes made during the migration.",
-  timing: "No immediate deadline; the migration is safely paused before writes change.",
   options: [
     { label: "Keep old writer", value: "Use expand/backfill/verify/cutover", tradeoff: "Slower, but recoverable." },
     { label: "Immediate cutover", value: "Switch writers before backfill", tradeoff: "Faster, but unsafe." },
@@ -54,7 +50,7 @@ test("requires review evidence before asking for QA attention", () => {
   assert.equal(isAttentionRequest({
     ...qa,
     kind: "qa",
-    evidence: [{ label: "Preview", url: "https://preview.example.test", description: "Checked at 1440px." }],
+    evidence: [{ label: "Preview", url: "https://preview.example.test" }],
   }), true);
   const comment = renderAttentionComment({
     ...qa,

@@ -233,11 +233,7 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
       blocking: true,
       title: "A destructive migration needs a boundary",
       action: "Confirm that the old writer must remain authoritative.",
-      originalIntent: "Migrate without losing writes.",
-      delta: "The proposed writer cannot dual-write atomically.",
       recommendation: "Keep the old writer until verification passes.",
-      impact: "An immediate cutover can lose customer writes.",
-      timing: "Answer before the cutover; implementation is paused safely.",
       options: [
         { label: "Keep old writer", value: "expand and backfill" },
         { label: "Cut over", value: "switch immediately" },
@@ -309,11 +305,7 @@ test("posts an access-repair Steering request with the native auth signal", asyn
       blocking: true,
       title: "GitHub access is missing",
       action: "Restore GitHub access in the task workspace before implementation can continue.",
-      originalIntent: "Implement the requested change.",
-      delta: "The bash tool cannot reach the private repository without a GitHub credential.",
       recommendation: "Link the GitHub account from the workbench.",
-      impact: "No further implementation work is possible until access is restored.",
-      timing: "Before implementation can continue.",
       accessRepair: { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" },
     },
   });
@@ -368,11 +360,7 @@ test("resumes the paused parent run directly when the engineer replies on the sa
       blocking: true,
       title: "Choose the boundary",
       action: "Choose the safe migration boundary.",
-      originalIntent: "Migrate without losing writes.",
-      delta: "Both boundaries are now technically viable.",
       recommendation: "Keep the old writer authoritative.",
-      impact: "Implementation cannot safely choose ownership without this.",
-      timing: "Before implementation resumes.",
     },
   });
   finishFirst({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting.", elapsedMs: 1 });
@@ -439,11 +427,7 @@ test("ignores a reply on an unrelated comment thread while a blocking attention 
       blocking: true,
       title: "Choose the boundary",
       action: "Choose the safe migration boundary.",
-      originalIntent: "Migrate without losing writes.",
-      delta: "Both boundaries are now technically viable.",
       recommendation: "Keep the old writer authoritative.",
-      impact: "Implementation cannot safely choose ownership without this.",
-      timing: "Before implementation resumes.",
     },
   });
   finishFirst({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting.", elapsedMs: 1 });
@@ -513,11 +497,7 @@ test("completes the issue directly when the engineer approves a QA attention", a
       priority: "medium",
       title: "Review the checked fix",
       action: "Approve the preview and complete the parent work, or reply with changes.",
-      originalIntent: "Fix the broken interaction.",
-      delta: "The fix and focused checks are ready.",
       recommendation: "Approve after checking the linked preview.",
-      impact: "The parent work remains open until ownership is accepted.",
-      timing: "At the next normal review window.",
       evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
     },
   });
@@ -709,11 +689,7 @@ test("mentions the issue's assignee on an urgent signal, giving it real notifica
       priority: "urgent",
       title: "Third-party API is flaking",
       action: "Retrying with backoff; noting in case it gets worse.",
-      originalIntent: "Call the billing API to reconcile invoices.",
-      delta: "The billing API returned 503 twice; retries are succeeding so far.",
       recommendation: "No action needed unless retries start failing outright.",
-      impact: "None yet; the run is continuing on schedule.",
-      timing: "Informational only.",
     },
   });
 
@@ -757,11 +733,7 @@ test("does not mention anyone on a routine signal, even when the issue has an as
       delivery: "queue",
       title: "Switched to a cached dependency list",
       action: "Using the lockfile from main since the branch's own lockfile is stale.",
-      originalIntent: "Install dependencies for the build.",
-      delta: "The branch's lockfile predates a recent dependency bump.",
       recommendation: "No action needed.",
-      impact: "None; the build will use up-to-date, compatible versions.",
-      timing: "Informational only.",
     },
   });
 
@@ -800,11 +772,7 @@ test("falls back to a plain comment when an urgent signal's issue has no assigne
       priority: "urgent",
       title: "Rate limit close to exhausted",
       action: "Slowing down requests to stay under the API's rate limit.",
-      originalIntent: "Backfill historical records via the vendor API.",
-      delta: "The vendor's rate limit is tighter than expected for this account tier.",
       recommendation: "No action needed unless the backfill starts timing out.",
-      impact: "The backfill will simply take longer than planned.",
-      timing: "Informational only.",
     },
   });
 
@@ -834,11 +802,7 @@ test("falls back to a plain comment when an urgent signal's issue has no assigne
       priority: "urgent",
       title: "Rate limit close to exhausted",
       action: "Slowing down requests to stay under the API's rate limit.",
-      originalIntent: "Backfill historical records via the vendor API.",
-      delta: "The vendor's rate limit is tighter than expected for this account tier.",
       recommendation: "No action needed unless the backfill starts timing out.",
-      impact: "The backfill will simply take longer than planned.",
-      timing: "Informational only.",
     },
   });
 
