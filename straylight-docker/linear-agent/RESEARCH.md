@@ -2101,3 +2101,108 @@ concrete, repeatable cause the way the Docker section's own quirks were.
 unaffected) both green, run three times each to be sure - two of those
 runs were of `test/linear.test.ts` alone, after the socket-cleanup fix, to
 confirm the timing wasn't a lucky race.
+
+## Notification-handling completeness: issueStatusChangedAll and PR mentions - 2026-08-21
+
+Two more gaps in `handleNotification` (`controller.ts`), found the same way
+as the reaction-approval and durable-log work above tonight: by pulling
+Linear's public schema SDL
+(`raw.githubusercontent.com/linear/linear/refs/heads/master/packages/sdk/src/schema.graphql`)
+and diffing its `AppUserNotification` action enum against what this
+handler actually matches on.
+
+**Gap 1: `issueStatusChangedAll`.** The handler only ever matched
+`action === "issueStatusChanged"` - the branch that calls `issueState()`
+and, if the issue landed in a `completed`/`canceled` type, stops the
+running Agent Session via `cancelMatching()`. The SDL lists
+`issueStatusChangedAll` as a distinct sibling action in the same family.
+This is the same "specific vs. all" pairing already visible elsewhere in
+Linear's own notification types (a scoped action plus a broader
+notification-preference variant of the same underlying event) - not, as
+far as I can tell from the schema alone, a genuinely different occurrence.
+If Linear ever delivers the "all" variant instead of (or alongside) the
+specific one to this OAuth app's webhook subscription, the close-on-completion
+safety net would silently not fire for that delivery, since nothing matched
+it. Fixed by widening the condition to
+`action === "issueStatusChanged" || action === "issueStatusChangedAll"` and
+treating them identically - same `issueState()` call, same cancellation
+logic, same recorded disposition.
+
+While in there, I noticed the asymmetry between how document-adjacent and
+issue-adjacent "Other" notifications get bucketed. There's already an
+`action.startsWith("document")` catch-all right before `issueAssignedToYou`
+that records anything document-shaped as `contextOnly` instead of falling
+through to the generic `unknown` bucket at the bottom of the function. No
+equivalent existed for `issue`-prefixed actions: `issueReopened`,
+`issueBlocking`, `issueDue`, `issueSlaBreached`, and whatever else Linear's
+schema lists under that family all fell into the same `unknown` bucket as
+genuinely unrecognized noise, even though they're clearly-scoped, known
+notification types this app simply has no prompt-synthesizing behavior for.
+Added `if (action.startsWith("issue")) { recordNotification(action,
+"contextOnly"); ... }` mirroring the document one's exact shape - same
+placement pattern (a catch-all sitting after every specific case in its
+family, before falling through to the next family), same log message
+shape, same disposition choice.
+
+**Gap 2: PR mentions got total silence.** The SDL also lists
+`pullRequestMention` and `pullRequestCommentMention` as notification action
+types - these come from Linear's own native GitHub/GitLab PR-sync
+integration, a different mechanism entirely from this app's
+`githubPullRequestUrl` regex-scrape and `linear_activity` publish path
+(see earlier RESEARCH.md entries on that). Before this fix, both actions
+fell into the generic `unknown` bucket with no reaction at all - not even
+the courtesy fallback comment `documentCommentMention` posts when Linear
+can't route a Document-thread mention to an Agent Session either. Since
+the payload's underlying type carries an `issue`/`issueId` field (a synced
+PR is tied to its linked issue - confirmed against the SDL), the same
+fallback shape applies: reused `documentCommentMention`'s exact
+comment-posting pattern (the `finalText([...]).filter(Boolean).join("\n\n")`
+call into `createIssueComment`, with the `.catch()` that just warns if even
+that fails) rather than designing something new. Unlike the
+`documentCommentMention` failure path, this doesn't throw a
+`PermanentWebhookDeliveryError` afterward - there's no delivery attempt
+here that actually failed (no Agent Session creation was ever tried;
+Linear can't route this class of mention to one at all), so it's classified
+and returns cleanly, the same way `documentMention` (no comment thread to
+anchor a session) already does. If an `issueId` is present, it posts a
+comment on that issue explaining PR-thread mentions don't reach this app
+and to mention it on the issue instead, and records `contextOnly`. If no
+`issueId` is present - nothing to post to - it records `unknown` and warns,
+the same choice already made for `issueStatusChanged`'s and
+`documentCommentMention`'s own missing-correlation-id branches.
+
+Both gaps are fixed in the same `handleNotification` method, in the same
+file and shape they were found in - no new abstractions.
+
+**Tests** landed in `test/notifications.test.ts`, alongside the existing
+`handleNotification` coverage: `issueStatusChangedAll` driving a real
+tracked session (started via `handle()`, kept "running" by a `runner.run()`
+that never resolves) into `runner.abort()` exactly like
+`issueStatusChanged` would; `issueReopened` recorded as `contextOnly` with
+the `unknown` counter staying at zero; a `pullRequestMention` with an
+`issueId` producing exactly one `createIssueComment` call whose body
+mentions both the explanation and the quoted PR comment; and a
+`pullRequestCommentMention` with no `issueId` at all producing no comment
+call and no crash, landing in `unknown`.
+
+**The same honest hedge as the reaction-approval entry above applies here,
+stated plainly: this is inferred from the schema and from the existing
+document-prefix precedent, not from having watched a real
+`issueStatusChangedAll` or `pullRequestMention` payload land - I don't have
+production traffic to confirm any of it against.** In particular, I don't
+know whether this OAuth app's webhook subscription actually receives
+`issueStatusChangedAll` at all (versus only ever getting the specific
+`issueStatusChanged`), whether Linear ever sends both for the same
+underlying change, or whether a real synced-PR mention payload's `issueId`
+field is populated as reliably as the schema implies. Two concrete ways to
+check this against real traffic later, both already wired up:
+`health().controller.notifications.counts.unknown` should stay flat (or at
+least not grow from these two action families) once this is live in front
+of a real workspace, and the `"received unrecognized Linear app
+notification"` log line - the fallback for anything still landing in
+`unknown` - is the tell if either assumption above turns out wrong.
+
+`bun run check` (144 tests, up from 140) and `bun run test:capsule` (20/20,
+unaffected) both green, `bun run check` run twice to rule out the
+`test/controller-recovery.test.ts` Bun.sleep-based polling flake noted
+elsewhere in this file.

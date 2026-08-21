@@ -731,6 +731,36 @@ export class AgentController {
       console.info("Linear document notification retained as context; no prompt was synthesized", { action, documentId });
       return;
     }
+    if (["pullRequestMention", "pullRequestCommentMention"].includes(action)) {
+      // Linear's native GitHub/GitLab PR-sync integration (distinct from this app's own
+      // githubPullRequestUrl regex-scrape and linear_activity publish path) has no way to
+      // route a mention on a PR thread to an Agent Session - only issue-backed threads support
+      // that. The payload still carries the linked issue, so post the same kind of courtesy
+      // fallback documentCommentMention posts when Linear can't route it either.
+      if (!issueId) {
+        this.recordNotification(action, "unknown");
+        console.warn("Linear PR mention notification did not include a linked issue id", { action });
+        return;
+      }
+      this.recordNotification(action, "contextOnly");
+      const question = payload.notification?.comment?.body?.trim();
+      await this.linear.createIssueComment(
+        issueId,
+        finalText([
+          "A mention on a linked pull request didn't reach me - Linear doesn't yet route pull request comment threads to an Agent Session.",
+          question ? `The comment there was:\n> ${question}` : undefined,
+          "Mention me here on the issue instead and I'll see it.",
+        ].filter((line): line is string => Boolean(line)).join("\n\n")),
+      ).catch((commentError: unknown) => {
+        console.warn("failed to post the PR-mention fallback comment", {
+          action,
+          issueId,
+          message: commentError instanceof Error ? commentError.message : String(commentError),
+        });
+      });
+      console.info("Linear PR mention notification received a fallback comment on the linked issue", { action, issueId });
+      return;
+    }
     if (action === "issueAssignedToYou") {
       this.recordNotification(action, "lifecycle");
       console.info("Linear assignment notification observed; AgentSessionEvent owns delegated work", { issueId });
@@ -741,7 +771,12 @@ export class AgentController {
       if (issueId) await this.cancelMatching((state) => state.issueId === issueId, "Agent was unassigned from the issue.");
       return;
     }
-    if (action === "issueStatusChanged") {
+    // issueStatusChangedAll is the same underlying event as issueStatusChanged - the "all
+    // activity" notification-preference variant Linear's schema lists alongside the
+    // specific one (the same specific-vs-all pairing pattern seen elsewhere in Linear's
+    // notification types), not a different occurrence. Treat them identically so the
+    // safety net that stops a session when its issue closes fires however Linear delivers it.
+    if (action === "issueStatusChanged" || action === "issueStatusChangedAll") {
       if (!issueId) {
         this.recordNotification(action, "unknown");
         return;
@@ -764,6 +799,15 @@ export class AgentController {
         this.recordNotification(action, "lifecycle");
         console.info("Linear issue status changed without ending the Agent Session", { issueId, state: state.type });
       }
+      return;
+    }
+    // Mirrors the document-prefix catch-all above: every other issue-adjacent "Other"
+    // notification type (issueReopened, issueBlocking, issueDue, issueSlaBreached, etc.)
+    // carries useful context but synthesizes no prompt, so record it as such instead of
+    // leaving it indistinguishable from genuinely unrecognized noise in the unknown bucket.
+    if (action.startsWith("issue")) {
+      this.recordNotification(action, "contextOnly");
+      console.info("Linear issue notification retained as context; no prompt was synthesized", { action, issueId });
       return;
     }
     this.recordNotification(action, "unknown");
