@@ -1729,3 +1729,130 @@ I can't rule out a burst large enough to get throttled. This is a real,
 unresolved risk, not a hedge - distinct from the SDK-replay question above,
 which the per-instance tracking maps genuinely close off regardless of the
 answer.
+
+## Opportunistic staleness reconciliation - 2026-08-21
+
+Linear's own docs (linear.app/developers/agent-best-practices) say it
+plainly: "Follow-up activities after the first response can still be sent
+for up to 30 minutes before the session is considered stale. Note that this
+stale state is recoverable by sending another agent activity." `initialize()`
+already knows how to read that signal - on every controller restart it calls
+`agentSessionSnapshot()` once per persisted session and reconciles our local
+belief against Linear's live `status` (plus, for that startup path only, the
+type of the latest non-ephemeral activity): `complete`/`stale`/`error` clears
+the local wait, `awaitingInput`/an open `elicitation` confirms it, anything
+else is either resumed or left alone. The gap was that this only ever ran at
+process startup. A long-running controller - the normal case, restarts are
+the exception - never re-checked. If a human sat on an open Steering or QA
+past Linear's 30-minute window, `state.attention` stayed populated and
+`state.awaitingInput` stayed `true` in memory indefinitely, with nothing to
+notice Linear had already moved on.
+
+**The trigger I picked: any subsequent webhook for that same session, while
+its attention is still open, opportunistically re-checks before the existing
+reply-handling logic runs.** Concretely, in `handle()` (`src/controller.ts`),
+right after the session's `SessionState` is looked up/created and before the
+`payload.action === "prompted" && state.attention.length` block that
+interprets an incoming reply, I added a guarded block: if
+`state.attention.length` and the payload isn't a stop request, call
+`agentSessionSnapshot(sessionId)` and check the live `status` against a new
+`isTerminalSessionStatus()` helper (the `complete`/`stale`/`error` set,
+extracted out of `initialize()`'s condition so both places name the same
+three strings). If it's terminal, clear `attention`, `awaitingInput`,
+`pending`, and `active` - bookkeeping only - before falling through to the
+rest of `handle()`. I chose this over the alternatives for concrete reasons:
+
+- **A new timer/polling loop** would be new architectural surface in a
+  codebase that has none today, to solve something a webhook we're already
+  receiving can just as well trigger. Not justified.
+- **Checking unconditionally on every webhook, attention or not,** would add
+  a GraphQL round-trip to the hot path of every ordinary mention and reply.
+  Gating on `state.attention.length` means the extra call only happens for
+  the rare case that actually needs it - a session currently blocked on a
+  human.
+- **`handleNotification()`'s dispatch** (`AppUserNotificationWebhook`) was
+  the other candidate the brief raised, but most of what it handles isn't
+  session-scoped - `issueMention` and friends carry an issue, not an
+  `agentSession.id`, and the actual instruction is left to the
+  `AgentSessionEvent` that `handle()` receives separately (see that
+  function's own comment to that effect). The one notification path that
+  *is* session-scoped for an open QA attention -
+  `handleQaReactionApproval()`, triggered by a checkmark reaction - is a
+  deliberate, different resolution mechanism (an explicit approval signal,
+  not a staleness check) and didn't need touching.
+
+**Why the live check is status-only, unlike `initialize()`'s dual check.**
+I first wrote it to reuse the exact same OR condition as `initialize()`
+(terminal status *or* latest activity type is `response`/`error`), reasoning
+it was "the same reconciliation logic, just triggered differently." That's
+wrong for this call site specifically. While an attention is genuinely open,
+`execute()` skips `finish()` entirely (`src/controller.ts`, the
+`!result.awaitingInput` guard) - `finish()` is the only place that posts a
+`response`/`error` activity. So the latest non-ephemeral activity on a truly
+open Steering/QA is the `elicitation` itself, not a `response`. That
+heuristic is safe at startup, reasoning from a cold, static persisted record.
+Live, checking it on every webhook a healthy open session receives would
+have real false-positive exposure I couldn't fully rule out from here -
+Linear's activity feed is an external system whose exact behavior when a
+session idles isn't something I can enumerate with confidence. Since a false
+positive here means silently discarding a real human decision mid-flight,
+I kept the live check to `status` alone and left `initialize()`'s existing
+heuristic untouched. Added a test - "does not clear a genuinely open
+attention just because its latest activity looks like a closing response" -
+that constructs exactly that shape (`status: "awaitingInput"` but the latest
+activity is `type: "response"`) specifically to pin this down; without the
+status-only restriction, that test fails.
+
+**Why bookkeeping-only, not `dismissAttention()`.** The existing
+`dismissAttention()` helper (used by `cancelMatching()` and the stop-request
+path) both restores the issue to its pre-attention state *and* posts a
+`response` activity. I considered reusing it here for consistency, but it
+carries side effects this call site can't justify: if Linear's status is
+`complete`, the issue may already have been resolved by other means, and
+dragging it back to `previousStateId` off a speculative status read would be
+actively wrong, not neutral. And posting any activity to a stale session is,
+per the same Linear doc, exactly what recovers it from staleness - which
+contradicts what "reconcile" is supposed to mean here (this session is done
+with us, not resurrected). So the live reconciliation only clears the four
+local fields and logs a `console.info`; the issue's Linear state is left
+wherever it was.
+
+**The stop-request guard.** The new block is skipped when `isStopRequest(payload)`
+is true. Without that guard, a stop webhook arriving on a now-stale session
+would get its attention cleared by the new check *before* the existing stop
+handler runs, which would make that handler's own `dismissAttention()` call
+a no-op (`attention` would already be empty) - silently dropping the
+issue-state restore and the "Stopped by user" activity that a stop request
+is supposed to guarantee. The stop path already handles a stale/absent
+session fine on its own terms; it didn't need the new check layered under it.
+
+**Residual gap, stated plainly.** This closes the case the brief described -
+a session that goes stale/complete while waiting, then receives another
+webhook. It does not close the case where no further webhook ever arrives:
+a session opened for Steering/QA, ignored forever, with no reply, no
+unrelated mention, nothing. That session's `attention`/`awaitingInput`
+still only gets reconciled against Linear's live status the next time the
+controller restarts. Catching that fully would need either a periodic sweep
+or Linear pushing us a staleness event, and the brief was explicit that a
+new timer is out of scope unless no webhook-driven trigger works - one does,
+for the case actually described, so I didn't add one. This gap is real and
+un-closed, not hedged.
+
+Extracted `isTerminalSessionStatus()` as a small module-level function next
+to `elapsed()`/`requiredIssueId()`/`isStopRequest()` at the top of
+`src/controller.ts`, and had `initialize()` call it instead of repeating the
+three-string array inline - a pure refactor, its branch behavior at startup
+is unchanged. Added two tests to `test/controller-recovery.test.ts`: the
+stale-session case above (asserts `agentSessionSnapshot` was actually
+called, attention clears, the normal reply flow's `setIssueState`
+restore/`reactToComment` checkmark do *not* fire, and the late reply still
+starts a fresh run rather than being dropped) - and, in that same test, a
+second reconciliation cycle on the same session where the fake snapshot
+returns `"Complete"` (capitalized) instead of `"stale"`, to actually
+exercise the "complete" half of "stale/complete" the task asked for and the
+`.toLowerCase()` case-folding, rather than just asserting it by name - plus
+the false-positive guard case described above (same assertions inverted:
+the normal flow's restore and checkmark *do* fire, proving the live check
+correctly left a healthy wait alone). `bun run check` (134 tests, up from
+132 - one new test, one extended) and `bun run test:capsule` (18/18,
+untouched by this change) both green.

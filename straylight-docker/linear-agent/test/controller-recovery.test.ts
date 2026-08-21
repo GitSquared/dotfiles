@@ -259,6 +259,210 @@ test("restores an attention wait without replaying work after a controller resta
   }
 });
 
+test("clears an open attention instead of waiting forever once Linear reports the session went stale or complete on its own", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  let snapshotCalls = 0;
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async createActivity() {},
+    async agentSessionSnapshot(sessionId: string) {
+      snapshotCalls += 1;
+      // Stands in for Linear's own 30-minute staleness timer firing while nobody replied yet -
+      // the live session is now dead even though our persisted state still shows an open wait.
+      // The second call below uses "Complete" (capitalized) instead, to also prove the terminal
+      // check is case-insensitive and covers "complete" as well as "stale".
+      return {
+        id: sessionId,
+        status: snapshotCalls === 1 ? "stale" : "Complete",
+        appUser: { id: "agent-1" },
+        activities: { nodes: [] },
+      };
+    },
+  } as unknown as LinearClient;
+  let finishFirst!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const first = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishFirst = resolve;
+  });
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      if (runs.length === 1) return first;
+      return { ok: true as const, timedOut: false as const, awaitingInput: false, summary: "Fresh turn.", elapsedMs: 1 };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "stale-session", issueId: "stale-issue", creatorId: "human-1", issue: { id: "stale-issue", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("stale-session", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "high",
+      blocking: true,
+      title: "Choose the boundary",
+      action: "Choose the safe migration boundary.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+  finishFirst({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+  const beforeReply = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(beforeReply.controller.attentionQueue.total, 1);
+
+  // A very late reply arrives after Linear has independently marked the session stale.
+  await controller.handle({
+    action: "prompted",
+    agentSession: { id: "stale-session", issueId: "stale-issue" },
+    agentActivity: { content: { body: "Keep the old writer." } },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.ok(snapshotCalls >= 1, "the opportunistic reconciliation must actually call agentSessionSnapshot");
+  const after = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(after.controller.attentionQueue.total, 0, "the dead wait must be cleared instead of staying stuck forever");
+  assert.deepEqual(stateFlips, [{ issueId: "stale-issue", stateId: "state-blocked" }],
+    "reconciling a stale session must not run the normal reply flow's issue-state restore");
+  assert.deepEqual(reactions, [], "reconciling a stale session must not react to the late reply as if it answered the elicitation");
+  assert.equal(runs.length, 2, "the late reply must still be processed as a fresh prompt rather than silently dropped");
+
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  // A second Steering wait opens on the same session, and this time Linear reports it as
+  // "Complete" (capitalized) rather than "stale" - proving the terminal check covers both
+  // values from the task's "stale/complete" requirement, and is case-insensitive.
+  await controller.collaborateLinear("stale-session", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "high",
+      blocking: true,
+      title: "Choose the boundary again",
+      action: "Choose the safe migration boundary, again.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+  const reopened = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(reopened.controller.attentionQueue.total, 1);
+
+  await controller.handle({
+    action: "prompted",
+    agentSession: { id: "stale-session", issueId: "stale-issue" },
+    agentActivity: { content: { body: "Keep the old writer, again." } },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 3; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(snapshotCalls, 2, "a second reconciliation must run its own live check rather than reusing the first result");
+  const finalHealth = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(finalHealth.controller.attentionQueue.total, 0, "a 'Complete' status must reconcile too, not just 'stale'");
+  assert.deepEqual(stateFlips, [
+    { issueId: "stale-issue", stateId: "state-blocked" },
+    { issueId: "stale-issue", stateId: "state-blocked" },
+  ], "both attention openings flip issue status, but neither reconciliation restores it - bookkeeping only");
+  assert.deepEqual(reactions, [], "no reply flow ever fires across either reconciliation");
+  assert.equal(runs.length, 3, "the second late reply must also start a fresh run rather than being dropped");
+});
+
+test("does not clear a genuinely open attention just because its latest activity looks like a closing response", async () => {
+  const activities: Array<{ content: unknown; options?: unknown }> = [];
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  let snapshotCalls = 0;
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async createActivity(_sessionId: string, content: unknown, options?: unknown) {
+      activities.push({ content, ...(options ? { options } : {}) });
+    },
+    async agentSessionSnapshot(sessionId: string) {
+      snapshotCalls += 1;
+      // The live status is still genuinely "awaitingInput", but the most recent logged activity
+      // happens to look like a closing "response" - initialize()'s startup check treats either
+      // signal as terminal, but the live opportunistic check must not: reusing that heuristic here
+      // would clear a perfectly healthy wait out from under a reply that's about to land.
+      return {
+        id: sessionId,
+        status: "awaitingInput",
+        appUser: { id: "agent-1" },
+        activities: {
+          nodes: [{ id: "activity-1", createdAt: new Date().toISOString(), ephemeral: false, content: { type: "response", body: "Ready for QA." } }],
+        },
+      };
+    },
+  } as unknown as LinearClient;
+  let finishRun: ((value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void) | undefined;
+  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return run; },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-attention", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-attention", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "interrupt",
+      priority: "urgent",
+      blocking: true,
+      title: "A destructive migration needs a boundary",
+      action: "Confirm that the old writer must remain authoritative.",
+      recommendation: "Keep the old writer until verification passes.",
+    },
+  });
+
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "Keep the old writer." } },
+    agentSession: { id: "session-attention", comment: { id: "reply-1", body: "Keep the old writer." } },
+  });
+
+  assert.ok(snapshotCalls >= 1, "the opportunistic check must run for a session with an open attention");
+  const resumed = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(resumed.controller.attentionQueue.total, 0, "the reply itself still resolves the attention through the normal flow");
+  assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" },
+    "the normal reply flow's issue-state restore must still run - the live check must not have already cleared attention");
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
+  finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
+});
+
 test("keeps a Pi run alive when an ephemeral Linear activity fails", async () => {
   const activities: Array<{ content: unknown; ephemeral: boolean }> = [];
   const linear = {

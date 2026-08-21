@@ -58,6 +58,15 @@ function requiredIssueId(issueId: string | undefined, action: string): string {
   return issueId;
 }
 
+// Linear's own terminal states for an Agent Session (linear.app/developers/agent-best-practices):
+// a session goes "stale" if the agent doesn't send a follow-up activity within 30 minutes of its
+// first response, and that's recoverable simply by sending another activity - it isn't dead the
+// way "complete"/"error" are. All three still mean the same thing to us here: nothing we're
+// locally waiting on (an open Steering/QA reply) is still owed, because Linear itself has moved on.
+function isTerminalSessionStatus(status: string): boolean {
+  return ["complete", "stale", "error"].includes(status.toLowerCase());
+}
+
 export function isStopRequest(payload: AgentSessionWebhook): boolean {
   if (payload.agentActivity?.signal === "stop") return true;
   const action = payload.action?.toLowerCase();
@@ -130,7 +139,7 @@ export class AgentController {
           .sort((left, right) => Date.parse(left.createdAt) - Date.parse(right.createdAt))
           .at(-1);
         const status = snapshot.status.toLowerCase();
-        if (["complete", "stale", "error"].includes(status) || ["response", "error"].includes(latest?.content.type ?? "")) {
+        if (isTerminalSessionStatus(status) || ["response", "error"].includes(latest?.content.type ?? "")) {
           state.awaitingInput = false;
           state.pending = undefined;
           state.active = undefined;
@@ -442,6 +451,40 @@ export class AgentController {
     state.teamId = session.issue?.teamId ?? session.issue?.team?.id ?? state.teamId;
     const appUserId = payload.appUserId ?? session.appUserId;
     if (session.creatorId && session.creatorId !== appUserId) state.humanAssigneeId = session.creatorId;
+    if (!isStopRequest(payload) && state.attention.length) {
+      // We only ever check a session's live status once, at controller startup (initialize()
+      // above). Between restarts - the normal long-running case - an open Steering/QA wait we
+      // think is still pending could have gone stale or complete on Linear's own side (see the
+      // note on isTerminalSessionStatus above) with nothing telling us. Rather than add a new
+      // polling loop, piggyback on whatever webhook this session next receives - mention, reply,
+      // anything - to opportunistically recheck before deciding how to handle it. Deliberately
+      // status-only (unlike initialize()'s startup check, which also looks at the latest activity
+      // type): a healthy, still-open elicitation is legitimately the latest non-ephemeral activity
+      // on this session (finish() is skipped while awaitingInput is true), so reusing that heuristic
+      // here would risk clearing a perfectly live wait. And deliberately bookkeeping-only - no
+      // issue-state restore, no activity post - since we can't tell a stale wait from an issue a
+      // human already resolved by other means, and posting an activity to a stale session would
+      // itself un-stale it per Linear's docs, which isn't what "reconcile" should mean here.
+      try {
+        const snapshot = await this.linear.agentSessionSnapshot(sessionId);
+        if (isTerminalSessionStatus(snapshot.status)) {
+          console.info("Linear reports this Agent Session as no longer live; clearing a local Steering/QA wait it can never resolve", {
+            sessionId,
+            status: snapshot.status,
+          });
+          state.attention = [];
+          state.awaitingInput = false;
+          state.pending = undefined;
+          state.active = undefined;
+          this.touch(state);
+        }
+      } catch (error) {
+        console.warn("could not opportunistically recheck a paused Agent Session's live status; leaving the local wait as-is", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     if (payload.action === "prompted" && state.attention.length) {
       const attention = state.attention[0]!;
       if (session.comment?.parentId) {
