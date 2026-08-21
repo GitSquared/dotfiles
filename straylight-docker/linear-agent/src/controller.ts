@@ -46,6 +46,13 @@ type SessionState = {
 
 type NotificationDisposition = "agentSessionOwned" | "contextOnly" | "acknowledgement" | "cancellation" | "lifecycle" | "unknown";
 
+// A durable activity is the permanent record of a completed tool action, so a transient
+// failure (Linear 5xx, a network blip, the 15s GRAPHQL_TIMEOUT_MS in src/linear.ts firing
+// once) must not silently erase it the way an ephemeral status update can be. Same
+// attempt count and backoff shape as putPreparedLinearUpload's asset retry in src/linear.ts.
+const DURABLE_ACTIVITY_MAX_ATTEMPTS = 3;
+const DURABLE_ACTIVITY_RETRY_BASE_MS = 250;
+
 function elapsed(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1_000));
   if (seconds < 60) return `${seconds}s`;
@@ -94,12 +101,17 @@ export class AgentController {
   };
   private lastNotification: { action: string; disposition: NotificationDisposition; at: string } | undefined;
   private plansEnabled = true;
+  private durableActivityFailures = 0;
+  private lastDurableActivityFailure: { sessionId: string; at: string; attempts: number; message: string } | undefined;
 
   constructor(
     private readonly linear: LinearClient,
     private readonly runner: AgentRunner,
     stateDirectory?: string,
     private readonly attentionStateName: string = "In Review",
+    // Overridable so tests can skip the real delay - same shape as putPreparedLinearUpload's
+    // injectable sleep in src/linear.ts.
+    private readonly sleep: (milliseconds: number) => Promise<void> = (milliseconds) => Bun.sleep(milliseconds),
   ) {
     this.stateStore = stateDirectory ? new ControllerStateStore(stateDirectory) : undefined;
   }
@@ -293,6 +305,15 @@ export class AgentController {
         notifications: {
           counts: { ...this.notificationCounts },
           ...(this.lastNotification ? { last: this.lastNotification } : {}),
+        },
+        // A durable activity is the permanent record of what Claude did; publishActivity()
+        // retries it with backoff before giving up (see there), but if every attempt fails
+        // (Linear down, not just slow) the entry really is dropped and there is nothing else
+        // that surfaces it - this counter and last-failure record are the only trace, and
+        // only visible to whoever reads /healthz.
+        durableActivities: {
+          failures: this.durableActivityFailures,
+          ...(this.lastDurableActivityFailure ? { lastFailure: this.lastDurableActivityFailure } : {}),
         },
       },
       workbench: await this.runner.health(),
@@ -880,11 +901,52 @@ export class AgentController {
     content: Parameters<LinearClient["createActivity"]>[1],
     ephemeral: boolean,
   ): Promise<void> {
-    await this.linear.createActivity(sessionId, content, { ephemeral }).catch((error: unknown) => {
-      console.warn(`failed to publish ${ephemeral ? "ephemeral" : "durable"} Linear activity; agent run continues`, {
-        sessionId,
-        message: finalText(error instanceof Error ? error.message : String(error)),
+    if (ephemeral) {
+      // Unchanged best-effort, no-retry behavior: an ephemeral status update is about to be
+      // replaced by the next one anyway, so retrying a dropped one would be pointless.
+      await this.linear.createActivity(sessionId, content, { ephemeral: true }).catch((error: unknown) => {
+        console.warn("failed to publish ephemeral Linear activity; agent run continues", {
+          sessionId,
+          message: finalText(error instanceof Error ? error.message : String(error)),
+        });
       });
+      return;
+    }
+    // Retried inline and awaited (not handed to a background queue) so the durable log this
+    // produces stays chronological: a later activity for the same session must never be
+    // observed by Linear before an earlier one still being retried. This does mean a run
+    // that keeps hitting failures can block here for a while - worst case is
+    // DURABLE_ACTIVITY_MAX_ATTEMPTS attempts, each up to GRAPHQL_TIMEOUT_MS (15s), plus the
+    // backoff sleeps between them (~46s total) - which is judged an acceptable, bounded cost
+    // for not silently losing part of the permanent record.
+    let lastMessage = "unknown failure";
+    for (let attempt = 1; attempt <= DURABLE_ACTIVITY_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        await this.linear.createActivity(sessionId, content, { ephemeral: false });
+        return;
+      } catch (error) {
+        lastMessage = finalText(error instanceof Error ? error.message : String(error));
+        if (attempt >= DURABLE_ACTIVITY_MAX_ATTEMPTS) break;
+        console.warn("failed to publish durable Linear activity; retrying", {
+          sessionId,
+          attempt,
+          maxAttempts: DURABLE_ACTIVITY_MAX_ATTEMPTS,
+          message: lastMessage,
+        });
+        await this.sleep(DURABLE_ACTIVITY_RETRY_BASE_MS * 2 ** (attempt - 1));
+      }
+    }
+    this.durableActivityFailures += 1;
+    this.lastDurableActivityFailure = {
+      sessionId,
+      at: new Date().toISOString(),
+      attempts: DURABLE_ACTIVITY_MAX_ATTEMPTS,
+      message: lastMessage,
+    };
+    console.error("durable Linear activity permanently dropped after exhausting retries; agent run continues", {
+      sessionId,
+      attempts: DURABLE_ACTIVITY_MAX_ATTEMPTS,
+      message: lastMessage,
     });
   }
 

@@ -81,6 +81,16 @@ export class ProgressReporter {
       // Durable entries first, each sent and awaited individually and in
       // order - a failure on one doesn't block or drop the rest. The
       // ephemeral slot (if any) goes last, same as before this queue existed.
+      //
+      // No retry here, deliberately: `send` just writes a line into this run's outgoing
+      // HTTP stream (see streamRun() in src/runner-server.ts) - a purely local, in-process
+      // operation with no transient-failure mode to retry into. If it throws, the stream
+      // itself is already broken (e.g. the controller process disconnected), so every
+      // subsequent send in this run - durable or ephemeral - fails identically, and
+      // PiRunnerClient.run() on the controller side sees its read loop error out and
+      // reports the run as crashed. The actual unreliable, worth-retrying network call
+      // - posting to Linear - happens one process over, in
+      // AgentController.publishActivity(), which is where gap 1's real fix lives.
       for (const entry of durable) {
         try {
           await this.send(entry);

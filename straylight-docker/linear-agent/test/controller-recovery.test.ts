@@ -107,6 +107,87 @@ test("recovers an interrupted Agent Session from durable state and Linear activi
   }
 });
 
+test("resumes an interrupted Agent Session whose latest durable activity is a completed action, not just thought/elicitation", async () => {
+  // Tonight's durable-log change made a completed `action` activity the common shape for
+  // "latest non-ephemeral activity" on any session interrupted mid-task - previously that
+  // was always a `thought`. initialize()'s recovery branching only ever had `thought` (this
+  // file, above) and `elicitation` (below) exercised as the latest activity type; this pins
+  // down that an `action` falls through the same way `thought` does: it's neither a
+  // terminal type ("response"/"error") nor "elicitation", so a still-running session resumes.
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-action-recovery-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([{
+      sessionId: "session-action",
+      running: true,
+      awaitingInput: false,
+      generation: 3,
+      startedAt: Date.now() - 5_000,
+      active: {
+        type: "AgentSessionEvent",
+        action: "created",
+        appUserId: "agent-1",
+        agentSession: { id: "session-action", issueId: "issue-1" },
+      },
+      issueId: "issue-1",
+      teamId: "team-1",
+      updatedAt: Date.now(),
+    }]);
+
+    const activities: unknown[] = [];
+    const linear = {
+      async agentSessionSnapshot() {
+        return {
+          id: "session-action",
+          status: "active",
+          appUser: { id: "agent-1" },
+          issue: { id: "issue-1", identifier: "LIN-1", title: "Recover me", team: { id: "team-1" } },
+          activities: {
+            nodes: [{
+              id: "activity-1",
+              createdAt: new Date().toISOString(),
+              ephemeral: false,
+              content: { type: "action", action: "Running command", parameter: "bun test", result: "ok" },
+            }],
+          },
+        };
+      },
+      async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+      async createActivity(_sessionId: string, content: unknown) { activities.push(content); },
+    } as unknown as LinearClient;
+    let recoveredPayload: AgentTaskPayload | undefined;
+    let aborts = 0;
+    const runner = {
+      async abort() { aborts += 1; return true; },
+      async repositories() { return []; },
+      async run(payload: AgentTaskPayload) {
+        recoveredPayload = payload;
+        return { ok: true, timedOut: false, awaitingInput: false, summary: "Recovered.", elapsedMs: 1 };
+      },
+      async health() { return { mode: "test" }; },
+    } as unknown as AgentRunner;
+
+    const controller = new AgentController(linear, runner, directory);
+    await controller.initialize();
+    for (let attempt = 0; attempt < 50 && !recoveredPayload; attempt += 1) await Bun.sleep(2);
+
+    assert.equal(aborts, 1);
+    assert.equal(recoveredPayload?.action, "prompted");
+    assert.match(recoveredPayload?.agentActivity?.content?.body ?? "", /controller restarted/i);
+    assert.equal(activities.some((content) => (content as { type?: string }).type === "response"), true);
+    const health = await controller.health() as {
+      controller: { awaitingInputSessions: number; registry: { lastRecovery: { resumed: number; skipped: number } } };
+    };
+    assert.equal(health.controller.registry.lastRecovery.resumed, 1);
+    assert.equal(health.controller.registry.lastRecovery.skipped, 0);
+    assert.equal(health.controller.awaitingInputSessions, 0);
+    for (let attempt = 0; attempt < 100 && (await store.load()).length; attempt += 1) await Bun.sleep(2);
+    assert.equal((await store.load()).length, 0);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("reports a stranded session to Linear instead of silently abandoning it when its recovery snapshot times out", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-stranded-"));
   try {
@@ -492,6 +573,97 @@ test("keeps a Pi run alive when an ephemeral Linear activity fails", async () =>
   assert.equal(activities.length, 1);
   assert.match((activities[0]?.content as { body?: string }).body ?? "", /Finished despite flaky progress delivery/);
   const health = await controller.health() as { controller: { runningSessions: number } };
+  assert.equal(health.controller.runningSessions, 0);
+});
+
+test("retries a failed durable Linear activity post with backoff, and keeps the completed action once a retry succeeds", async () => {
+  let durableAttempts = 0;
+  const actionActivities: unknown[] = [];
+  const responseActivities: unknown[] = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async createActivity(_sessionId: string, content: { type?: string }, options?: { ephemeral?: boolean }) {
+      if (options?.ephemeral) return;
+      if (content.type === "response") { responseActivities.push(content); return; }
+      // Isolates the mechanism under test (the durable `action` post) from finish()'s
+      // separate, unrelated final "response" activity - that one is out of scope here.
+      durableAttempts += 1;
+      if (durableAttempts < 3) throw new Error("Linear GraphQL request failed: HTTP 503");
+      actionActivities.push(content);
+    },
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(_payload: AgentTaskPayload, onEvent: Parameters<AgentRunner["run"]>[1]) {
+      await onEvent({
+        type: "activity",
+        content: { type: "action", action: "Running command", parameter: "bun test", result: "ok" },
+        ephemeral: false,
+      });
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 2 };
+    },
+  } as unknown as AgentRunner;
+  const sleeps: number[] = [];
+  // Zero-wall-clock-dependency sleep stand-in, injected through the controller's optional
+  // 5th constructor argument (same shape as putPreparedLinearUpload's injectable sleep in
+  // src/linear.ts) so this test's assertions never race a real timer.
+  const controller = new AgentController(linear, runner, undefined, undefined, async (ms) => { sleeps.push(ms); });
+
+  await controller.handle({ action: "created", agentSession: { id: "session-1" } });
+  for (let attempt = 0; attempt < 50 && actionActivities.length === 0; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(durableAttempts, 3);
+  assert.equal(actionActivities.length, 1);
+  assert.deepEqual(sleeps, [250, 500]);
+  assert.equal(responseActivities.length, 1);
+  const health = await controller.health() as { controller: { durableActivities: { failures: number } } };
+  assert.equal(health.controller.durableActivities.failures, 0);
+});
+
+test("surfaces a durable Linear activity post that exhausts every retry via health(), instead of dropping it silently", async () => {
+  let durableAttempts = 0;
+  const responseActivities: unknown[] = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async createActivity(_sessionId: string, content: { type?: string }, options?: { ephemeral?: boolean }) {
+      if (options?.ephemeral) return;
+      if (content.type === "response") { responseActivities.push(content); return; }
+      durableAttempts += 1;
+      throw new Error("Linear GraphQL request failed: HTTP 503");
+    },
+  } as unknown as LinearClient;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(_payload: AgentTaskPayload, onEvent: Parameters<AgentRunner["run"]>[1]) {
+      await onEvent({
+        type: "activity",
+        content: { type: "action", action: "Running command", parameter: "bun test", result: "ok" },
+        ephemeral: false,
+      });
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Done despite a permanently failing durable post.", elapsedMs: 2 };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner, undefined, undefined, async () => {});
+
+  await controller.handle({ action: "created", agentSession: { id: "session-1" } });
+  type Health = { controller: { runningSessions: number; durableActivities: { failures: number; lastFailure?: { sessionId: string; attempts: number; message: string } } } };
+  let health: Health = (await controller.health()) as Health;
+  for (let attempt = 0; attempt < 50 && health.controller.durableActivities.failures === 0; attempt += 1) {
+    await Bun.sleep(2);
+    health = (await controller.health()) as Health;
+  }
+
+  // Bounded and exhausted (DURABLE_ACTIVITY_MAX_ATTEMPTS), not retried forever.
+  assert.equal(durableAttempts, 3);
+  assert.equal(health.controller.durableActivities.failures, 1);
+  assert.equal(health.controller.durableActivities.lastFailure?.sessionId, "session-1");
+  assert.equal(health.controller.durableActivities.lastFailure?.attempts, 3);
+  assert.match(health.controller.durableActivities.lastFailure?.message ?? "", /HTTP 503/);
+  // The dropped durable post must not crash or hang the run - the agent run continues, same
+  // as the existing ephemeral-failure behavior above.
+  assert.equal(responseActivities.length, 1);
   assert.equal(health.controller.runningSessions, 0);
 });
 

@@ -297,11 +297,19 @@ export function createProgressProjector(report, clock = Date.now) {
         const name = toolNames.get(block.tool_use_id);
         if (!name) continue; // not a tool_use this projector instance ever saw start
         const parameter = toolTargets.get(block.tool_use_id) ?? "In progress";
-        const result = boundedProgress(toolResultText(block.content));
+        const failed = block.is_error === true;
+        // A failure must never be silently dropped just because it happened to carry no
+        // extractable text (an Error thrown with an empty message, a non-text error content
+        // block): that placeholder is the loudest signal a human scanning the durable log
+        // needs, whereas a genuinely empty *success* still gets skipped below, unchanged.
+        const result = boundedProgress(toolResultText(block.content)) || (failed ? "(no output)" : "");
         toolNames.delete(block.tool_use_id);
         toolTargets.delete(block.tool_use_id);
         toolBuckets.delete(block.tool_use_id);
-        if (result) await report({ type: "action", action: progressAction(name), parameter, result });
+        if (result) {
+          const action = failed ? `Failed: ${progressAction(name)}` : progressAction(name);
+          await report({ type: "action", action, parameter, result });
+        }
       }
     } else if (message?.type === "system" && message.subtype === "init") {
       progress = {

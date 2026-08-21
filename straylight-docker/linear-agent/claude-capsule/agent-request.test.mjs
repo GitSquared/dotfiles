@@ -87,6 +87,48 @@ test("logs a completed tool call as a durable action carrying its real result", 
   ]);
 });
 
+test("marks a failed tool call's durable action so it reads differently from a success", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-1", name: "mcp__straylight__bash", input: { command: "false" } } },
+  });
+  // A failing bash command: the SDK reports it as a tool_result with is_error: true, the
+  // real stderr/exit-status text still present in content - the same shape a successful
+  // call has, aside from that flag.
+  await project({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-1", is_error: true, content: "command exited with code 1" }] },
+  });
+
+  assert.deepEqual(events, [
+    { type: "action", action: "Running command", parameter: "false" },
+    { type: "action", action: "Failed: Running command", parameter: "false", result: "command exited with code 1" },
+  ]);
+});
+
+test("still logs a failed tool call durably even when the error itself carried no extractable text", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-2", name: "mcp__straylight__apply_patch", input: { directory: "carbonfact" } } },
+  });
+  // An is_error result with nothing extractable as text (e.g. a thrown Error with an empty
+  // message): must not be skipped the way a genuinely empty *success* is - skipping here
+  // would hide the loudest signal a human scanning the durable log needs.
+  await project({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tool-2", is_error: true, content: [] }] },
+  });
+
+  assert.deepEqual(events, [
+    { type: "action", action: "Applying patch", parameter: "carbonfact" },
+    { type: "action", action: "Failed: Applying patch", parameter: "carbonfact", result: "(no output)" },
+  ]);
+});
+
 test("extracts tool_result text from a structured content block array", async () => {
   const events = [];
   const project = createProgressProjector(async (event) => events.push(event));

@@ -1856,3 +1856,149 @@ the normal flow's restore and checkmark *do* fire, proving the live check
 correctly left a healthy wait alone). `bun run check` (134 tests, up from
 132 - one new test, one extended) and `bun run test:capsule` (18/18,
 untouched by this change) both green.
+
+## Durable-log reliability: retry and error marking - 2026-08-21
+
+A fresh review of last night's "durable action log" change (previous
+section) surfaced three gaps: durable posts are dropped silently on
+failure with no retry; a failed tool call is logged identically to a
+successful one; and `initialize()`'s recovery branching had never been
+exercised with the latest activity being a durable `action` - which that
+same change just made the common case for any session interrupted
+mid-task, not an edge case.
+
+**Gap 1 traced to one real site, not two.** The brief named two
+"log-and-drop" spots: `AgentController.publishActivity()`'s
+`createActivity(...).catch(console.warn)` in `src/controller.ts`, and
+`ProgressReporter.flush()`'s durable-queue loop in `src/progress.ts`.
+Tracing what `ProgressReporter`'s injected `send` actually *is* in
+production changed the plan. `ClaudeHarness.run()` (`src/claude.ts`)
+constructs the reporter with the callback `streamRun()`
+(`src/runner-server.ts`) passes in: `async (event) => { if (!cancelled)
+controller.enqueue(encodeRunnerEvent(event)); }` - a write into this run's
+own outgoing ndjson HTTP stream, entirely local to the runner process. It
+has no transient-failure mode to retry into: if `enqueue` throws, the
+stream is already broken (the controller process disconnected, or
+similar), so a second and third attempt fail identically, and every
+*other* queued send - durable or ephemeral - fails right behind it.
+`PiRunnerClient.run()` on the controller side then sees its read loop
+throw, which is already handled: `start()`'s `execute(...).catch(...)`
+reports the run as crashed and posts an "Agent run crashed" activity.
+Retrying at this site would only add up to 750ms of dead sleep per
+durable entry while a run is already failing, for no actual delivery
+benefit. I left it alone functionally and replaced the comment above the
+loop with an explanation of why, so the next person tracing this shape
+doesn't have to redo the same trace.
+
+The real, worth-retrying network call - `LinearClient.createActivity()`
+posting to Linear's GraphQL API - happens one process over, inside
+`AgentController.publishActivity()`. That's where a Linear 5xx, a network
+blip, or the 15-second `GRAPHQL_TIMEOUT_MS` (added earlier tonight, per an
+earlier section) firing once can genuinely and transiently fail a post
+that should otherwise have gone through. `publishActivity()` now branches
+on `ephemeral`: the ephemeral path is untouched (one attempt, log and
+drop - a status about to be replaced anyway isn't worth retrying); the
+durable path retries up to `DURABLE_ACTIVITY_MAX_ATTEMPTS` (3) times with
+`DURABLE_ACTIVITY_RETRY_BASE_MS * 2 ** (attempt - 1)` backoff (250ms,
+500ms) - the same attempt count and backoff shape as the existing
+`putPreparedLinearUpload()` asset-retry in `src/linear.ts`, including its
+pattern of an injectable `sleep` (defaulting to `Bun.sleep`, overridable
+through a new optional 5th `AgentController` constructor argument so
+tests never depend on a real timer).
+
+The retry is inline and awaited, not handed to a background queue,
+deliberately: the durable log is a chronological record, and a later
+activity for the same session must never land in Linear before an earlier
+one that's still retrying. The cost of that choice is real and worth
+naming - worst case is three attempts at up to `GRAPHQL_TIMEOUT_MS` (15s)
+each plus 750ms of backoff, around 46 seconds stalling that one event's
+delivery (and, since `execute()`'s callback awaits `publishActivity()`
+per event, delaying whatever progress the run produces next) before
+giving up. Bounded and rare in practice, but not free. I judged that an
+acceptable trade against silently losing part of the permanent record,
+which is the entire point of the feature this closes a gap in.
+
+`publishActivity()`'s two call sites (`createEphemeralActivity()`'s one
+always-ephemeral use, and the `runner.run()` progress callback in
+`execute()`) are the only two - confirmed by grep - so the change's blast
+radius is narrow. One durable path was deliberately left out of this fix:
+`manageLinear()`'s `request.action === "activity"` case calls
+`this.linear.createActivity()` directly, un-retried. That's the
+`linear_activity` tool Claude calls itself for manual reasoning notes -
+unlike the automatic completion log, a failure there already surfaces to
+Claude as a tool error it can see and react to in the same turn, which is
+a fundamentally different exposure than the fire-and-forget progress
+narrator this task described. Retrying it too would have been easy but
+wasn't asked for and isn't the same gap.
+
+On exhausting all three attempts, the durable post really is dropped -
+but not silently: a counter and a `{ sessionId, at, attempts, message }`
+record are kept and surfaced under a new `durableActivities` key in
+`health()`, alongside the existing `linearInputs`/`notifications`
+counters that were already there for the same reason.
+
+**Gap 2: marking a failed tool call, and a second bug the first fix
+would have hidden.** `toolResultText()` in
+`claude-capsule/agent-request.mjs` extracts a `tool_result` block's text
+but never reads `is_error` (confirmed present at the block level, not
+nested in `content`, on `BetaToolResultBlockParam` in
+`@anthropic-ai/sdk`'s own type definitions). The `message.type === "user"`
+branch that turns a finished tool call into a durable `{type: "action",
+action, parameter, result}` now checks it: when `is_error` is `true`, the
+`action` label gets a `"Failed: "` prefix (`"Failed: Running command"`,
+`"Failed: Applying patch"`) - matching this file's existing terse,
+label-based style rather than inventing new punctuation or an emoji
+marker.
+
+A prefix alone would have re-created the exact shape of bug this gap
+describes for one case: the branch only reports at all when `if (result)`
+- and a failed call whose error carried no extractable text (a thrown
+`Error` with an empty message, an `is_error` content array with no text
+block) produces an empty `result` and would have been skipped entirely,
+same as a genuinely empty *success* already is. That's the loudest kind
+of failure staying invisible, which defeats the point. Fixed by falling
+back to a placeholder (`"(no output)"`) only when `is_error` is true; an
+empty-but-successful result is still skipped, unchanged.
+
+**Gap 3: pinning down that `action` falls through the same way
+`thought` does.** Reading `initialize()`'s branching
+(`src/controller.ts`): a terminal status or a latest-activity type of
+`response`/`error` skips as done; `awaitingInput` status or a latest type
+of `elicitation` skips as a confirmed open wait; anything else - which
+`action` falls into, since it's neither - resumes if the session was
+`pending` or `running`, else skips. Existing tests only ever supplied
+`thought` (resumes) or `elicitation` (waits) as the latest activity's
+type; nothing exercised `action`, even though last night's own change
+made a durable `action` the *expected* latest activity for exactly the
+common case this branch exists to handle - a session interrupted
+mid-task. Added a test mirroring the existing `thought` recovery case,
+latest activity `{type: "action", action: "Running command", parameter:
+"bun test", result: "ok"}`, asserting not just that the run resumed but
+that `lastRecovery.skipped` is `0` and `awaitingInputSessions` is `0` -
+so the test would actually fail if a future change accidentally routed
+a durable `action` into either of the other two branches instead.
+
+Added three tests to `test/controller-recovery.test.ts` (retry-then-
+succeed, retry-exhaustion surfaced through `health()`, and the gap-3
+recovery case) and two to `claude-capsule/agent-request.test.mjs` (the
+`"Failed: "` marking, and the no-extractable-text placeholder). All three
+controller tests inject a no-op `async () => {}` sleep so nothing depends
+on a real timer - deliberate, given this suite's own documented flake
+history around `Bun.sleep`-based polling. `bun run check` (137 tests, up
+from 134) and `bun run test:capsule` (20/20, up from 18) both green, run
+twice to be sure.
+
+**Residual risk, stated plainly.** `health()` is not a place a human
+looks unprompted - it's an endpoint someone has to think to curl, not a
+push notification. A durable post that exhausts all three retries is
+still, in the end, lost: the permanent record has a hole in it, and the
+only trace is that counter plus a `console.error` line in the container's
+own logs, discoverable only by someone who already suspects something is
+wrong and goes looking. This is strictly better than gap 1's starting
+point (a `console.warn` and nothing else, indistinguishable from an
+ephemeral failure), but it does not close the underlying risk that a
+sustained Linear outage silently thins out the audit trail this whole
+feature exists to provide. Closing that fully would need Linear itself
+notified some other way (a dead-letter surface like `webhook-inbox.ts`'s,
+replayed once Linear recovers, or an out-of-band alert) - genuinely more
+mechanism than this task asked for, and I didn't build it speculatively.
