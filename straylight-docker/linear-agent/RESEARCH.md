@@ -2278,3 +2278,47 @@ in `test/attention.test.ts` pinning `isQaApproval("approve")`,
 nothing for tonight's test run until the updated image is actually
 deployed to `gaby@straylight`, which stays gated on Gaby's own go-ahead
 per the existing deploy discipline in this file.
+
+Two things Gaby confirmed live during that same test run, worth recording:
+the `auth` signal's "Link account" button does render as a real clickable
+control in the issue-activity-feed surface - the same surface the QA
+card's `select` options rendered as plain text only. Since our
+`agentActivityCreate` payload for `select` already matches Linear's
+documented shape exactly (verified above), and the underlying
+signal-driven UI mechanism demonstrably works in that surface for `auth`,
+the `select` signal specifically not rendering buttons looks like a
+Linear-side gap in this Developer Preview API, not something to chase
+further from this codebase. Left `renderAttentionComment`'s "Reply
+**approve**" text instruction in place accordingly - it's still the only
+guaranteed-working approval affordance.
+
+## Durable reasoning as a running journal, not a rare event - 2026-08-24
+
+The "reserve linear_activity for genuine turning points, do this
+sparingly" guidance from the durable-action-log work above (2026-08-21)
+was itself a hypothesis about the right frequency, not something Gaby
+had actually asked for - and live testing showed it was too conservative:
+a short run produced zero durable reasoning notes at all, because
+nothing rose to "genuine turning point." Gaby's own framing when asked:
+these notes are a background record ("quite hidden away anyway"), not an
+interruption, so traceability should win over restraint - he wants them
+to work as a running journal of "directions taken and actions explored,"
+firing often, not as a rare highlight reel.
+
+Reworded the identical sentence in both places it's duplicated -
+`src/prompts.ts`'s `claudeInitialPrompt` and the capsule's own SDK
+`systemPrompt` in `claude-capsule/agent-request.mjs` - from "do this
+sparingly, at genuine turning points, not for routine steps" to
+"default to writing one at each such step rather than skipping it -
+traceability matters more here than brevity." No new tool, no new
+Activity type: this is the same manual `linear_activity` call from the
+2026-08-21 work, just a frequency knob turned from rare to routine.
+Deliberately left the underlying trigger list unchanged (direction
+chosen, options ruled out, plan-changing discoveries, abandoned
+approaches) rather than also trying to enumerate a broader list of
+occasions - the ask was about frequency, not scope.
+
+No test asserted the old wording in either file, so nothing to update
+for correctness; `bun run check` (147, unchanged) and
+`bun run test:capsule` (20/20, unchanged) both still green since this is
+prose-only.
