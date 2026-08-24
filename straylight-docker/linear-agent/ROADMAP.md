@@ -1,8 +1,10 @@
-# Pi capability roadmap
+# Straylight capability roadmap
 
-This roadmap keeps Pi's interface small and semantic. Product-specific mechanics
-belong in the trusted controller; Pi gets a few tools with verbs that remain
-useful as Linear and the workbench evolve.
+This roadmap keeps Claude's tool surface small and semantic. Product-specific
+mechanics belong in the trusted controller; Claude gets a few tools with verbs
+that remain useful as Linear and the workbench evolve. Named "Pi" through
+Slice 17 - that runner was removed entirely (Claude Code is now the sole
+backend), the title just hadn't caught up.
 
 ## Slice 1 — capable remote workbench
 
@@ -619,186 +621,125 @@ Acceptance:
    conversation (with the existing sibling-activity warning), not a shared
    one.
 
-## Slice 18 — parallel work streams and a richer signal taxonomy (proposal)
+## Slice 18 — parallel work streams and a richer signal taxonomy
 
-Status: design proposal only, not decided, not built. Gaby pushed back on
-the one-blocking-ask-at-a-time model as an accident of avoiding a platform
-limit, not a real solution to "several pending decisions arrive together and
-I lose track of the ones I didn't dig into." He sketched a schema: express
-intent -> work is parallelized/orchestrated into streams -> each stream can
-independently raise signals across (his words) traceability/logging,
-information, warnings needing eventual action, or a blocking question that
-resumes "at least that thread of work" -> all streams reconverge at one
-checkpoint QA covering everything from the original intent -> loop to
-address review points or close. He asked for a 5-lens panel (protect his
-attention, move work faster, make the Linear task an archivable
-hierarchical record, real engineering feasibility against Linear's actual
-API, failure/edge-case resilience) before committing to anything. Full
-per-lens reasoning lives in this session's transcript; this entry is the
-synthesis.
+Status: design settled after several rounds of review; the ask-tier,
+decision model, and assumption mechanism below are buildable now.
+Sub-issue-per-stream and genuine concurrent sub-agent execution stay
+explicitly deferred - see "Not decided yet" at the end.
 
-**The one correction all five lenses converged on independently, unprompted:**
-a Linear `AgentSession` has exactly one `status` field, computed from
-"whichever activity landed last" (Linear's own docs). There is no native
-slot for a second simultaneously-visible blocking elicitation - parallelizing
-*work* is unreservedly fine, but parallelizing *how many things can hold
-Linear's one native blocking slot at once* isn't something the platform
-allows, no matter how it's built. "A stream blocks itself" and "a stream
-interrupts Gaby in real time" have to become two different mechanisms with
-different cardinalities, not one.
+Origin: Gaby rejected the one-blocking-ask-at-a-time model as an accident
+of avoiding a platform limit, not a real fix for "several pending
+decisions arrive together and I lose track of the ones I didn't dig
+into." A 5-lens panel (attention, throughput, archivability, platform
+feasibility, failure resilience) reviewed his proposed schema; Gaby then
+corrected and tightened the panel's synthesis directly. What follows is
+the settled result, not the panel's raw output.
 
-**Converged shape, reconciling the panel:**
+**The hard platform constraint, driving everything below:** a Linear
+`AgentSession` has exactly one `status` field, computed from "whichever
+activity landed last" (Linear's own docs, and independently proven by this
+repo's own 2026-08-19 incident where a follow-up tool-call activity buried
+a fresh elicitation). Parallelizing *work* is unreservedly fine.
+Parallelizing *how many things can hold Linear's one native blocking slot
+at once* is not something the platform allows, no matter how it's built.
+"A stream blocks itself" and "a stream interrupts Gaby in real time" are
+two different mechanisms with different cardinalities, full stop.
 
-- Collapse the four named kinds to three wire mechanisms plus one piece of
-  bookkeeping. Traceability (durable action log + reasoning journal,
-  already shipped) is unchanged. Information and Warning are the *same*
-  wire primitive - a nonblocking comment (today's `Signal`) - Warning is
-  just a stricter default (mention-on, distinct label) plus a hard
-  requirement: it's tracked as open/resolved state and *must* appear as an
-  explicit unresolved line item at checkpoint if nobody closed it. Blocking
-  is the existing Steering/QA elicitation, but only one is ever allowed to
-  hold Linear's real native slot; every other would-be per-stream blocker
-  defaults to a non-blocking tracked comment thread (the previously-sketched
-  "ask" tier) - safe to have several open at once precisely because comment
-  threads, unlike session status, carry their own independent
-  resolved/unresolved state. A stream's own failure/timeout/abandonment is
-  not a signal at all - it's a terminal state on that stream's record,
-  surfaced via the existing durable-activity mechanism plus a mandatory
-  checkpoint line item, never a fifth thing Gaby has to learn to recognize.
-- The native blocking slot needs a priority rule, not FIFO: assign it by
-  blast radius (does anything else depend on this answer to keep moving),
-  with preemption - a higher-blast-radius block can take the slot from a
-  lower one, but the displaced ask must be preserved as a still-open tracked
-  thread, and reply-routing has to key on the specific thread/elicitation
-  id, never "whatever the session currently shows."
-- Checkpoint QA is one per *expressed intent*, never per stream - an index
-  (each stream's outcome + a link to its own evidence/trace) plus a rollup
-  of every warning and open ask still unresolved, composed from each
-  stream's own closing digest. It must be structurally forbidden from
-  falling back to a stream's raw log - a checkpoint that's just "whatever
-  accumulated, dumped" is the same bundling failure Gaby hit, one level up.
-  Three reply classes, not one: approve-all and close; "needs changes" on
-  one named stream (freezes the others, reworks only that one); or an
-  answer to one specific open-question line item (reopens every stream
-  whose recorded assumption cited that thread, re-integrates, re-checkpoints).
-- Real *speculative execution* - proceed on the best-guess answer to a
-  reversible question, explicitly tag the assumption (with the originating
-  thread id, so a later answer traces back to exactly what it should
-  invalidate), keep working, let a thread reply or the checkpoint confirm or
-  unwind it - converts most "hard" blocks into soft ones and was the single
-  highest-leverage idea to come out of the panel. It does not fit cleanly
-  into any of the four named kinds as stated ("done provisionally, pending
-  confirmation" is a real third completion state) - an explicit gap in the
-  schema as proposed, not something to paper over.
+**The decision model — when the agent asks vs. just decides:**
 
-**Named disagreements, not smoothed over:**
+Work-parallelization and question-parallelization are separate axes.
+However the agent splits implementation into concurrent threads (its own
+discretion - not a fixed backend policy, see below) has nothing to do with
+which product questions come up along the way; a question about database
+indexing doesn't belong to "the backend thread," it's a challenge to the
+precision of the original expressed intent, cutting across whatever
+structure the work happened to take. Every such question runs through this
+procedure, in order:
 
-- How much of "real work" should actually run concurrently. The
-  throughput-focused reasoning is emphatic: fan out reads/verification
-  freely (parallel investigation, parallel test/lint/typecheck against one
-  frozen diff) - genuinely free today, zero new architecture, probably the
-  single most valuable place to add concurrency right now. Fan out *writes*
-  only when paths are provably disjoint; the common issue is one coupled
-  change where coordination overhead (worktrees, container boot, merge)
-  costs more than it saves. Treat parallel work as something the agent's
-  own planning opportunistically finds per-issue, not a pipeline every
-  expressed intent gets run through by default.
-- Whether a "stream" is a real, independently resumable execution context
-  or a label on interleaved turns of today's one sequential Claude Agent SDK
-  loop. Today it's the latter - there is no concurrent-sub-agent-under-a-
-  supervisor mechanism at all. Building the signal taxonomy without
-  building that gets streams that are cosmetic, not actually concurrent;
-  shipping that as a deliberate, named MVP scope is fine, discovering it
-  later by surprise is not.
-- Whether a stream should default to its own Linear sub-issue. One reading:
-  sub-issues are the only thing that gives real structural archive
-  separation (not just a tag on a flat feed), so make "one sub-issue per
-  genuine stream" the default unit. The competing reading: `defer_followup`
-  deliberately gates sub-issue creation to stop manufactured busywork, and
-  routine per-stream sub-issues would flood the board/list views the same
-  way ungated blocking would flood the inbox - default to internal
-  orchestration state, promote to a sub-issue only when a stream earns
-  independent visibility on its own. No lens thinks this should be decided
-  per-task by Claude's own judgment in the moment - that's exactly how
-  `defer_followup`'s busywork problem got created before; it has to be a
-  backend policy/threshold, decided once.
-- Whether a stream gets its own real `AgentSession` (own status field, own
-  native elicitation slot, sidesteps the one-status-per-session limit
-  entirely) or stays inside the current session as an in-process sub-agent
-  (cheap, no new container, but has no native slot at all and needs the
-  ask-tier's reply-routing plumbing to get a human's attention). This forks
-  the entire per-stream-blocking design and is currently undecided.
+1. **Override (trumps everything below, either condition alone is
+   enough):** is the action irreversible, destructive, or does it cross a
+   security/access boundary? Or - independent of risk or cost - does the
+   outcome *not* clearly derive from the expressed instruction, i.e. you
+   cannot look at {the decision} and {what was actually asked} and
+   confidently trace a direct line without several inferential hops or a
+   quiet expansion of scope? Either one forces a real, genuine ask,
+   regardless of every check that follows. The second condition exists
+   specifically to catch compounding drift: each individual step can look
+   locally defensible while the cumulative trajectory becomes a task
+   nobody actually asked for.
+2. **Altitude filter:** is this even a product-level concern - product
+   sense/taste, user-facing interaction design, overall backend
+   design/maintainability, or operating cost? If not - which of two
+   equivalent internal work-splits, a button's exact widget choice with no
+   distinct UX implication, internal naming - the agent just decides,
+   permanently, no confirmation needed, ever. It can still land in the
+   routine traceability journal (free, passive), but it never becomes
+   something waiting on Gaby's review.
+3. **Investigate.** For anything that clears the altitude bar: can
+   existing convention, precedent elsewhere in the codebase, or
+   documentation actually settle it? If yes, there was never a question to
+   raise - just do it.
+4. **Cheap and reversible:** if investigation can't settle it but a wrong
+   guess is cheap to detect and undo (a revert, a follow-up patch, nothing
+   already shipped or externally visible), proceed on the best guess and
+   record it as an assumption (mechanism below) rather than stopping.
+5. **Genuine ask:** anything left - a real preference/priority call
+   investigation can't resolve, not cheap to silently get wrong - becomes a
+   non-blocking tracked question (the "ask" tier, below), not an interrupt
+   that stalls the rest of the work.
 
-**Recommended sequence, cheapest-and-most-informative first:**
+**Assumption tracking needs no new entity.** An assumption is a plan item
+(`manage_plan`) written to say so, backed by a durable journal entry
+explaining the reasoning - both mechanisms already exist and already
+require every plan item to carry a disposition before a terminal
+transition (`src/plan.ts`'s `reconcilePlan`). No new field, no new status:
+Claude composes the checkpoint by reading its own plan and journal and
+explicitly calling out which items are still tagged as assumptions, the
+same way it already has to reconcile every plan item before QA.
 
-1. Ship the blocking-scope fix alone: default every would-be per-stream
-   blocker to the non-blocking tracked-thread "ask" tier, generalize today's
-   "exactly one open blocking ask" invariant from per-session to per-intent,
-   and add speculative execution for reversible decisions. Zero new
-   containers, zero new Linear sub-issues, no answer needed yet on the
-   sub-issue-per-stream question. This alone should recover most of the
-   idle-time complaint.
-2. Before writing any real orchestration: spike a cheap, concrete test of
-   what Linear actually does when a second, unrelated activity (e.g. a
-   routine durable action-log post) lands *after* an outstanding elicitation
-   within the same session. Everything this session verified about "status
-   = whichever activity landed last" was observed in the sequential,
-   single-source case; it has never been tested with a second concurrent
-   activity-posting source layered on top, which is exactly what any
-   in-session parallel-stream design creates immediately. The answer
-   directly decides whether real per-stream native blocking requires its
-   own `AgentSession` per stream (if the test shows burial) or can stay
-   in-process (if it doesn't).
-3. Only then decide the sub-issue-per-stream default, informed by (2) rather
-   than assumed, and only then consider building genuine concurrent
-   sub-agent execution under a supervisor - after measuring whether
-   read/verification fanout alone (step 1's cheap version) already captures
-   most of the value real parallelism was reaching for.
+**The "ask" tier - non-blocking, tracked, independently resolvable.**
+Instead of a blocking elicitation, post a real comment thread; track it
+(`commentId`, question, timestamp) without touching session status or
+`awaitingInput`. Several can be open at once safely, because comment
+threads - unlike session status - carry their own independent
+resolved/unresolved state. A reply landing on a *specifically tracked*
+thread routes back as an answer to that question instead of being
+discarded as context-only (today's deliberate treatment of plain replies,
+which stays the default for anything not tracked). If a tracked ask never
+gets answered, it surfaces as an explicit unresolved line at checkpoint,
+tied to whatever assumption the agent proceeded under in the meantime.
 
-### Revision after Gaby's review (2026-08-24)
+**Checkpoint QA** stays the existing elicitation mechanism, unchanged at
+the wire level - composed content is what's new. One per expressed
+intent, never per stream: an index of outcomes plus links to evidence,
+and a rollup of every assumption and open ask still unresolved - pulled
+from the plan/journal that were already being kept live, not assembled
+fresh from raw logs. It must never fall back to quoting a raw trace
+directly; a checkpoint that's just "whatever accumulated, dumped" is the
+same bundling failure that started this conversation, one level up.
 
-Two corrections, both adopted, plus one structural fix to the model itself:
+**Not decided yet, deliberately:**
 
-1. **Step 2's spike test was unnecessary caution - Gaby caught it.** Linear's
-   own docs state plainly that session status is computed from whichever
-   activity landed last; this repo's own history already proved it
-   empirically (the 2026-08-19 bug where a subsequent tool-call activity
-   buried a fresh elicitation, fixed by the capsule no longer generating
-   further progress activities once `awaitingInput` is true). No live
-   experiment is needed to learn something the vendor's own documentation
-   and this project's own incident history already establish. What was
-   actually still open - whether tonight's per-session activity-ordering
-   fix (`1abac19`) plus the existing capsule-side guard together fully
-   close the out-of-order-delivery gap the 2026-08-21 retry mechanism
-   reopened - is a code-review question, not an empirical unknown, and
-   it's already answered: the ordering fix ships exactly that.
-2. **Whether/how to split work into parallel streams is the implementing
-   agent's own discretion, not a fixed backend policy decided once** -
-   overriding the panel's recommendation to gate this the way
-   `defer_followup` gates sub-issue creation. Gaby's call: the agent
-   understands the specific task and should decide how to decompose it.
-3. **The bigger correction: work-parallelization and question-parallelization
-   are separate axes, not the same thing.** How the agent splits
-   implementation into concurrent threads (e.g. lock a data schema, then
-   build backend and frontend in parallel) is independent of which
-   product/design questions come up along the way - a question about
-   database indexing, or about what should happen on some action, doesn't
-   necessarily belong to any one implementation thread; it's a challenge to
-   the preciseness of the original expressed intent, cutting across
-   however the work happened to be split. Default handling for any such
-   question: the agent investigates and attempts to answer it itself
-   (check conventions, check the codebase, make the most reasonable call)
-   and tags the result as an assumption, rather than escalating by default -
-   genuine blocking is reserved for what only Gaby can actually decide (a
-   real preference, an authorization, something no amount of investigation
-   resolves). This generalizes "speculative execution" from a narrow
-   technical-decision tactic into the default posture for product
-   questions generally, and it's a cleaner resolution than trying to map
-   the four signal kinds onto the thread/stream structure: the checkpoint's
-   job becomes "here's every question that got a good-faith answer, for
-   your confirmation" plus "here's anything that genuinely couldn't be
-   resolved without you" - regardless of which implementation thread either
-   one happened to come up in.
+- Whether a stream defaults to its own Linear sub-issue for archive
+  separation, or stays internal orchestration state promoted only when it
+  earns independent visibility. Real tension with `defer_followup`'s
+  existing anti-busywork gate either way.
+- Whether a stream needs its own real `AgentSession` (a native per-stream
+  status/blocking slot, at the cost of a new container and Linear object
+  per stream) or can stay an in-process sub-agent inside the current
+  session (cheap, but blocking has to ride entirely on the ask-tier).
+- The native blocking slot's priority rule when more than one thing
+  legitimately wants it - blast-radius-with-preemption is the leading
+  idea, not yet designed in detail.
+- Genuine concurrent sub-agent execution under a supervisor. Today there is
+  exactly one sequential Claude Agent SDK loop per session; real
+  "stream 1 keeps working while stream 2 waits on Gaby" needs that to
+  exist first. Reserve for after measuring whether free read/verification
+  fanout (no new architecture, buildable today) already captures most of
+  the value real parallelism was reaching for - fan out writes only when
+  paths are provably disjoint, since the common issue is one coupled
+  change where coordination overhead costs more than it saves.
 
 ## Later hardening
 
