@@ -732,12 +732,13 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   assert.equal(waiting.controller.attentionQueue.urgent, 1);
   assert.ok(waiting.controller.attentionQueue.oldestWaitMs >= 0);
   assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
-  assert.equal(comments.length, 0, "blocking Steering/QA no longer posts a standalone comment - only the elicitation Activity");
+  assert.equal(comments.length, 1, "blocking Steering/QA also posts a real, tracked comment alongside the elicitation - a reply here resolves it too");
   const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Steering needed"));
   const elicitationBody = (elicitation?.content as { body?: string }).body ?? "";
   assert.match(elicitationBody, /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
   assert.doesNotMatch(elicitationBody, /Original intent/, "the elicitation must use the terse render, not the bureaucratic full template");
   assert.deepEqual((elicitation?.options as { signal?: string }).signal, "select");
+  assert.equal(comments[0]?.body, elicitationBody, "the tracked comment must carry the same content as the elicitation");
 
   await controller.handle({
     action: "prompted",

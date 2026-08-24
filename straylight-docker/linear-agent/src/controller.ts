@@ -373,11 +373,24 @@ export class AgentController {
         type: "elicitation",
         body: finalText(elicitationBody),
       }, signalPayload));
+      // Also a real, tracked issue comment with the same content - unlike the pre-2026-08-19
+      // version of this (removed because replying to it silently did nothing), a reply here
+      // now genuinely resolves the attention, via the same tracked-comment-reply-routing the
+      // ask tier already proved live. Gives Steering/QA a real notification-worthy surface,
+      // and a place to attach screenshots/back-and-forth during review.
+      const comment = await this.linear.createIssueComment(state.issueId, finalText(elicitationBody)).catch((error: unknown) => {
+        console.warn("failed to post the tracked attention comment; the native elicitation reply path still works", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return undefined;
+      });
       const active: ActiveAttention = {
         kind: req.kind,
         priority: attentionPriority(req),
         previousStateId: previousState.id,
         requestedAt: Date.now(),
+        ...(comment ? { commentId: comment.id } : {}),
       };
       state.attention = [active];
       state.awaitingInput = true;
@@ -720,7 +733,14 @@ export class AgentController {
    * not a general re-opening of "any reply wakes the agent," which would reintroduce the
    * noise the ask tier exists to avoid.
    */
-  private async routeAskReply(payload: AppUserNotificationWebhook, issueId: string | undefined): Promise<boolean> {
+  /**
+   * Routes a plain issue-comment reply back to the agent if - and only if - it landed on a
+   * comment thread this session itself is tracking: either the real comment posted alongside
+   * a blocking Steering/QA elicitation, or a non-blocking "ask" (ROADMAP.md Slice 18). Every
+   * other reply stays context-only, unchanged: this is deliberately narrow, not a general
+   * re-opening of "any reply wakes the agent."
+   */
+  private async routeTrackedCommentReply(payload: AppUserNotificationWebhook, issueId: string | undefined): Promise<boolean> {
     const replyCommentId = payload.notification?.commentId ?? payload.notification?.comment?.id;
     const parentId = payload.notification?.comment?.parentId ?? payload.notification?.parentCommentId;
     const body = payload.notification?.comment?.body?.trim();
@@ -729,6 +749,30 @@ export class AgentController {
     if (payload.appUserId && actorId === payload.appUserId) return false; // ignore the app's own comments, if it ever posts one that would match
     for (const [sessionId, state] of this.states) {
       if (state.issueId !== issueId) continue;
+      if (state.attention[0]?.commentId === parentId) {
+        // A reply to the tracked attention comment resolves exactly like a reply to the
+        // elicitation's own native surface - reuse handle()'s existing prompted/attention
+        // logic (isQaApproval, restoring issue status, the checkmark reaction, etc.) rather
+        // than re-implementing it, by constructing the same shape that path already expects.
+        try {
+          await this.handle({
+            action: "prompted",
+            agentSession: { id: sessionId, issueId, comment: { id: replyCommentId, body } },
+            agentActivity: { content: { body } },
+          });
+        } catch (error) {
+          console.error("failed to resolve a blocking attention from its tracked comment's reply", {
+            sessionId,
+            issueId,
+            commentId: parentId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+          return false;
+        }
+        this.recordNotification("issueNewComment", "agentSessionOwned");
+        console.info("Linear comment reply matched the tracked attention comment; resolving", { sessionId, issueId, commentId: parentId });
+        return true;
+      }
       const ask = state.openAsks.find((item) => item.commentId === parentId);
       if (!ask) continue;
       if (state.attention.length) {
@@ -779,7 +823,7 @@ export class AgentController {
       return;
     }
     if (action === "issueNewComment") {
-      if (await this.routeAskReply(payload, issueId)) return;
+      if (await this.routeTrackedCommentReply(payload, issueId)) return;
       this.recordNotification(action, "contextOnly");
       console.info("Linear comment notification retained as context; no prompt was synthesized", { issueId });
       return;

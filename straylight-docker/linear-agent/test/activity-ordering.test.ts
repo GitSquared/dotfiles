@@ -18,6 +18,7 @@ function baseLinear(overrides: Partial<LinearClient>): LinearClient {
     async resolveAttentionStateId() { return "state-blocked"; },
     async setIssueState() {},
     async addExternalUrl() {},
+    async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
     ...overrides,
   } as unknown as LinearClient;
 }

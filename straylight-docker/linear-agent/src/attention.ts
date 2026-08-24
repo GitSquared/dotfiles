@@ -36,6 +36,11 @@ export type ActiveAttention = {
   priority: AttentionPriority;
   previousStateId: string;
   requestedAt: number;
+  // The real, tracked issue comment carrying the same content as the elicitation Activity -
+  // a reply here resolves the attention exactly like a reply to the elicitation's own native
+  // surface (reusing the same tracked-comment-reply-routing built for the ask tier), so this
+  // one is genuinely functional, unlike the pre-2026-08-19 comment that silently went nowhere.
+  commentId?: string;
 };
 
 // A non-blocking, independently-trackable question (ROADMAP.md Slice 18's "ask" tier):

@@ -2548,3 +2548,64 @@ message out of what each test observes.
 
 `bun run check` (155, up from 152) and `bun run test:capsule` (20/20,
 unaffected) both green.
+
+## Reversing the 2026-08-19 no-standalone-comment decision - 2026-08-24
+
+Live feedback from the first real multi-surface test run (GAB-15) reopened
+a decision made three commits and five days earlier in this same file: a
+blocking Steering/QA no longer posting a standalone comment, only the
+elicitation Activity. That decision was correct *given the constraint it
+was made under* - back then, replying to a duplicate comment silently did
+nothing, because nothing tracked that comment's id or routed a reply on
+it back to the session. It was a real trap, worth closing.
+
+Tonight's earlier work (the "ask" tier, same session) removed the
+constraint without anyone noticing it also unblocked this. `openAsks`
+tracks a comment's id and `routeAskReply` (now generalized to
+`routeTrackedCommentReply`) routes a matching reply back through
+`handle()`'s existing resolution logic - proven live tonight, checkmark
+reaction and all. Gaby's own framing when this came up again: "we proved
+with the notification ping on this test run that we are actually able to
+post a clean issue comment and watch for replies... we should use the
+same. Plus it gives a surface where screenshots and stuff can be added
+for QA." He's right - the same infrastructure applies directly.
+
+Shipped: `ActiveAttention` gains an optional `commentId`. Creating a
+blocking Steering/QA elicitation now also posts a real issue comment with
+identical content (`createIssueComment`, wrapped in `.catch()` - a failed
+comment post degrades to "elicitation-only, same as before tonight," not
+a broken attention). `routeTrackedCommentReply` checks
+`state.attention[0]?.commentId` before falling through to the ask-tier
+check; a match constructs the same synthetic `prompted` payload the ask
+path already uses and hands it to `handle()`, reusing `isQaApproval`,
+`approveQa`, issue-status restoration, and the checkmark reaction
+unchanged - no resolution logic was duplicated, only the entry point
+gained a second, equally real, door.
+
+**What makes this safe where the 2026-08-19 version wasn't**: back then,
+the second surface (a comment) was decorative - nothing routed a reply on
+it anywhere. Now, replying via the elicitation's own native surface *or*
+the tracked comment both resolve the exact same way, because both funnel
+into the same `handle()` code path. There's no version of this where one
+of the two doors quietly doesn't open.
+
+Also fixed the specific test this reverses: `test/controller-recovery.ts`
+had a real assertion pinning "blocking Steering/QA no longer posts a
+standalone comment" as a *feature* - updated to assert the comment exists
+and its body matches the elicitation verbatim, rather than deleting the
+coverage.
+
+**Tests**: three new cases in `test/ask-tier.test.ts` - a QA approval
+landing via the tracked comment (completes the issue, reacts, exactly
+like a native reply), a non-approval Steering reply via the tracked
+comment (restores issue status, doesn't complete anything), and a
+self-authored reply to the tracked comment being ignored (same
+actor-identity guard the ask tier already had, now exercised on this
+path too). `bun run check` (167, up from 164) and `bun run test:capsule`
+(22/22, unaffected) both green.
+
+**Not yet known**: whether this changes anything about the crash Gaby
+hit right after a QA request in the same test run ("Claude ended without
+a structured work disposition," after "a few Linear tools" were used
+post-QA) - that's a separate, still-open investigation pending the
+deployed capsule/controller logs.

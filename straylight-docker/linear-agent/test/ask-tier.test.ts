@@ -354,3 +354,162 @@ test("surfaces still-open asks in a QA elicitation's body", async () => {
   assert.match(elicitation?.body ?? "", /Still waiting on:/);
   assert.match(elicitation?.body ?? "", /Should this endpoint be paginated\?/);
 });
+
+test("posts a real, tracked comment alongside a blocking QA elicitation, and approving it via that comment completes the issue", async () => {
+  const comments: Array<{ issueId: string; body: string }> = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  const completedIssues: string[] = [];
+  const linear = baseLinear({
+    async createIssueComment(issueId: string, body: string) {
+      comments.push({ issueId, body });
+      return { id: "attention-comment-1", body };
+    },
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState() {},
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Review the checked fix",
+      action: "Approve the preview and complete the parent work, or reply with changes.",
+      recommendation: "Approve after checking the linked preview.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+  assert.equal(comments.length, 1, "the tracked comment must exist for a reply to land on");
+
+  await controller.handleNotification({
+    type: "AppUserNotification",
+    action: "issueNewComment",
+    appUserId: "agent-1",
+    notification: {
+      issueId: "issue-1",
+      commentId: "reply-1",
+      comment: { id: "reply-1", parentId: "attention-comment-1", body: "approve" },
+    },
+  });
+
+  assert.deepEqual(completedIssues, ["issue-1"], "a reply to the tracked attention comment must resolve QA exactly like a native elicitation reply");
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 0);
+});
+
+test("a non-approval reply to the tracked attention comment restores issue status and resumes, without completing the issue", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const completedIssues: string[] = [];
+  const linear = baseLinear({
+    async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "medium",
+      title: "Pick a boundary",
+      action: "Decide the migration boundary before continuing.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+
+  await controller.handleNotification({
+    type: "AppUserNotification",
+    action: "issueNewComment",
+    appUserId: "agent-1",
+    notification: {
+      issueId: "issue-1",
+      commentId: "reply-1",
+      comment: { id: "reply-1", parentId: "attention-comment-1", body: "Keep the old writer, but add a rollback plan." },
+    },
+  });
+
+  assert.deepEqual(completedIssues, []);
+  assert.deepEqual(stateFlips, [
+    { issueId: "issue-1", stateId: "state-blocked" },
+    { issueId: "issue-1", stateId: "state-in-progress" },
+  ]);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 0);
+});
+
+test("ignores a self-authored reply to the tracked attention comment", async () => {
+  const linear = baseLinear({
+    async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState() {},
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Review the checked fix",
+      action: "Approve the preview and complete the parent work.",
+      recommendation: "Approve after checking the linked preview.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+
+  await controller.handleNotification({
+    type: "AppUserNotification",
+    action: "issueNewComment",
+    appUserId: "agent-1",
+    notification: {
+      issueId: "issue-1",
+      commentId: "reply-1",
+      actorId: "agent-1",
+      comment: { id: "reply-1", parentId: "attention-comment-1", body: "approve" },
+    },
+  });
+
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 1, "a self-authored comment must never resolve the attention it's attached to");
+});
