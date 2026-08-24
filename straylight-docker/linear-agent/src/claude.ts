@@ -16,13 +16,13 @@ type Sender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>
 type SessionFile = { linearSessionId: string; claudeSessionId: string; updatedAt: string };
 
 export class ClaudeHarness {
-  private readonly capsule: Pick<CapsuleClient, "runBrokeredAgent">;
+  private readonly capsule: Pick<CapsuleClient, "runBrokeredAgent" | "followUpBrokered">;
   private readonly linear: Pick<LinearToolClient, "upload" | "collaborate">;
   private readonly active = new Map<string, AbortController>();
 
   constructor(
     private readonly config: RunnerConfig,
-    capsule?: Pick<CapsuleClient, "runBrokeredAgent">,
+    capsule?: Pick<CapsuleClient, "runBrokeredAgent" | "followUpBrokered">,
     linear?: Pick<LinearToolClient, "upload" | "collaborate">,
   ) {
     this.capsule = capsule ?? new CapsuleClient(config.capsuleUrl, config.authToken);
@@ -37,11 +37,20 @@ export class ClaudeHarness {
     const reporter = new ProgressReporter(send, this.config.progressDebounceMs, this.config.progressHeartbeatMs);
     const controller = new AbortController();
     let timedOut = false;
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort();
-    }, this.config.piTimeoutMs);
-    timeout.unref();
+    // An idle timeout, not a hard wall-clock one: a live signal mid-turn
+    // (Slice 19) shouldn't eat into a budget the model was told covers its
+    // actual work, so the clock resets on every reported progress event
+    // instead of running once from the start of the turn.
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const armIdleTimeout = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, this.config.piTimeoutMs);
+      timeout.unref();
+    };
+    armIdleTimeout();
     this.active.set(sessionId, controller);
     try {
       reporter.start();
@@ -61,6 +70,7 @@ export class ClaudeHarness {
         model: "sonnet",
         timeBudgetMs: this.config.piTimeoutMs,
       }, controller.signal, (progress) => {
+        armIdleTimeout();
         // A completed action - one that already carries its result - is durable:
         // it's the same "here's what happened" record Linear's own docs show
         // (`{action: "Searched", result: "..."}`), not routine narration. An
@@ -135,10 +145,28 @@ export class ClaudeHarness {
     }
   }
 
-  async followUp(_sessionId: string, _prompt: string, _inputs?: LinearInputFile[]): Promise<boolean> {
-    // Claude's print-mode turn is not bidirectional. The controller queues this
-    // follow-up and resumes the same persisted Claude conversation next turn.
-    return false;
+  async followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean> {
+    // Materializing new input files into a workspace an in-flight turn is
+    // still actively using is a separate, harder problem this doesn't
+    // attempt - decline and let the existing cold-queue path (which already
+    // materializes inputs safely between turns) carry it instead.
+    if (inputs?.length) {
+      console.info("live follow-up declined: carries new input files, deferring to the cold queue", { sessionId });
+      return false;
+    }
+    // shouldQuery:false queues the message into the live turn without
+    // disturbing whatever tool call is currently in flight (Slice 19's Phase
+    // 0 spike: the alternative, priority:"now", cancels it outright).
+    const result = await this.capsule.followUpBrokered(prompt).catch((error: unknown): { accepted: false; reason: string } => ({
+      accepted: false,
+      reason: error instanceof Error ? error.message : String(error),
+    }));
+    console.info("live follow-up push result", {
+      sessionId,
+      accepted: result.accepted,
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
+    return result.accepted;
   }
 
   async abort(sessionId: string): Promise<boolean> {

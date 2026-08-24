@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { assertAgentMayAct, assertTerminalSummary, createInjector, createInputQueue, createProgressProjector, createStraylightTools, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
 
-test("communicates a wall-clock budget without imposing a turn ceiling", () => {
+test("communicates an inactivity budget without imposing a turn ceiling", () => {
   const instruction = runtimeBudgetInstruction(3_600_000);
-  assert.match(instruction, /hard wall-clock budget of 1 hour/);
+  assert.match(instruction, /inactivity budget of 1 hour/);
   assert.match(instruction, /no turn-count limit/);
-  assert.match(instruction, /runner will stop/);
+  assert.match(instruction, /resets the clock/);
+  assert.match(instruction, /runner stops the process/);
 });
 
 test("projects Claude SDK reasoning and useful tool targets", async () => {
@@ -428,6 +429,15 @@ test("createInputQueue's stream ends once closed", async () => {
   queue.close();
 
   assert.equal((await pending).done, true);
+});
+
+test("createInputQueue reports its own unconsumed backlog via pendingCount", async () => {
+  const queue = createInputQueue("do the thing");
+  assert.equal(queue.pendingCount(), 1);
+  await queue.stream.next();
+  assert.equal(queue.pendingCount(), 0);
+  queue.push({ type: "user", message: { role: "user", content: "ping" }, parent_tool_use_id: null });
+  assert.equal(queue.pendingCount(), 1);
 });
 
 test("createInjector rejects injection while a blocking attention is open, without touching the queue", () => {

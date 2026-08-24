@@ -30,6 +30,7 @@ const SESSION_NETWORK_LABEL = "dev.straylight.linear-agent.session-network=true"
 type Sender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 type ActiveTask = {
   aborted: boolean;
+  capsuleRequestId: string | undefined;
   client: PiRunnerClient;
   containerId: string;
   containerName?: string;
@@ -141,7 +142,7 @@ export function taskContainerSpec(
 
 export class WorkbenchHarness {
   private readonly engine: ContainerEngine;
-  private readonly capsule: Pick<CapsuleClient, "runAgent">;
+  private readonly capsule: Pick<CapsuleClient, "runAgent" | "pushInput">;
   private readonly capacity: AdaptiveSlots;
   private readonly active = new Map<string, ActiveTask>();
   private readonly starting = new Set<string>();
@@ -158,7 +159,7 @@ export class WorkbenchHarness {
   constructor(
     private readonly config: WorkbenchConfig,
     engine?: ContainerEngine,
-    capsule?: Pick<CapsuleClient, "runAgent">,
+    capsule?: Pick<CapsuleClient, "runAgent" | "pushInput">,
   ) {
     this.engine = engine ?? new DockerEngine(config.dockerSocket, config.dockerRequestTimeoutMs);
     this.capsule = capsule ?? new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
@@ -294,6 +295,7 @@ export class WorkbenchHarness {
             containerId,
             containerName: name,
             idleTimer: undefined,
+            capsuleRequestId: undefined,
             lastUsedAt: Date.now(),
             networkId,
             networkName,
@@ -397,6 +399,12 @@ export class WorkbenchHarness {
       model: request.model || "sonnet",
       resumed: Boolean(request.resume),
     });
+    // Tracked on the ActiveTask (not just a local variable) so a concurrent
+    // followUp/pushAgentInput call for this same session - a genuinely
+    // separate HTTP request - can find the requestId of whichever capsule
+    // call is currently in flight for it.
+    const requestId = crypto.randomUUID();
+    active.capsuleRequestId = requestId;
     try {
       const result = await this.capsule.runAgent({
         prompt: request.prompt,
@@ -405,6 +413,7 @@ export class WorkbenchHarness {
         taskToken: token,
         capsuleAuthUrl: this.config.capsuleAuthUrl,
         toolAuthUrl: this.config.toolAuthUrl,
+        requestId,
         ...(request.resume ? { resume: request.resume } : {}),
         ...(request.model ? { model: request.model } : {}),
         ...(request.timeBudgetMs !== undefined ? { timeBudgetMs: request.timeBudgetMs } : {}),
@@ -424,7 +433,30 @@ export class WorkbenchHarness {
         message: redact(error instanceof Error ? error.message : String(error)),
       });
       throw error;
+    } finally {
+      if (active.capsuleRequestId === requestId) active.capsuleRequestId = undefined;
     }
+  }
+
+  async pushAgentInput(
+    token: string, // yadm-secret-scan: ignore
+    request: { content: string; shouldQuery?: boolean },
+  ): Promise<{ accepted: boolean; reason?: string }> {
+    const active = this.taskForToken(token);
+    if (!active?.running || active.aborted || !active.capsuleRequestId) {
+      console.info("live agent input declined; no capsule request in flight for this task", {
+        sessionId: active?.sessionId,
+      });
+      return { accepted: false, reason: "not_running" };
+    }
+    const result = await this.capsule.pushInput(active.capsuleRequestId, request.content, request.shouldQuery);
+    console.info("live agent input pushed", {
+      sessionId: active.sessionId,
+      capsuleRequestId: active.capsuleRequestId,
+      accepted: result.accepted,
+      ...(result.reason ? { reason: result.reason } : {}),
+    });
+    return result;
   }
 
   async manageService(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult> { // yadm-secret-scan: ignore

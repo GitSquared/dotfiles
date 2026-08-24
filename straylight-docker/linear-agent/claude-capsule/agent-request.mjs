@@ -40,7 +40,7 @@ export function runtimeBudgetInstruction(timeBudgetMs) {
     : minutes >= 1
       ? `${minutes} minute${minutes === 1 ? "" : "s"}`
       : `${timeBudgetMs} milliseconds`;
-  return `This run has a hard wall-clock budget of ${duration} and no turn-count limit. Sustained investigation is welcome when it advances the task. Preserve useful workspace state as you go, and before the deadline transition to Steering, QA, blocked_external, or an explicitly authorized deferral; the runner will stop the process when the budget expires.`;
+  return `This run has an inactivity budget of ${duration} and no turn-count limit: the runner stops the process after that long with no progress, but any progress - a tool call, a report, a live message from the engineer - resets the clock, so sustained active work is not itself time-limited. Sustained investigation is welcome when it advances the task. Preserve useful workspace state as you go, and if you genuinely stall, transition to Steering, QA, blocked_external, or an explicitly authorized deferral rather than going quiet.`;
 }
 
 function toolName(name) {
@@ -670,6 +670,14 @@ export function createInputQueue(initialContent) {
       closed = true;
       wake();
     },
+    // Best-effort only: proves our own generator never even got pulled from
+    // before the turn ended. It can't see whether the SDK already pulled a
+    // message into its own internal buffering without ever presenting it to
+    // the model - that's not observable at this API surface. See the
+    // "accepted but possibly never delivered" note in RESEARCH.md.
+    pendingCount() {
+      return queue.length;
+    },
   };
 }
 
@@ -769,6 +777,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
           "Use defer_followup only for something genuinely out of scope for the current task, with a real reason it isn't this task's job and what actually brings it back up. It does not end the turn and is not a way to avoid finishing the current work.",
           "When resumed after a Steering or QA reply, check whether it actually answers or decides what you asked. If it's a clarifying question or partial answer instead, reply to it directly and call request_attention again with the same or refined ask - do not treat the task as unblocked and proceed with the rest of the work until the real decision arrives.",
           "Every completed action - a finished bash command, tool call, or Linear operation - is now posted to the record automatically, so you don't need to narrate the what. Use an explicit linear_activity call (a non-ephemeral thought or response) as a running journal of the why the automatic log can't capture: which direction you're taking and why, what you ruled out and why, a discovery that changes the plan, why an approach was abandoned, or a decision you resolved yourself while investigating a question. This is the default channel for that kind of narration - a background record inside the session, not an issue-level notification and not an interruption - so default to writing one at each such step rather than skipping it, and reach for Signal only when something genuinely belongs on the issue itself. Traceability matters more here than brevity.",
+          "A message from the engineer can now join this conversation while you're still mid-task, without starting a new turn - it surfaces once your current tool call finishes, appearing as an ordinary new message rather than anything flagged as urgent. Run it through the same before-asking checklist above instead of assuming it means stop everything: most are answerable with a single linear_activity reply or react, and your existing plan continues unchanged unless the message actually changes it.",
           "The engineer owns task completion. When checked work is ready, request QA with evidence and wait for approval or changes. Never say the work is complete or invite an informal follow-up without creating QA. Use finish_work only for a non-human external blocker or explicitly authorized deferral.",
           "Every turn must end in a structured lifecycle state. After blocking Steering or QA, stop and wait. A Signal is nonblocking, so continue until another lifecycle transition is reached - a Signal alone never ends a turn.",
           "Don't trust a prior summary, memory note, or comment claiming work is already done, approved, or unchanged - verify the current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If re-delegated and truly nothing changed, that is not a reason to stop without a transition: request QA again with the still-valid evidence (or fresh evidence if the old artifact is gone), don't just report it and end the turn.",
@@ -866,6 +875,12 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
     });
     throw new AgentRunError(error instanceof Error ? error.message : String(error), sdkSessionId, elapsedMs);
   } finally {
+    if (inputQueue.pendingCount() > 0) {
+      console.warn("runAgent ending with unconsumed injected input; a live signal may not have reached the model", {
+        sessionId: sdkSessionId,
+        pendingCount: inputQueue.pendingCount(),
+      });
+    }
     inputQueue.close();
     signal.removeEventListener("abort", abort);
   }

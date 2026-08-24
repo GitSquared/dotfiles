@@ -930,24 +930,107 @@ looked, but doesn't change the recommendation - B wins on its own terms.
    established in the first, resumed by `session_id`) - the other
    untested assumption this step depended on. Both checks are in
    RESEARCH.md.
-2. `claude-capsule/server.mjs`: keep the existing ndjson response; key a
-   live-push channel off the existing `requestId` (`POST
-   /v1/agent/:requestId/input`), not the container's `taskToken`.
-3. `src/claude.ts` / `src/workbench.ts` / `src/runner-server.ts`:
-   `ClaudeHarness.followUp()` stops being a stub and posts to the live
-   run, returning `false` only on an `awaitingInput` rejection (the
-   existing cold-queue path stays as the fallback). Convert
-   `piTimeoutMs`'s hard wall-clock abort to an idle timeout (no progress
-   for N minutes), since more live pings otherwise mean hitting a budget
-   the model was never told accounts for interruptions.
-4. `src/controller.ts`: `start()` tries `runner.followUp()` first, falls
-   back to `state.pending` only when that's rejected. The GAB-15 guard
-   (execute()'s tail, added tonight) stays exactly as-is - it's what
-   correctly handles the fallback case.
-5. System prompt: an inbound live ping runs through the same
-   escalate-vs-decide altitude filter Slice 18 already ships - a
-   non-product-level ping resolves to a react or nothing; a mid-flight
-   reply is one tool call, not a new turn.
+2. **Done, 2026-08-24.** `claude-capsule/server.mjs`: the existing ndjson
+   response is unchanged; a module-level `liveRequests` Map now keys the
+   `{inject, interrupt}` handle `onQueryReady` hands back off the
+   request's own `requestId` - client-supplied when present (validated,
+   bounded to 128 chars) so the broker can address a run it just
+   started, minted here as a fallback otherwise. New route `POST
+   /v1/agent/:requestId/input` (control-token authenticated, same as
+   `/v1/agent`) looks it up and calls `inject`; a stale or unknown id
+   just isn't found (`{accepted:false, reason:"not_found"}`) rather than
+   pushing into nothing, since the map entry is removed in the same
+   `finally` that already exists for cleanup.
+3. **Done, 2026-08-24.** `src/claude.ts` / `src/workbench.ts` /
+   `src/runner-server.ts`: `ClaudeHarness.followUp()` stops being a stub.
+   It declines outright (`false`) when the follow-up carries new input
+   files - materializing them into a workspace an in-flight turn is
+   still using concurrently is a separate, harder problem this doesn't
+   attempt, and the existing cold-queue path already handles inputs
+   safely between turns. Otherwise it calls the capsule's
+   `followUpBrokered(prompt)` (via a new broker-side route,
+   `POST /v1/agent/input`, resolved from the task's own bearer token via
+   the same `taskForToken` lookup `runClaude` already uses - the task
+   container never sees the real capsule's requestId, only the runner
+   does) and returns whether it was `accepted`. `WorkbenchHarness` tracks
+   the in-flight `capsuleRequestId` on the session's `ActiveTask`,
+   set when `runClaude` starts a capsule call and cleared in its
+   `finally`; a new `pushAgentInput` method resolves a task's own live
+   requestId and forwards to `CapsuleClient.pushInput`. Injection
+   defaults to `shouldQuery: false` throughout (queue, don't interrupt -
+   see Phase 0's corrected framing above). `piTimeoutMs` is now an idle
+   timeout, not a hard wall-clock one: the deadline resets on every
+   reported progress event (`ClaudeHarness.run`'s `armIdleTimeout`), and
+   `runtimeBudgetInstruction`'s wording was corrected to stop telling the
+   model something no longer true. Regression-tested directly: a run
+   whose total duration exceeds `piTimeoutMs` but keeps reporting
+   progress inside the idle window still completes rather than timing
+   out.
+4. **No change needed**, confirmed by reading the code: `src/controller.
+   ts`'s `handle()` (not `start()` - the ROADMAP text above had this
+   slightly wrong) already tries `runner.followUp()` first and only
+   falls back to `state.pending` when it returns `false`. The GAB-15
+   guard (`execute()`'s tail) is untouched and still correctly handles
+   the fallback case.
+5. **Done, 2026-08-24.** System prompt (mirrored verbatim in both
+   `claude-capsule/agent-request.mjs`'s systemPrompt array and
+   `src/prompts.ts`'s `claudeInitialPrompt`, matching how the rest of
+   the decision-model text is already duplicated across both): a live
+   message now appears as an ordinary new message once the current tool
+   call finishes, not flagged as urgent, and is routed through the same
+   escalate-vs-decide checklist rather than assumed to mean stop
+   everything.
+
+All five phases landed in one pass rather than five separate check-ins,
+per an explicit "do all steps and push em so i can run another test" -
+each phase's tests (173/173 `bun run check`, up from 168; 29/29
+`test:capsule`, up from 28) were still run and verified individually
+before moving to the next. An advisor review (the same one that caught
+Phase 1's hang) ran again before this landed and found three more
+things, all addressed:
+
+- **Token identity across the broker boundary - checked, not a bug.**
+  The advisor asked whether the task container's `PI_RUNNER_TOKEN` (used
+  as `ClaudeHarness`'s bearer token when it calls the broker's new
+  `/v1/agent/input`) actually matches the `ActiveTask.token`
+  `taskForToken` compares against - if they diverged, every live push
+  would silently degrade to `{accepted:false, reason:"not_running"}`,
+  indistinguishable from "no run in flight." Traced it in
+  `workbench.ts`: one `token` local (line ~279) is passed to both
+  `taskContainerSpec` (becomes `PI_RUNNER_TOKEN`) and the `ActiveTask`
+  literal (`token,`) - the literal same value, not two secrets that
+  happen to agree. Confirmed safe.
+- **Missing observability - fixed.** Neither `pushAgentInput` nor
+  `followUp` logged anything, so on the live test "my reply didn't
+  reach the agent" would have given zero signal about which of five
+  hops dropped it. Both now log accept/reject with a reason.
+- **"Accepted" can still mean "never delivered" - partially mitigated,
+  not fully closed, and said so rather than left silent.**
+  `createInjector` returns `{accepted:true}` the moment a message is
+  queued, but if the model reaches a blocking `request_attention`
+  before that message is actually incorporated into a turn,
+  `inputQueue.close()` discards it - and unlike the old always-`false`
+  `followUp`, which meant the controller always fell back to
+  `state.pending`, an `accepted:true` response today does *not* set
+  `state.pending`, so the content can be silently lost with Linear
+  showing it as received. This is exactly the GAB-15 failure shape this
+  whole slice exists to close, one layer further in. Added
+  `createInputQueue.pendingCount()` and a `console.warn` in `runAgent`'s
+  `finally` when it's nonzero - this reliably catches the narrow case
+  where our own generator was never even pulled from before the turn
+  ended. It does **not** catch the likely-more-common case where the
+  SDK already pulled the message into its own internal buffering without
+  ever presenting it to the model in a completed turn - that isn't
+  observable at this API surface with anything currently known about
+  the SDK. Closing this fully needs a real delivery-acknowledgment
+  protocol threaded from `agent-request.mjs`'s result back through
+  `CapsuleAgentResult` / `PiResult` to the controller, correlated with
+  the specific follow-up payload, so it can be reissued through the
+  existing cold-queue path on non-confirmation - not attempted here;
+  logged as a genuine gap, not deferred as a vague TODO.
+
+Nothing here has been exercised against a real deployed capsule/runner/
+controller yet - that's the live test this unblocks.
 
 **Deferred, explicitly:** a signal arriving while a blocking Steering/QA
 is already open (the human is actively sitting on it) still goes through

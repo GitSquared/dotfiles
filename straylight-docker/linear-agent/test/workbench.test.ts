@@ -115,6 +115,7 @@ test("reuses an idle warm task and withholds supervisor capabilities between tur
     },
     containerId: "warm-task",
     idleTimer: undefined,
+    capsuleRequestId: undefined,
     lastUsedAt: Date.now(),
     networkId: "warm-network",
     networkName: "warm-network",
@@ -170,6 +171,7 @@ test("forwards a running task to the Claude capsule without mounting its identit
       onProgress?.({ type: "thought", body: "Reading the repository." });
       return { status: "ok" as const, answer: "Ready for QA.", sessionId: "claude-1", awaitingInput: true, durationMs: 4, disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." } };
     },
+    async pushInput() { throw new Error("unused"); },
   };
   const harness = new WorkbenchHarness(config(), engine, capsule);
   const active = {
@@ -178,6 +180,7 @@ test("forwards a running task to the Claude capsule without mounting its identit
     containerId: "task-id",
     containerName: "linear-agent-task-abc123",
     idleTimer: undefined,
+    capsuleRequestId: undefined,
     lastUsedAt: Date.now(),
     networkId: "network-id",
     networkName: "network-name",
@@ -198,7 +201,10 @@ test("forwards a running task to the Claude capsule without mounting its identit
   ); // yadm-secret-scan: ignore
   assert.equal(result.status, "ok");
   assert.deepEqual(progress, [{ type: "thought", body: "Reading the repository." }]);
-  assert.deepEqual(request, {
+  const { requestId, ...requestWithoutId } = request as { requestId?: string };
+  assert.equal(typeof requestId, "string");
+  assert.ok((requestId as string).length > 0);
+  assert.deepEqual(requestWithoutId, {
     prompt: "Implement it",
     taskUrl: "http://linear-agent-task-abc123:8788",
     workbenchUrl: "http://linear-agent-runner:8788",
@@ -208,10 +214,65 @@ test("forwards a running task to the Claude capsule without mounting its identit
     resume: "claude-0",
     timeBudgetMs: 3_600_000,
   });
+  assert.equal((internals.active.get("session") as { capsuleRequestId?: string } | undefined)?.capsuleRequestId, undefined);
   assert.deepEqual(await harness.runClaude("wrong-token", { prompt: "Nope" }), { // yadm-secret-scan: ignore
     status: "error",
     message: "Unauthorized or unavailable task workspace.",
   });
+});
+
+test("pushes a live signal into whichever capsule request is currently in flight for that task", async () => {
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    pull: unused, create: unused, start: unused, stop: unused, remove: unused,
+    listByLabel: unused, inspect: unused, logs: unused, createNetwork: unused,
+    connectNetwork: unused, removeNetwork: unused, listNetworksByLabel: unused,
+  };
+  const pushed: Array<{ requestId: string; content: string; shouldQuery?: boolean }> = [];
+  const capsule = {
+    async runAgent(): Promise<never> { throw new Error("unused"); },
+    async pushInput(requestId: string, content: string, shouldQuery?: boolean) {
+      pushed.push({ requestId, content, ...(shouldQuery !== undefined ? { shouldQuery } : {}) });
+      return { accepted: true };
+    },
+  };
+  const harness = new WorkbenchHarness(config(), engine, capsule);
+  const active = {
+    aborted: false,
+    capsuleRequestId: "live-request-1",
+    client: {},
+    containerId: "task-id",
+    containerName: "linear-agent-task-abc123",
+    idleTimer: undefined,
+    lastUsedAt: Date.now(),
+    networkId: "network-id",
+    networkName: "network-name",
+    running: true,
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token: "task-token",
+  };
+  const internals = harness as unknown as { active: Map<string, unknown> };
+  internals.active.set("session", active);
+
+  assert.deepEqual(
+    await harness.pushAgentInput("task-token", { content: "keep it silent" }), // yadm-secret-scan: ignore
+    { accepted: true },
+  );
+  assert.deepEqual(pushed, [{ requestId: "live-request-1", content: "keep it silent" }]);
+
+  assert.deepEqual(
+    await harness.pushAgentInput("wrong-token", { content: "ignored" }), // yadm-secret-scan: ignore
+    { accepted: false, reason: "not_running" },
+  );
+
+  active.capsuleRequestId = undefined as unknown as string;
+  assert.deepEqual(
+    await harness.pushAgentInput("task-token", { content: "no run in flight" }), // yadm-secret-scan: ignore
+    { accepted: false, reason: "not_running" },
+  );
+  assert.equal(pushed.length, 1);
 });
 
 test("captures task exit diagnostics before removing a failed jail", async () => {
@@ -243,6 +304,7 @@ test("captures task exit diagnostics before removing a failed jail", async () =>
     },
     containerId: "failed-task",
     idleTimer: undefined,
+    capsuleRequestId: undefined,
     lastUsedAt: Date.now(),
     networkId: "failed-network",
     networkName: "failed-network",

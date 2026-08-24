@@ -2829,3 +2829,97 @@ not evidence the path works if none of those tests actually exercise the
 part that changed - "green" answered a different question than the one
 that mattered here, and only a review before moving on surfaced that gap
 before it shipped.
+
+## Wiring Slice 19 phases 2-5 end to end - 2026-08-24
+
+"Do all steps and push em so i can run another test" is about as clear
+a go-ahead as it gets, but the actual wiring turned out to span four
+processes, not one file. First had to map it precisely rather than
+guess: `ClaudeHarness` (the ephemeral per-task container) and
+`WorkbenchHarness` (the long-lived `linear-agent-runner`) never share a
+process, and `ClaudeHarness.run()`'s call to what looks like the real
+capsule is actually a broker hop - it lands on `WorkbenchHarness`'s own
+`/v1/agent` route (bound in its process by the same generic
+`runner-server.ts` used in both), which then makes its *own*, separate
+call to the real `claude-capsule` with the full request shape. `followUp`
+was a real stub all the way down: controller -> `PiRunnerClient` (HTTP)
+-> the runner's `/follow-up` -> `WorkbenchHarness.followUp` ->
+*another* `PiRunnerClient` pointed at the task container -> its own
+`/follow-up` -> `ClaudeHarness.followUp`, a `return false` with nothing
+past it.
+
+Closing that gap meant: the real capsule (`server.mjs`) now keys the
+`{inject, interrupt}` handle Phase 1 already produced off the request's
+own `requestId` (client-supplied when present, minted as a fallback
+otherwise) and exposes `POST /v1/agent/:requestId/input`.
+`WorkbenchHarness.runClaude` mints that id and tracks it on the
+session's `ActiveTask` for exactly the duration of the capsule call, so
+a concurrent `pushAgentInput` for the same session can find it.
+`ClaudeHarness`, which never sees the real capsule's requestId at all
+(only its own per-task bearer token), gets a *second* new broker route,
+`POST /v1/agent/input`, that resolves the live requestId from that
+token via the same `taskForToken` lookup `runClaude` already used -
+deliberately reusing an existing mechanism rather than inventing
+per-token addressing twice. `followUp` declines outright when a
+follow-up carries new input files (materializing them into a workspace
+an in-flight turn is already using concurrently is a separate, harder
+problem, and the existing cold-queue path already handles inputs safely
+between turns) and otherwise pushes with `shouldQuery` omitted, which
+resolves to `false` all the way down - queue, don't interrupt, matching
+the corrected Phase 0 framing. `piTimeoutMs` became an idle timeout
+(reset on every reported progress event) instead of one hard wall-clock
+deadline, since a live ping shouldn't eat into a budget the model was
+never told accounts for interruptions, and `runtimeBudgetInstruction`'s
+wording was corrected to match. Regression-tested directly: a run whose
+*total* duration exceeds `piTimeoutMs` but keeps reporting progress
+inside the idle window still completes.
+
+An advisor review before pushing - the same discipline that caught
+Phase 1's hang - found three more things worth naming. First, a
+question rather than a bug: does the task container's `PI_RUNNER_TOKEN`
+actually match the `ActiveTask.token` `taskForToken` compares against?
+If those had been two different secrets that merely happened to agree
+in testing, every live push would have silently degraded to
+`{accepted:false, reason:"not_running"}` in production -
+indistinguishable from "no run in flight," which is exactly the kind of
+failure that looks like the feature doesn't exist rather than like a
+bug. Traced it in `workbench.ts`: one `token` local is passed to both
+`taskContainerSpec` (becomes the container's `PI_RUNNER_TOKEN`) and the
+`ActiveTask` literal - the literal same value. Confirmed safe, not
+assumed.
+
+Second: neither `pushAgentInput` nor `followUp` logged anything. On a
+live test, "my reply didn't seem to reach the agent" would have given
+zero signal about which of five hops dropped it - exactly the kind of
+gap that turns a two-minute check into another log-archaeology session
+like the GAB-15 crash forensics earlier tonight. Both now log
+accept/reject with a reason.
+
+Third, the one worth stating precisely rather than waving off:
+`createInjector` returns `{accepted:true}` the instant a message is
+queued, but "queued" isn't "delivered." If the model reaches a blocking
+`request_attention` before that queued message is actually incorporated
+into a turn, `runAgent`'s `finally` closes the input queue and whatever
+was still sitting there is gone - silently, with Linear having already
+been told (via the controller's "queued in the active agent session"
+comment) that it landed. The old stubbed `followUp` never had this
+failure mode, because it always returned `false` and the controller
+always fell back to `state.pending`. This is the GAB-15 failure shape
+one layer further in, and the honest answer is that fully closing it
+needs a real delivery-acknowledgment protocol - the capsule's result
+would need to report, and the controller would need to correlate,
+whether a *specific* injected follow-up actually reached a completed
+turn, so it could be reissued through the existing cold-queue path
+otherwise. That's real new plumbing (a field threaded through
+`CapsuleAgentResult` and `PiResult`, keyed to the original webhook
+payload the controller already holds), not a quick patch, and attempting
+it under time pressure without being able to fully verify the SDK's
+internal buffering behavior risked shipping something that looked fixed
+but wasn't. Shipped instead: `createInputQueue.pendingCount()` plus a
+`console.warn` when `runAgent` ends with a nonzero backlog - a real,
+tested signal for the narrow case where our own generator was never even
+pulled from, named explicitly as *not* covering the likely-more-common
+case where the SDK already pulled the message into its own internal
+buffering without ever using it. Recorded as a known, precise gap in
+ROADMAP.md rather than either silently shipping it or claiming it was
+fixed.

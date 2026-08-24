@@ -43,6 +43,7 @@ type RunnerHarness = {
   repositories?(): Promise<RepositoryCandidate[]>;
   health?(): Promise<Record<string, unknown>>;
   runClaude?(token: string, request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
+  pushAgentInput?(token: string, request: { content: string; shouldQuery?: boolean }): Promise<{ accepted: boolean; reason?: string }>; // yadm-secret-scan: ignore
   shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   applyPatch?(request: { patch: string; directory?: string }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   managePlan?(request: PlanRequest, signal?: AbortSignal): Promise<{ ok: true; plan: PlanDetails; mirrored?: boolean; message: string }>;
@@ -110,6 +111,18 @@ export function createRunnerServer(
         ...(input.model ? { model: input.model } : {}),
         ...(input.timeBudgetMs !== undefined ? { timeBudgetMs: input.timeBudgetMs } : {}),
       }, signal, onProgress), request.signal, options.heartbeatMs ?? RUNNER_HEARTBEAT_MS);
+    }
+
+    if (method === "POST" && pathname === "/v1/agent/input") {
+      const input = await body<{ content?: string; shouldQuery?: boolean }>(request);
+      if (!pi.pushAgentInput || typeof input.content !== "string" || !input.content.trim() || input.content.length > 20_000
+        || (input.shouldQuery !== undefined && typeof input.shouldQuery !== "boolean")) {
+        return json(400, { accepted: false, reason: "invalid_request" });
+      }
+      return json(200, await pi.pushAgentInput(bearer(request), {
+        content: input.content,
+        ...(input.shouldQuery !== undefined ? { shouldQuery: input.shouldQuery } : {}),
+      }));
     }
 
     if (method === "POST" && pathname === "/v1/services") {

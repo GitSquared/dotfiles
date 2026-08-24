@@ -5,6 +5,7 @@ import path from "node:path";
 import { test } from "bun:test";
 import { ClaudeHarness } from "../src/claude.js";
 import type { RunnerConfig } from "../src/config.js";
+import type { LinearInputFile } from "../src/types.js";
 
 function config(workdir: string): RunnerConfig {
   return {
@@ -40,6 +41,7 @@ test("uses Claude as a resumable brokered runner without mounting its identity i
           disposition: { status: "awaiting_qa" as const, reason: "Implemented and checked; ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const harness = new ClaudeHarness(config(workdir), capsule);
     const events: unknown[] = [];
@@ -80,6 +82,7 @@ test("aborts and reports a Claude run when the configured runner deadline expire
           else signal?.addEventListener("abort", abort, { once: true });
         });
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const harness = new ClaudeHarness(timedConfig, capsule);
     const result = await harness.run({
@@ -119,6 +122,7 @@ test("persists Claude's session id after a non-success result so the next turn c
           disposition: { status: "awaiting_qa" as const, reason: "Recovered, checked, and ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const harness = new ClaudeHarness(config(workdir), capsule);
     const payload = {
@@ -154,6 +158,7 @@ test("resumes a controller-supplied conversation for a fresh Linear session with
           disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const harness = new ClaudeHarness(config(workdir), capsule);
     const result = await harness.run({
@@ -185,6 +190,7 @@ test("prefers this session's own local history over a controller-supplied resume
           disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const harness = new ClaudeHarness(config(workdir), capsule);
     await harness.run({
@@ -220,6 +226,7 @@ test("reports visible progress while Claude is quiet", async () => {
           disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const events: unknown[] = [];
     const harness = new ClaudeHarness(progressConfig, capsule);
@@ -257,6 +264,7 @@ test("publishes safe semantic Claude progress into Linear activity", async () =>
           disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const events: unknown[] = [];
     const harness = new ClaudeHarness(progressConfig, capsule);
@@ -299,6 +307,7 @@ test("posts a completed action durably while in-progress actions and thoughts st
           disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
         };
       },
+      async followUpBrokered() { throw new Error("unused"); },
     };
     const events: Array<{ ephemeral: boolean; content: { type: string; body?: string; result?: string } }> = [];
     const harness = new ClaudeHarness(progressConfig, capsule);
@@ -326,7 +335,7 @@ test("runs shell commands in the task workspace and strips broker credentials", 
   const previous = process.env.PI_RUNNER_TOKEN;
   process.env.PI_RUNNER_TOKEN = "secret-runner-token-value"; // yadm-secret-scan: ignore
   try {
-    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); } });
+    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); }, async followUpBrokered() { throw new Error("unused"); } });
     const result = await harness.shell({ command: "pwd; printf '%s' \"${PI_RUNNER_TOKEN-unset}\"" });
     assert.equal(result.ok, true);
     assert.match(result.stdout, new RegExp(workdir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -345,7 +354,7 @@ test("applies a unified diff inside the selected workspace directory", async () 
     const repository = path.join(workdir, "repository");
     await fs.mkdir(repository);
     await fs.writeFile(path.join(repository, "note.txt"), "before\n");
-    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); } });
+    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); }, async followUpBrokered() { throw new Error("unused"); } });
     const result = await harness.applyPatch({
       directory: "repository",
       patch: [
@@ -382,7 +391,7 @@ test("persists and incrementally mirrors Claude's durable task plan", async () =
     };
     const harness = new ClaudeHarness(
       config(workdir),
-      { async runBrokeredAgent() { throw new Error("unused"); } },
+      { async runBrokeredAgent() { throw new Error("unused"); }, async followUpBrokered() { throw new Error("unused"); } },
       linear,
     );
     const replaced = await harness.managePlan({
@@ -426,7 +435,7 @@ test("uploads a workspace artifact through the Linear broker and shares it for r
     };
     const harness = new ClaudeHarness(
       config(workdir),
-      { async runBrokeredAgent() { throw new Error("unused"); } },
+      { async runBrokeredAgent() { throw new Error("unused"); }, async followUpBrokered() { throw new Error("unused"); } },
       linear,
     );
     const result = await harness.shareArtifact({
@@ -455,13 +464,101 @@ test("returns only bounded workspace images as visual model input", async () => 
     const png = Buffer.from("iVBORw0KGgo=", "base64");
     await fs.writeFile(path.join(workdir, "intent.png"), png);
     await fs.writeFile(path.join(workdir, "intent.svg"), "<svg/>");
-    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); } });
+    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); }, async followUpBrokered() { throw new Error("unused"); } });
     assert.deepEqual(await harness.viewImage({ path: "intent.png" }), {
       ok: true,
       dataBase64: png.toString("base64"),
       mimeType: "image/png",
     });
     await assert.rejects(harness.viewImage({ path: "intent.svg" }), /supports PNG, JPEG, GIF, and WebP/);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("resets the idle timeout on progress instead of enforcing one hard wall-clock deadline", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-idle-"));
+  try {
+    const idleConfig = { ...config(workdir), piTimeoutMs: 30 };
+    const capsule = {
+      async runBrokeredAgent(
+        _request: unknown,
+        _signal?: AbortSignal,
+        onProgress?: (progress: { type: "thought"; body: string }) => void,
+      ) {
+        for (let i = 0; i < 5; i += 1) {
+          await Bun.sleep(15);
+          onProgress?.({ type: "thought", body: `Still working (${i}).` });
+        }
+        return {
+          status: "ok" as const,
+          answer: "Done despite a total duration past the idle budget.",
+          sessionId: "claude-idle-session",
+          awaitingInput: true,
+          durationMs: 75,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+      async followUpBrokered() { throw new Error("unused"); },
+    };
+    const harness = new ClaudeHarness(idleConfig, capsule);
+    const result = await harness.run({
+      action: "created",
+      agentSession: { id: "linear-idle-session", issueId: "issue-1" },
+      agentActivity: { content: { body: "Keep working steadily." } },
+    }, async () => {});
+    assert.equal(result.timedOut, false);
+    assert.equal(result.ok, true);
+    assert.equal(result.summary, "Done despite a total duration past the idle budget.");
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("pushes a follow-up into the live capsule turn and reports whether it landed", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-followup-"));
+  try {
+    const calls: Array<{ content: string; shouldQuery?: boolean }> = [];
+    const harness = new ClaudeHarness(config(workdir), {
+      async runBrokeredAgent() { throw new Error("unused"); },
+      async followUpBrokered(content: string, shouldQuery?: boolean) {
+        calls.push({ content, ...(shouldQuery !== undefined ? { shouldQuery } : {}) });
+        return { accepted: calls.length === 1 };
+      },
+    });
+    assert.equal(await harness.followUp("linear-session-1", "Actually, hold off on the migration."), true);
+    assert.equal(await harness.followUp("linear-session-1", "One more thing."), false);
+    assert.deepEqual(calls, [
+      { content: "Actually, hold off on the migration." },
+      { content: "One more thing." },
+    ]);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("declines a follow-up carrying new input files, deferring to the cold queue", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-followup-inputs-"));
+  try {
+    const harness = new ClaudeHarness(config(workdir), {
+      async runBrokeredAgent() { throw new Error("unused"); },
+      async followUpBrokered() { throw new Error("must not be called when inputs are attached"); },
+    });
+    const inputs: LinearInputFile[] = [{ filename: "spec.pdf", mimeType: "application/pdf", size: 3, dataBase64: "abc" }];
+    assert.equal(await harness.followUp("linear-session-1", "See the attached spec.", inputs), false);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
+test("treats a failed live push as a decline rather than throwing", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-followup-error-"));
+  try {
+    const harness = new ClaudeHarness(config(workdir), {
+      async runBrokeredAgent() { throw new Error("unused"); },
+      async followUpBrokered(): Promise<never> { throw new Error("capsule unreachable"); },
+    });
+    assert.equal(await harness.followUp("linear-session-1", "Ping"), false);
   } finally {
     await fs.rm(workdir, { recursive: true, force: true });
   }

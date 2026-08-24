@@ -15,7 +15,10 @@ export type CapsuleAgentRequest = {
   resume?: string;
   model?: string;
   timeBudgetMs?: number;
+  requestId?: string;
 };
+
+export type PushInputResult = { accepted: boolean; reason?: string };
 
 export type BrokeredCapsuleAgentRequest = Pick<CapsuleAgentRequest, "prompt" | "resume" | "model" | "timeBudgetMs">;
 export type CapsuleAgentProgress = Extract<AgentActivityContent, { type: "thought" | "action" }>;
@@ -47,6 +50,41 @@ export class CapsuleClient {
     onProgress?: CapsuleAgentProgressHandler,
   ): Promise<CapsuleAgentResult> {
     return this.agentRequest(request, signal, onProgress);
+  }
+
+  // Pushes into a specific already-running capsule request (Slice 19) - used
+  // by the workbench, which knows the requestId it minted when it started
+  // that run via runAgent above.
+  async pushInput(requestId: string, content: string, shouldQuery?: boolean): Promise<PushInputResult> {
+    return this.postForAcceptance(`/v1/agent/${encodeURIComponent(requestId)}/input`, content, shouldQuery);
+  }
+
+  // Same idea, but from inside the task container: it never sees the real
+  // capsule's requestId, only its own per-task bearer token, so it asks its
+  // broker (the workbench's own /v1/agent/input route) to resolve which live
+  // run that token belongs to.
+  async followUpBrokered(content: string, shouldQuery?: boolean): Promise<PushInputResult> {
+    return this.postForAcceptance("/v1/agent/input", content, shouldQuery);
+  }
+
+  private async postForAcceptance(pathname: string, content: string, shouldQuery?: boolean): Promise<PushInputResult> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${pathname}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ content, ...(shouldQuery !== undefined ? { shouldQuery } : {}) }),
+      });
+    } catch {
+      return { accepted: false, reason: "network_error" };
+    }
+    let payload: unknown;
+    try { payload = await response.json(); }
+    catch { return { accepted: false, reason: "invalid_response" }; }
+    if (!payload || typeof payload !== "object" || typeof (payload as Partial<PushInputResult>).accepted !== "boolean") {
+      return { accepted: false, reason: "invalid_response" };
+    }
+    return payload as PushInputResult;
   }
 
   private async agentRequest(

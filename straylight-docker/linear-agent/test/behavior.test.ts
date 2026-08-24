@@ -28,6 +28,7 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /linear_activity's non-blocking ask action/);
   assert.match(prompt, /it belongs in the durable session journal/);
   assert.match(prompt, /not a Signal comment/);
+  assert.match(prompt, /can now join this conversation while you're still mid-task/);
 });
 
 test("uses the activity body for follow-ups", () => {

@@ -10,6 +10,14 @@ const agentHeartbeatMs = 15_000;
 const controlToken = fs.readFileSync(process.env.CAPSULE_CONTROL_TOKEN_FILE || "/run/secrets/capsule-control-token", "utf8").trim(); // yadm-secret-scan: ignore
 if (controlToken.length < 32) throw new Error("capsule control token is invalid");
 
+// Keyed by requestId (caller-supplied so the broker can address a run it just
+// started, or minted here as a fallback) so a live signal can reach a turn
+// that's still in flight - see Slice 19 in ROADMAP.md. Entries are added once
+// runAgent's query() opens and removed in its finally, so a stale requestId
+// (the turn already ended) simply isn't found rather than pushing into
+// nothing.
+const liveRequests = new Map();
+
 function json(response, status, value) {
   const output = `${JSON.stringify(value)}\n`;
   response.writeHead(status, {
@@ -77,9 +85,10 @@ async function route(request, response) {
   }
   if (method === "POST" && pathname === "/v1/agent") {
     const requestCancellation = cancellation(request, response);
-    const requestId = crypto.randomUUID();
+    let requestId = crypto.randomUUID();
     const startedAt = Date.now();
     let heartbeat;
+    let registered = false;
     try {
       if (!authorized(request)) {
         if (!response.destroyed) json(response, 401, { status: "error", message: "Unauthorized." });
@@ -94,10 +103,12 @@ async function route(request, response) {
         || typeof input?.taskToken !== "string" || input.taskToken.length < 32
         || !validUrl(input?.taskUrl) || !validUrl(input?.workbenchUrl)
         || (input.resume !== undefined && (typeof input.resume !== "string" || input.resume.length > 200))
-        || (input.timeBudgetMs !== undefined && (!Number.isSafeInteger(input.timeBudgetMs) || input.timeBudgetMs <= 0))) {
+        || (input.timeBudgetMs !== undefined && (!Number.isSafeInteger(input.timeBudgetMs) || input.timeBudgetMs <= 0))
+        || (input.requestId !== undefined && (typeof input.requestId !== "string" || !input.requestId || input.requestId.length > 128))) {
         if (!response.destroyed) json(response, 400, { status: "error", message: "Invalid Straylight agent request." });
         return;
       }
+      if (input.requestId) requestId = input.requestId;
       console.info("Claude agent request accepted", {
         requestId,
         model: input.model || "sonnet",
@@ -114,6 +125,9 @@ async function route(request, response) {
       heartbeat.unref();
       const result = await runAgent(input, requestCancellation.signal, async (progress) => {
         ndjson(response, { type: "progress", progress });
+      }, (handle) => {
+        registered = true;
+        liveRequests.set(requestId, handle);
       });
       ndjson(response, { type: "result", result });
       if (!response.destroyed) response.end();
@@ -148,9 +162,30 @@ async function route(request, response) {
       });
       return;
     } finally {
+      if (registered) liveRequests.delete(requestId);
       if (heartbeat) clearInterval(heartbeat);
       requestCancellation.cleanup();
     }
+  }
+  const inputMatch = method === "POST" && pathname.match(/^\/v1\/agent\/([^/]+)\/input$/);
+  if (inputMatch) {
+    if (!authorized(request)) {
+      json(response, 401, { status: "error", message: "Unauthorized." });
+      return;
+    }
+    const input = await body(request);
+    if (typeof input?.content !== "string" || !input.content.trim() || input.content.length > 20_000
+      || (input.shouldQuery !== undefined && typeof input.shouldQuery !== "boolean")) {
+      json(response, 400, { accepted: false, reason: "invalid_request" });
+      return;
+    }
+    const handle = liveRequests.get(decodeURIComponent(inputMatch[1]));
+    if (!handle) {
+      json(response, 200, { accepted: false, reason: "not_found" });
+      return;
+    }
+    json(response, 200, handle.inject(input.content, input.shouldQuery !== undefined ? { shouldQuery: input.shouldQuery } : {}));
+    return;
   }
   json(response, 404, { status: "error", message: "Not found." });
 }
