@@ -884,20 +884,52 @@ looked, but doesn't change the recommendation - B wins on its own terms.
    (a queued reply currently waits for the *entire remaining plan*, not
    just the in-flight tool).
 1. **Done, 2026-08-24.** `claude-capsule/agent-request.mjs`: `runAgent`'s
-   `query()` prompt is now `createInputQueue()`'s long-lived
-   AsyncIterable (the exact push-based-queue shape validated live in the
-   Phase 0 spike) instead of the raw `input.prompt` string - purely
-   additive, nothing yet calls the new capability. `createInjector`
-   rejects injection outright while `context.awaitingInput` or
-   `context.disposition` is set, mirroring `assertAgentMayAct`'s own
-   guard one scope tighter, so a signal can never wake the model onto
-   its own blocking elicitation - the GAB-15 failure shape, closed
-   structurally rather than patched. `runAgent` takes an optional
-   `onQueryReady({inject, interrupt})` callback (default no-op) so
-   `server.mjs` doesn't need to change yet; `interrupt` is the raw
-   `Query.interrupt()`, unused until a caller needs it. 6 new unit
-   tests drive `createInputQueue`/`createInjector` directly (28/28
-   `test:capsule`, 168/168 `bun run check`, both unaffected otherwise).
+   `query()` prompt is now `createInputQueue()`'s long-lived AsyncIterable
+   (the exact push-based-queue shape validated live in the Phase 0 spike)
+   instead of the raw `input.prompt` string. Correction to an earlier
+   draft of this entry: this is *not* "purely additive" - the injection
+   *capability* is unused so far (`server.mjs` doesn't call it, `resume`
+   is untouched), but the *transport* changed for every run, print mode
+   included, since `query()` now always gets a streaming prompt. That
+   distinction mattered: it's what put a real, ship-blocking bug in
+   scope-for-this-step instead of "someone else's problem later" - see
+   below. `createInjector` rejects injection outright while
+   `context.awaitingInput` or `context.disposition` is set, mirroring
+   `assertAgentMayAct`'s own guard one scope tighter, so a signal can
+   never wake the model onto its own blocking elicitation - the GAB-15
+   failure shape, closed structurally rather than patched. `runAgent`
+   takes an optional `onQueryReady({inject, interrupt})` callback
+   (default no-op) so `server.mjs` doesn't need to change yet;
+   `interrupt` is the raw `Query.interrupt()`, unused until a caller
+   needs it. 6 new unit tests drive `createInputQueue`/`createInjector`
+   directly (28/28 `test:capsule`, 168/168 `bun run check` - both suites
+   pass but neither exercises a real `query()` call, capsule or
+   otherwise, so they could not have caught the bug below).
+
+   **A real bug this step's own tests couldn't see, caught by asking an
+   advisor to review before Phase 2.** The `for await` loop over
+   `messages` had no `break` on `result` - it relied on the SDK's own
+   iterable ending once a turn concluded, true in print mode (the input
+   is exhausted, the process ends, the stream closes) but not in
+   streaming-input mode: the input queue is still nominally open
+   (`createInputQueue` only closes in `finally`, which only runs once the
+   loop already exited - a real chicken-and-egg deadlock, not just a slow
+   path), so the SDK keeps the session alive waiting for more input that
+   might still come. Verified live with a standalone script mirroring
+   `runAgent`'s exact loop shape: a real `result` message arrived at
+   +6.6s, and the loop then hung with nothing further, still running
+   past a 45s timeout. Every production run would have ended in a
+   `piTimeoutMs` timeout instead of a normal disposition - a regression
+   that would only have surfaced once this shipped live. Fix: `break`
+   immediately after capturing `result` (now in `agent-request.mjs`).
+   This isn't just a patch - it's the correct model for a turn-scoped
+   query (Approach B): injection only ever needs to reach a turn that's
+   still in flight, never one that already produced its result. Also
+   verified separately: `resume` still works correctly across two
+   streaming-input turns (a second turn correctly recalled a fact only
+   established in the first, resumed by `session_id`) - the other
+   untested assumption this step depended on. Both checks are in
+   RESEARCH.md.
 2. `claude-capsule/server.mjs`: keep the existing ndjson response; key a
    live-push channel off the existing `requestId` (`POST
    /v1/agent/:requestId/input`), not the container's `taskToken`.

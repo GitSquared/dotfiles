@@ -821,7 +821,19 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
           }
         }
       }
-      if (message.type === "result") result = message;
+      // Streaming-input mode never ends this iterable on its own once a
+      // turn's result arrives - unlike a one-shot string prompt, the input
+      // side is still technically open (createInputQueue only closes in
+      // the `finally` below), so the SDK keeps the session alive waiting
+      // for more input. Confirmed live: without this break, the loop hung
+      // indefinitely past a real "result" message (see RESEARCH.md,
+      // 2026-08-24). Breaking here is also the correct model for a
+      // turn-scoped query (Slice 19's Approach B) - injection only ever
+      // needs to reach an in-flight turn, never a turn that already ended.
+      if (message.type === "result") {
+        result = message;
+        break;
+      }
     }
     console.info("Claude run tool audit", {
       sessionId: result?.session_id,

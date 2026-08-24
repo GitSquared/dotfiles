@@ -2778,3 +2778,54 @@ visible gap for the minority of long-running calls (a test suite, a
 build), exactly where a human would also be too absorbed to check their
 phone. ROADMAP.md's Slice 19 plan defaults injection to
 `shouldQuery: false` on that basis.
+
+## Phase 1's hang: a green test suite that never called query() - 2026-08-24
+
+Phase 1 gave `runAgent` an injectable streaming-input queue
+(`createInputQueue`, `createInjector` in `claude-capsule/agent-request.mjs`)
+and shipped with 28/28 `test:capsule` and 168/168 `bun run check` passing.
+Both numbers were true and both were beside the point: `agent-request.
+test.mjs` only ever exercised the module's exported pure functions, never
+`runAgent()` itself (it would spawn the real SDK subprocess), and `bun run
+check` mocks the capsule entirely. Neither suite so much as imported
+`query()`. Calling this "purely additive" - the framing in the first draft
+of this change - was the actual mistake: the injection *capability* was
+unused, but the *transport* underneath every run, print-mode calls
+included, had changed, and nothing green said so.
+
+An advisor review before starting Phase 2 caught it: the `for await`
+loop over `messages` had no `break` on `result`, relying entirely on the
+SDK's own iterable ending once a turn concluded. That's true in print
+mode - the input string is exhausted, the process ends, the stream
+closes - but streaming-input mode's input side doesn't close on its own;
+`createInputQueue` only closes in `finally`, which only runs once the
+loop has already exited. Verified with a standalone script mirroring
+`runAgent`'s exact loop (no manual break): a real `result` message
+arrived at +6.6s, and the loop then hung with nothing further, still
+running past a 45-second timeout. Shipped as-is, every production run
+would have ended in a `piTimeoutMs` timeout instead of a normal
+disposition - working code by every test that existed, a regression that
+would only have surfaced live.
+
+Fix: `break` immediately after capturing `result`. Re-ran the same
+script with the break added - it now exits cleanly at +8.3s, `result`
+captured. This isn't only a patch; it's the correct model for a
+turn-scoped query (Slice 19's Approach B) - injection only ever needs to
+reach a turn still in flight, never one that already produced its
+result.
+
+While in there, also checked the other assumption Phase 1 depended on
+that nothing tested: does `resume` still work once the prompt is a
+streaming AsyncIterable instead of a string? `input.resume` is the
+system's most-trafficked path - every Steering/QA reply uses it. A
+two-turn script (fresh streaming session told to remember a made-up
+secret word, then a second streaming call with `resume: <session_id>`
+asking for it back) recalled the word correctly. Resume is unaffected.
+
+Both checks - and the fix - are now folded into `agent-request.mjs`;
+ROADMAP.md's Slice 19 Phase 1 entry records the corrected framing.
+Lesson worth naming plainly: a new code path's own unit tests passing is
+not evidence the path works if none of those tests actually exercise the
+part that changed - "green" answered a different question than the one
+that mattered here, and only a review before moving on surfaced that gap
+before it shipped.
