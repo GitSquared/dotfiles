@@ -630,7 +630,71 @@ export function createStraylightTools(context) {
   });
 }
 
-export async function runAgent(input, signal, reportProgress = async () => {}) {
+// A streaming `query()` prompt is a single long-lived AsyncIterable, not a
+// one-shot string: the initial message is just the first item yielded, and
+// the generator then blocks on `queue` until `push()` or `close()` wakes it,
+// which is what lets a later signal be injected into an already-running
+// turn instead of only ever starting a new one. Proven live in the Slice 19
+// Phase 0 spike (see RESEARCH.md, 2026-08-24) - a naive per-message
+// generator that closes after one yield does not support this.
+export function createInputQueue(initialContent) {
+  const queue = [{
+    type: "user",
+    message: { role: "user", content: initialContent },
+    parent_tool_use_id: null,
+  }];
+  let resolveNext;
+  let closed = false;
+  async function* stream() {
+    while (!closed) {
+      if (queue.length === 0) {
+        await new Promise((resolve) => { resolveNext = resolve; });
+        continue;
+      }
+      yield queue.shift();
+    }
+  }
+  function wake() {
+    if (!resolveNext) return;
+    const resolve = resolveNext;
+    resolveNext = undefined;
+    resolve();
+  }
+  return {
+    stream: stream(),
+    push(message) {
+      queue.push(message);
+      wake();
+    },
+    close() {
+      closed = true;
+      wake();
+    },
+  };
+}
+
+// Mirrors assertAgentMayAct's own awaitingInput guard, one scope tighter: a
+// signal landing while the model is sitting on its own blocking elicitation
+// must never wake it back up onto that same turn - it would just hit the
+// tool-level rejection instead of ever reaching the human reply the
+// elicitation is actually waiting for (the GAB-15 failure shape). Callers
+// get an explicit rejection back so a future live-push endpoint can report
+// it rather than silently drop the signal.
+export function createInjector(context, inputQueue) {
+  return function injectMessage(content, { shouldQuery = false } = {}) {
+    if (context.awaitingInput) return { accepted: false, reason: "awaiting_input" };
+    if (context.disposition) return { accepted: false, reason: "terminal" };
+    inputQueue.push({
+      type: "user",
+      message: { role: "user", content },
+      parent_tool_use_id: null,
+      shouldQuery,
+    });
+    return { accepted: true };
+  };
+}
+
+export async function runAgent(input, signal, reportProgress = async () => {}, onQueryReady = () => {}) {
   const context = {
     taskUrl: input.taskUrl,
     workbenchUrl: input.workbenchUrl,
@@ -646,6 +710,8 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
   const abort = () => abortController.abort();
   if (signal.aborted) abort();
   else signal.addEventListener("abort", abort, { once: true });
+  const inputQueue = createInputQueue(input.prompt);
+  const injectMessage = createInjector(context, inputQueue);
   let result;
   let sdkEventCount = 0;
   let lastSdkEvent;
@@ -664,7 +730,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
   try {
     const projectProgress = createProgressProjector(reportProgress);
     const messages = query({
-      prompt: input.prompt,
+      prompt: inputQueue.stream,
       options: {
         abortController,
         model: input.model || "sonnet",
@@ -715,6 +781,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
         stderr: (data) => process.stderr.write(data),
       },
     });
+    onQueryReady({ inject: injectMessage, interrupt: () => messages.interrupt() });
     const toolCalls = new Set();
     for await (const message of messages) {
       sdkEventCount += 1;
@@ -787,6 +854,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}) {
     });
     throw new AgentRunError(error instanceof Error ? error.message : String(error), sdkSessionId, elapsedMs);
   } finally {
+    inputQueue.close();
     signal.removeEventListener("abort", abort);
   }
   if (!result) throw new Error("Claude Agent SDK ended without a result");

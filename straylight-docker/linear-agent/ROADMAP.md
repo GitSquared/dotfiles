@@ -883,14 +883,21 @@ looked, but doesn't change the recommendation - B wins on its own terms.
    check their phone. Already a real improvement over today either way
    (a queued reply currently waits for the *entire remaining plan*, not
    just the in-flight tool).
-1. `claude-capsule/agent-request.mjs`: `runAgent` takes an injectable
-   queue - an async generator yields the initial `SDKUserMessage`, then
-   awaits further pushes. Return the `Query` handle (for `interrupt`/
-   `close`). Reject injection outright while `context.awaitingInput` is
-   set, so a signal can never wake the model onto its own blocking
-   elicitation and hit `assertAgentMayAct`'s rejection - the GAB-15
-   failure shape, one scope tighter, closed structurally rather than
-   patched.
+1. **Done, 2026-08-24.** `claude-capsule/agent-request.mjs`: `runAgent`'s
+   `query()` prompt is now `createInputQueue()`'s long-lived
+   AsyncIterable (the exact push-based-queue shape validated live in the
+   Phase 0 spike) instead of the raw `input.prompt` string - purely
+   additive, nothing yet calls the new capability. `createInjector`
+   rejects injection outright while `context.awaitingInput` or
+   `context.disposition` is set, mirroring `assertAgentMayAct`'s own
+   guard one scope tighter, so a signal can never wake the model onto
+   its own blocking elicitation - the GAB-15 failure shape, closed
+   structurally rather than patched. `runAgent` takes an optional
+   `onQueryReady({inject, interrupt})` callback (default no-op) so
+   `server.mjs` doesn't need to change yet; `interrupt` is the raw
+   `Query.interrupt()`, unused until a caller needs it. 6 new unit
+   tests drive `createInputQueue`/`createInjector` directly (28/28
+   `test:capsule`, 168/168 `bun run check`, both unaffected otherwise).
 2. `claude-capsule/server.mjs`: keep the existing ndjson response; key a
    live-push channel off the existing `requestId` (`POST
    /v1/agent/:requestId/input`), not the container's `taskToken`.

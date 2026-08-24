@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertAgentMayAct, assertTerminalSummary, createProgressProjector, createStraylightTools, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
+import { assertAgentMayAct, assertTerminalSummary, createInjector, createInputQueue, createProgressProjector, createStraylightTools, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
 
 test("communicates a wall-clock budget without imposing a turn ceiling", () => {
   const instruction = runtimeBudgetInstruction(3_600_000);
@@ -388,4 +388,86 @@ test("the linear_activity tool call forwards a non-blocking ask request verbatim
 
   assert.deepEqual(capturedBody, { action: "ask", question: "Should this endpoint be paginated?" });
   assert.deepEqual(result, { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "ask", data: { commentId: "ask-1" } }, null, 2) }] });
+});
+
+// Slice 19 (streaming input): runAgent's query() prompt is now a long-lived
+// AsyncIterable built by createInputQueue, not a one-shot string - these
+// tests drive that generator directly instead of exercising it through a
+// real query() call, which would spawn the actual Claude Agent SDK.
+test("createInputQueue yields the initial message immediately, then blocks until pushed", async () => {
+  const queue = createInputQueue("do the thing");
+
+  const first = await queue.stream.next();
+  assert.equal(first.done, false);
+  assert.deepEqual(first.value, {
+    type: "user",
+    message: { role: "user", content: "do the thing" },
+    parent_tool_use_id: null,
+  });
+
+  let resolved = false;
+  const pending = queue.stream.next().then((result) => {
+    resolved = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(resolved, false, "the stream must not yield again until something is pushed");
+
+  queue.push({ type: "user", message: { role: "user", content: "ping" }, parent_tool_use_id: null });
+  const second = await pending;
+  assert.equal(resolved, true);
+  assert.equal(second.done, false);
+  assert.equal(second.value.message.content, "ping");
+});
+
+test("createInputQueue's stream ends once closed", async () => {
+  const queue = createInputQueue("do the thing");
+  await queue.stream.next();
+
+  const pending = queue.stream.next();
+  queue.close();
+
+  assert.equal((await pending).done, true);
+});
+
+test("createInjector rejects injection while a blocking attention is open, without touching the queue", () => {
+  const context = { awaitingInput: true, disposition: undefined };
+  const pushed = [];
+  const inject = createInjector(context, { push: (message) => pushed.push(message) });
+
+  assert.deepEqual(inject("a live signal arrived"), { accepted: false, reason: "awaiting_input" });
+  assert.equal(pushed.length, 0);
+});
+
+test("createInjector rejects injection once a terminal disposition is already recorded", () => {
+  const context = { awaitingInput: false, disposition: { status: "awaiting_qa" } };
+  const pushed = [];
+  const inject = createInjector(context, { push: (message) => pushed.push(message) });
+
+  assert.deepEqual(inject("a live signal arrived"), { accepted: false, reason: "terminal" });
+  assert.equal(pushed.length, 0);
+});
+
+test("createInjector pushes a non-interrupting SDKUserMessage by default", () => {
+  const context = { awaitingInput: false, disposition: undefined };
+  const pushed = [];
+  const inject = createInjector(context, { push: (message) => pushed.push(message) });
+
+  assert.deepEqual(inject("keep it silent"), { accepted: true });
+  assert.deepEqual(pushed, [{
+    type: "user",
+    message: { role: "user", content: "keep it silent" },
+    parent_tool_use_id: null,
+    shouldQuery: false,
+  }]);
+});
+
+test("createInjector honors an explicit shouldQuery override", () => {
+  const context = { awaitingInput: false, disposition: undefined };
+  const pushed = [];
+  const inject = createInjector(context, { push: (message) => pushed.push(message) });
+
+  inject("actually, stop what you're doing", { shouldQuery: true });
+
+  assert.equal(pushed[0].shouldQuery, true);
 });
