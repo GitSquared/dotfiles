@@ -84,6 +84,7 @@ export function isStopRequest(payload: AgentSessionWebhook): boolean {
 
 export class AgentController {
   private readonly states = new Map<string, SessionState>();
+  private readonly activityQueues = new Map<string, Promise<void>>();
   private readonly stateStore: ControllerStateStore | undefined;
   private persistence: Promise<void> = Promise.resolve();
   private recoveredSessions = 0;
@@ -185,7 +186,7 @@ export class AgentController {
         // still what lets a later human reply route back to this session correctly.
         state.pending = undefined;
         state.active = undefined;
-        await this.linear.createActivity(record.sessionId, {
+        await this.enqueueActivity(record.sessionId, () => this.linear.createActivity(record.sessionId, {
           type: "error",
           body: finalText(`This session could not be recovered after a controller restart: ${message}`),
         }).catch((activityError: unknown) => {
@@ -193,7 +194,7 @@ export class AgentController {
             sessionId: record.sessionId,
             message: activityError instanceof Error ? activityError.message : String(activityError),
           });
-        });
+        }));
       }
       this.touch(state);
     }
@@ -355,10 +356,10 @@ export class AgentController {
       const signalPayload = req.accessRepair
         ? { signal: "auth" as const, signalMetadata: { url: req.accessRepair.url, providerName: req.accessRepair.providerName } }
         : options ? { signal: "select" as const, signalMetadata: { options } } : {};
-      await this.linear.createActivity(sessionId, {
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "elicitation",
         body: finalText(renderAttentionComment(req)),
-      }, signalPayload);
+      }, signalPayload));
       const active: ActiveAttention = {
         kind: req.kind,
         priority: attentionPriority(req),
@@ -388,10 +389,10 @@ export class AgentController {
       return { ok: true, action: request.action, data: result.data };
     }
     if (request.action === "activity") {
-      await this.linear.createActivity(sessionId, request.content, {
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, request.content, {
         ...(request.signal ? { signal: request.signal } : {}),
         ...(request.signalMetadata ? { signalMetadata: request.signalMetadata } : {}),
-      });
+      }));
       return { ok: true, action: request.action };
     }
     if (request.action === "external_url") {
@@ -416,10 +417,10 @@ export class AgentController {
           request.publication.body,
         );
       await this.linear.addExternalUrl(sessionId, { label: document.title, url: document.url });
-      await this.linear.createActivity(sessionId, {
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "thought",
         body: `[${document.title}](${document.url}) is ready for review.`,
-      });
+      }));
       return { ok: true, action: request.action, data: document };
     }
     if (!state.issueId) throw new Error("Linear issue attachments require an issue-backed Agent Session");
@@ -586,10 +587,10 @@ export class AgentController {
         });
       }
       if (replyCommentId) await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
-      await this.linear.createActivity(sessionId, {
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "thought",
         body: "Reply received; resuming the run.",
-      }).catch(() => undefined);
+      }).catch(() => undefined));
     }
     this.touch(state);
     this.states.set(sessionId, state);
@@ -618,10 +619,10 @@ export class AgentController {
       this.touch(state);
       await this.persist();
       const suffix = runTime === undefined ? "" : ` after ${elapsed(runTime)}`;
-      await this.linear.createActivity(sessionId, {
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "error",
         body: aborted || wasRunning ? `Stopped by user${suffix}.` : "Stop requested; no active agent run was in progress.",
-      });
+      }));
       return;
     }
 
@@ -635,12 +636,12 @@ export class AgentController {
         state.active = payload;
         this.touch(state);
         await this.persist();
-        await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active agent session." });
+        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active agent session." }));
       } else {
         state.pending = payload;
         this.touch(state);
         await this.persist();
-        await this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current agent turn." });
+        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current agent turn." }));
       }
       return;
     }
@@ -914,7 +915,7 @@ export class AgentController {
         message: finalText(message),
         ...(error instanceof Error && error.stack ? { stack: finalText(error.stack) } : {}),
       });
-      await this.linear.createActivity(sessionId, { type: "error", body: finalText(`Agent run crashed: ${message}`) }).catch(() => undefined);
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "error", body: finalText(`Agent run crashed: ${message}`) }).catch(() => undefined));
     });
   }
 
@@ -992,7 +993,35 @@ export class AgentController {
     await this.publishActivity(sessionId, content, true);
   }
 
-  private async publishActivity(
+  /**
+   * Linear derives an Agent Session's displayed status from whichever Activity landed last,
+   * not whichever was requested last (its own docs: "session lifecycle... based on the last
+   * emitted activity"). Two independent paths post Activities for the same session - narration
+   * (via publishActivity below, which retries a durable post for up to ~46s) and direct calls
+   * like the attention elicitation (no retry) - with no ordering guarantee between them
+   * otherwise. A slow retry that started before the elicitation can finish after it, silently
+   * superseding the elicitation (and whatever button UI a signal like "select" put on it) the
+   * moment it lands. Chaining every poster onto its own session's tail guarantees Linear only
+   * ever observes activities in true submission order, at the cost of a later post genuinely
+   * waiting for an earlier one still retrying - which is correct: arriving late with the right
+   * status beats arriving on time with one that then silently reverts.
+   */
+  private enqueueActivity(sessionId: string, post: () => Promise<void>): Promise<void> {
+    const previous = this.activityQueues.get(sessionId) ?? Promise.resolve();
+    const settled = previous.then(post, post);
+    this.activityQueues.set(sessionId, settled.catch(() => undefined));
+    return settled;
+  }
+
+  private publishActivity(
+    sessionId: string,
+    content: Parameters<LinearClient["createActivity"]>[1],
+    ephemeral: boolean,
+  ): Promise<void> {
+    return this.enqueueActivity(sessionId, () => this.deliverActivity(sessionId, content, ephemeral));
+  }
+
+  private async deliverActivity(
     sessionId: string,
     content: Parameters<LinearClient["createActivity"]>[1],
     ephemeral: boolean,
@@ -1053,10 +1082,10 @@ export class AgentController {
         ? "deferred"
         : result.ok ? "completed" : "failed";
     const footer = `\n\n_Run ${outcome} in ${elapsed(result.elapsedMs)}._`;
-    const activity = this.linear.createActivity(sessionId, {
+    const activity = this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
       type: result.ok || result.disposition?.status === "deferred" ? "response" : "error",
       body: finalText(`${result.summary}${footer}`),
-    });
+    }));
     const pullRequest = githubPullRequestUrl(result.summary);
     return pullRequest
       ? activity.then(() => this.linear.addExternalUrl(sessionId, { label: "Pull request", url: pullRequest }).catch((error: unknown) => {
@@ -1077,7 +1106,7 @@ export class AgentController {
       const result = download.skipped.length
         ? download.skipped.map((item) => `- ${item.label}: ${item.reason}`).join("\n").slice(0, 2_000)
         : "Every referenced Linear file passed host, type, signature, and size validation.";
-      await this.linear.createActivity(sessionId, {
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "action",
         action: "Prepared Linear inputs",
         parameter: `${download.inputs.length} accepted · ${download.skipped.length} skipped`,
@@ -1087,7 +1116,7 @@ export class AgentController {
           sessionId,
           message: error instanceof Error ? error.message : String(error),
         });
-      });
+      }));
       return download.inputs;
     } catch (error) {
       this.inputStats.skipped += 1;
@@ -1161,7 +1190,7 @@ export class AgentController {
       }
     }
     try {
-      await this.linear.createActivity(sessionId, { type: "response", body: reason });
+      await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "response", body: reason }));
     } catch (error) {
       console.warn("failed to post attention dismissal activity", {
         sessionId,
@@ -1178,10 +1207,10 @@ export class AgentController {
    * attention being resolved was actually a QA (not a Steering) request.
    */
   private async approveQa(sessionId: string, state: SessionState, issueId: string, ackCommentId?: string): Promise<void> {
-    await this.linear.createActivity(sessionId, {
+    await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
       type: "response",
       body: "QA approved. The delegated work is complete.",
-    }).catch(() => undefined);
+    }).catch(() => undefined));
     await this.linear.completeIssue(issueId).catch((error: unknown) => {
       console.warn("failed to complete approved QA issue", {
         sessionId,

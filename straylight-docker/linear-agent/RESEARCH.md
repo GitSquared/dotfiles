@@ -2459,3 +2459,92 @@ own GitHub-URL recognition can succeed even when `attachmentLinkGitHubPR`
 itself errors, so richness lands on `"url"`, not straight to `"basic"`.
 `bun run check` (152, up from 147) and `bun run test:capsule` (20/20,
 unaffected) both green.
+
+## Why the select-signal buttons went missing, and a per-session activity queue - 2026-08-24
+
+Gaby asked whether the vanished `select`-signal buttons from tonight's QA
+test were a Linear platform gap after all, since he remembered "askquestion
+blocks" - real buttons - working in an earlier iteration. Checked our own
+history before re-asserting anything: the entry from 2026-08-19 above (the
+one this file's very first experiment section documents) states, from a
+*live* GAB-13 run: "The elicitation Activity's own native surface (the
+'Input needed to continue' card - real buttons plus a dedicated text box)
+is the only thing that actually resumes a session." So the "likely a
+Linear-side rendering gap" conclusion reached earlier tonight was wrong -
+buttons demonstrably worked before, in this same codebase.
+
+That same 2026-08-19 entry also diagnosed a real bug of almost exactly this
+shape: a further SDK progress event landing after the elicitation could
+supersede it (Linear bases session status on whichever activity landed
+*last*, not whichever was requested last), and the fix was to make the
+capsule stop generating new progress events once it knows it's awaiting
+input (`agent-request.mjs`'s `!context.awaitingInput` guard, still present
+today at the message-loop check before `projectProgress`).
+
+That guard only closes half the door, and the durable-retry work from
+2026-08-21 (`073e232`, logged above) reopened the other half by accident.
+Two independent, unsynchronized paths post Activities for the same
+session: narration (streamed from the capsule's SDK loop, through the
+runner, into `publishActivity` - which, since 2026-08-21, retries a durable
+post for up to ~46s) and direct tool calls like the attention elicitation
+(`collaborateLinear`'s `createActivity`, no retry at all). The capsule-side
+guard only stops the capsule from *generating new* events after
+`awaitingInput` flips - it does nothing for a narration event that was
+already in flight (or mid-retry-backoff) when the elicitation posted.
+If that earlier, slower post's retry finally succeeds *after* the
+elicitation already landed, it becomes the session's new "last activity"
+and silently buries the elicitation - buttons included. This wasn't
+verified against an actual log from tonight's run (no access to
+`gaby@straylight` from here) - it's a well-supported hypothesis, not a
+confirmed repro, and said so plainly when presented.
+
+Sketched two approaches: a narrow flag-based guard on narration (cheap, but
+doesn't close the "already in flight" case, which is the actual failure
+mode), versus a general per-session FIFO ordering queue around every
+`createActivity` call (closes the real race, at the cost of a later post
+genuinely waiting behind an earlier one still retrying - judged correct:
+late-but-right beats on-time-but-silently-wrong). Gaby picked the general
+fix.
+
+Built as `enqueueActivity` in `src/controller.ts`: a promise-chaining
+mutex keyed by `sessionId` (`Map<string, Promise<void>>`) - each poster
+awaits the current tail for its session, then extends it. `publishActivity`
+now just enqueues a call to what its body used to be, renamed
+`deliverActivity`, so both of its callers (the narration event stream and
+`createEphemeralActivity`, itself used by the "setting up the workspace"
+startup post) get ordering for free. Every other direct
+`this.linear.createActivity(...)` call site in the file - the elicitation
+itself, the generic `activity` action, the Document-ready thought, the
+"reply received" resume thought, the stop/crash error activities, the
+follow-up-queued thoughts, the prepared-inputs action, `finish()`'s closing
+response/error, attention dismissal, and QA approval's response - now goes
+through `enqueueActivity` too. Nothing else changed about any of their
+existing retry/catch behavior; the queue only adds ordering, never new
+retry semantics, to keep this a scoped fix for the one problem it's for.
+
+Deliberately not added: cleanup for the `activityQueues` map. `this.states`
+(session state) has grown unbounded for the lifetime of a controller
+process since before tonight - no eviction logic exists for it either
+(the "500-session cap" mentioned in an old comment near `initialize()`
+turned out to describe the *persisted file*, not the live in-memory map).
+Since each queue entry is a settled `Promise` plus a string key - smaller
+than a `SessionState` - adding special-case cleanup here would be a new
+precedent the existing code doesn't set for itself, not a gap this change
+introduces.
+
+**Tests**: `test/activity-ordering.test.ts` is new, proving the actual
+guarantee rather than just that nothing broke: a slow earlier post
+(gated on a manually-resolved promise) blocks a faster later post's
+underlying `createActivity` call from firing at all until released, then
+both land in true submission order; two different sessions' queues never
+block each other; and a rejected earlier post doesn't poison the chain for
+a later one on the same session. First draft of these tests gated on
+`content.type === "thought"` to simulate a slow narration post, without
+accounting for the controller's own "Setting up the workspace for..."
+startup activity - also type `"thought"` - racing into the same mock and
+getting caught by the same gate. Fixed by gating on the specific body text
+under test instead of the shared type, and filtering the known startup
+message out of what each test observes.
+
+`bun run check` (155, up from 152) and `bun run test:capsule` (20/20,
+unaffected) both green.
