@@ -2322,3 +2322,100 @@ No test asserted the old wording in either file, so nothing to update
 for correctness; `bun run check` (147, unchanged) and
 `bun run test:capsule` (20/20, unchanged) both still green since this is
 prose-only.
+
+## Wide-pass audit of the Linear API surface - 2026-08-24
+
+Gaby asked for a broad comparison: what does Linear's API actually expose
+that Straylight isn't using yet? Went straight to ground truth rather than
+prose docs alone - pulled the real public schema
+(`github.com/linear/linear`, `packages/sdk/src/schema.graphql`, 373
+external mutations / 168 queries after filtering `[Internal]`-tagged
+fields) and cross-referenced against what `src/linear.ts` actually calls.
+Nine candidates survived a first pass; each was then adversarially
+re-verified (a dedicated skeptic per candidate, grepping the real repo
+and re-checking the schema, told explicitly not to rubber-stamp "Linear
+has it so we should use it"). That second pass caught two real mistakes
+in the first-pass framing, which is exactly why it's worth doing before
+reporting findings, not after:
+
+- **`agentSessionCreateOnComment` isn't actually unused** - it's already
+  the bridge `documentCommentMention` notifications use to self-create a
+  session (a Document-comment mention never gets a native
+  `AgentSessionEvent` the way an issue mention does). Only
+  `agentSessionCreateOnIssue` (fully proactive, unprompted session
+  creation) is genuinely unused, and it should stay that way: it would
+  either contradict `defer_followup`'s own "not now" semantics, or
+  require inventing an SLA-risk-polling feature that doesn't exist
+  anywhere in this codebase. Straylight's whole design is that a human or
+  an explicit Linear event starts every session - the agent holding
+  initiative to start sessions nobody asked for is a deliberate boundary,
+  not an oversight.
+- **Linear has no document-level reaction at all** - `type Document` has
+  no `reactions` field and `ReactionCreateInput` has no `documentId`. The
+  original framing ("can't react to an issue or a document") overstated
+  the schema by one whole entity type.
+
+**Declined, with the specific reason each one actually dies on** (not a
+blanket "Linear has it so skip it"):
+
+- **SLA fields** (`slaBreachesAt`/`slaHighRiskAt`/`slaMediumRiskAt` etc,
+  and the separate `IssueSLA` data-change webhook category) - real,
+  confirmed unused, but SLA policies are an admin-configured,
+  paid-tier-gated workspace setting Straylight's code can't rely on being
+  present, and there's no defined behavior anywhere in this codebase that
+  would change if the field were populated. Surfacing a countdown with no
+  behavior tied to it is inert context, not a capability gap.
+- **Releases** (`releaseCreate`/`releaseSync`/the whole pipeline/stage
+  query surface) - Straylight's session lifecycle ends the moment a PR is
+  opened (`controller.ts` posts the final activity and tears the
+  container down right there); it never learns whether that PR is later
+  merged or deployed, which is the only moment a Release record would
+  mean anything. Building this would mean either fabricating "released"
+  at PR-open time (wrong) or becoming a long-running process that watches
+  merges and deploys (a different architecture entirely).
+- **`issueReminder`** - even though it's a real mutation in the public
+  schema, Linear's "Remind Me" is a personal, per-user Inbox snooze: the
+  notification would land in the bot actor's own inbox, which nothing
+  reads, and by the time it fired the ephemeral per-issue container that
+  deferred the work would be long gone with no session to resume into.
+- **Issue-level reaction writes** - the one real gap here (Straylight can
+  react to comments, not issues) stays closed on fit, not availability:
+  `controller.ts`'s existing checkmark-reaction QA-approval path
+  deliberately treats issue-level reactions as human-to-agent only
+  (there's already a comment guarding "ignore the app's own reactions, if
+  it ever adds any"), and the "lightweight acknowledgment" use case is
+  already covered by the comment-scoped `react` action and by
+  thought/response Activities that actually render inside the session
+  feed, unlike an issue-level emoji.
+- **`AgentSession.summary`** - settled definitively, not just declined:
+  live introspection against `api.linear.app/graphql` shows
+  `AgentSessionUpdateInput` has no `summary` field at all. It's
+  Linear's own system-generated field, not writable by any third-party
+  client, so there was never anything to build here.
+
+**Built from this pass**: `branchName` on `Issue` itself turned out to be
+a red herring in its literal form - `claudeInitialPrompt` builds from the
+raw webhook payload's `issue` object (id/identifier/title/description/url
+only), never a GraphQL-hydrated fetch, so adding `branchName` to
+`ISSUE_FIELDS` would only reach Claude opportunistically, if it happens to
+call `manage_linear` on the issue mid-session - not deterministically at
+the start of every run the way the finding's framing implied. The cheaper
+version of the same value was already sitting in the prompt: `issue.identifier`
+is already emitted at the point `claudeInitialPrompt` lists the issue, so
+one line now tells Claude to include the issue identifier in any git
+branch it creates - the substring Linear's own Git integration keys off
+to auto-link a branch to its issue, where that integration is configured.
+Zero new GraphQL calls, zero schema changes.
+
+**Left open, for Gaby to decide**: dedicated "rich attachment" mutations
+(`attachmentLinkGitHubPR`, `attachmentLinkURL`) create integration-aware
+PR attachments (live status/rich rendering) instead of Straylight's own
+manually-built `createIssueAttachment` call - genuinely more capability,
+but conditioned on a workspace having the matching integration installed,
+which Straylight's code has no way to introspect, and
+`attachmentLinkGitHubPR`'s own schema doc promises no graceful-degradation
+fallback the way `attachmentLinkURL`'s does. A narrow, try/catch-guarded
+trial (attempt the rich mutation for PR links only, fall back to the
+existing call on any error) is cheap to build safely, but the actual
+payoff is unconfirmed and conditional - worth doing only as a deliberate
+small bet, not a default.
