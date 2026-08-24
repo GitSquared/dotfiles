@@ -26,6 +26,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /include "NEMO-42" in its name/);
   assert.match(prompt, /an altitude filter/);
   assert.match(prompt, /linear_activity's non-blocking ask action/);
+  assert.match(prompt, /it belongs in the durable session journal/);
+  assert.match(prompt, /not a Signal comment/);
 });
 
 test("uses the activity body for follow-ups", () => {

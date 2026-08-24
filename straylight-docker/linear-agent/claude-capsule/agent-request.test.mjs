@@ -352,6 +352,11 @@ function linearActivityHandler(context) {
   return instance._registeredTools.linear_activity.handler;
 }
 
+test("the linear_activity tool description tells the model to lead an ask with a bold question", () => {
+  const { instance } = createStraylightTools(accessRepairWorkbenchContext());
+  assert.match(instance._registeredTools.linear_activity.description, /lead with the actual question in \*\*bold\*\*/i);
+});
+
 test("the linear_activity tool call forwards a react request verbatim to the workbench", async (t) => {
   const context = accessRepairWorkbenchContext();
   let capturedUrl;

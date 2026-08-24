@@ -30,6 +30,13 @@ test("renders a terse same-issue comment without restating intent or delta", () 
   assert.doesNotMatch(comment, /Why this deserves attention/);
 });
 
+test("renders a Signal comment with no hardcoded action-needed footer", () => {
+  const { options: _options, ...signal } = steering;
+  const comment = renderAttentionComment({ ...signal, kind: "signal", delivery: "queue" });
+  assert.match(comment, /\*\*Update:\*\* Choose the migration boundary/);
+  assert.doesNotMatch(comment, /No action needed/, "Signal has nothing actionable to instruct - a hardcoded reassurance line is just filler");
+});
+
 test("renders a QA comment with an approve instruction instead of an options list", () => {
   const { options: _options, ...steeringWithoutOptions } = steering;
   const qa = {

@@ -178,11 +178,13 @@ export function renderAttentionComment(request: AttentionRequest): string {
   if (request.evidence?.length) {
     lines.push(request.evidence.map((evidence) => `- [${markdownLabel(evidence.label)}](${evidence.url})`).join("\n"));
   }
-  lines.push(
-    request.kind === "qa" ? "Reply **approve** to complete, or reply with changes needed."
-      : request.kind === "steering" ? "Reply here to answer, or ask a follow-up."
-        : "No action needed; the run is continuing.",
-  );
+  if (request.kind === "qa") {
+    lines.push("Reply **approve** to complete, or reply with changes needed.");
+  } else if (request.kind === "steering") {
+    lines.push("Reply here to answer, or ask a follow-up.");
+  }
+  // Signal gets no footer: there's nothing actionable to instruct, and a hardcoded "no action
+  // needed" line was pure filler that duplicated whatever Claude's own action text already said.
   return lines.join("\n\n");
 }
 
