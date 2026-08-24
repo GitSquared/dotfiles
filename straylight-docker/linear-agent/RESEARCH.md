@@ -2716,3 +2716,60 @@ currently doesn't). The fix above prevents the turn that hits this from
 ever starting in the first place, which is the actual GAB-15 case, but a
 different future trigger could theoretically still reach the same
 collision. Worth naming, not worth solving speculatively tonight.
+
+## Streaming input Phase 0 spike: interrupt or batch, no third option - 2026-08-24
+
+Gaby's framing for Slice 19 was "like a coworker" - keep working, but
+notice a ping and either answer it inline or react, without dropping
+what's in flight. Before writing a line of product code, ROADMAP.md's
+Slice 19 called for a spike to test the one thing the whole design leans
+on: does a message pushed into a live streaming `Query` actually reach
+the model while a tool call is running, without disturbing that tool
+call?
+
+First attempt at the spike gave a useless answer: a standalone script
+opened a streaming `Query`, yielded an initial message, waited a blind
+`setTimeout(4000)`, then yielded a second message tagged `priority:
+"now"`. It failed instantly with `terminal_reason: "aborted_streaming"`
+and no assistant turn had ever happened - not a finding about streaming
+input, just a measurement of how long CLI startup and hook overhead take
+before the first turn even begins. Rebuilt it properly: a push-based
+async queue, consumed by the `for await` loop itself, so the second
+message only gets pushed once an actual `assistant` message carrying a
+`tool_use` for `Bash` (running `sleep 12 && echo DONE_SLEEPING`) is
+observed in the stream - genuinely mid-flight, not before the model had
+even started.
+
+With that corrected setup, two runs, one flag changed:
+
+- `priority: "now"` on the injected message: the in-flight Bash call was
+  cancelled - its tool_result came back `is_error: true`, `"The user
+  doesn't want to take this action right now. STOP what you are doing
+  and wait for the user to tell you how to proceed"`, `non_execution_
+  kind: "cancelled"` - and the whole turn ended right there
+  (`terminal_reason: "aborted_streaming"`). `sleep 12` never finished. No
+  reply to the injected message either. This is `interrupt()` in
+  everything but name.
+- `shouldQuery: false` on the same injected message, same tool call: the
+  Bash call ran to completion untouched - `task_started`, then
+  `task_notification: completed`, then the real tool_result
+  `"DONE_SLEEPING"`. The injected message produced no turn of its own,
+  exactly as the SDK's own doc comment on the field says ("merged into
+  the next user message that does query"). Only when the sleep's
+  tool_result naturally opened the model's next turn did it address both
+  things together: `"PONG\n\nThe sleep command already completed with
+  DONE_SLEEPING."`
+
+So there's no hidden third mode where a ping gets answered immediately
+*while* a tool keeps running undisturbed in true parallel - that
+isn't what streaming input mode offers. The real choice is between
+interrupting (fast, but destroys whatever tool call was in flight - fine
+for a human reply to something the agent is already blocked on, wrong
+for a live ping arriving mid-work) and queuing (safe, but the reaction
+waits for the current tool call's natural boundary, not the whole
+remaining plan the way today's cold-queue does). ROADMAP.md's Slice 19
+plan is updated to default injection to `shouldQuery: false` and to stop
+describing the coworker framing as literal immediacy - it's "notices
+and answers at the next natural break," which is still a real
+improvement over "notices only once the entire run ends," just a more
+modest one than the original framing implied.

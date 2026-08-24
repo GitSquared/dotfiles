@@ -836,13 +836,47 @@ looked, but doesn't change the recommendation - B wins on its own terms.
 
 **Phased plan, cheapest/most de-risking first:**
 
-0. **Spike, no product code.** Inside the capsule container: open a
-   streaming `Query`, start a long-running Bash tool call, push a
-   message while it's in flight. Gate: if it lands at the next
-   tool-result boundary, proceed; if it only surfaces after the turn's
-   final result (no better than today), the design collapses and stops
-   here. Fold in verifying what `priority: now|next|later` actually does
-   and whether the deployed CLI advertises `interrupt_receipt_v1`.
+0. **Spike, no product code. Done, 2026-08-24 - passes, with a corrected
+   mental model.** Ran a standalone streaming `Query` (not in the
+   capsule - a scratch script pointed `pathToClaudeCodeExecutable` at the
+   system CLI) that started `sleep 12 && echo DONE_SLEEPING` as a Bash
+   tool call, then pushed a second `SDKUserMessage` the instant that
+   tool_use was observed - i.e. genuinely mid-flight, not before the
+   first turn even started (an earlier naive attempt using a blind
+   `setTimeout` instead of gating on an observed event pushed the second
+   message before any assistant turn existed at all, and just measured
+   CLI startup latency - not a real test; discarded once corrected).
+
+   Two mechanisms exist, and they are opposites, not variants:
+   - **`priority: "now"` acts as an interrupt, not a side-channel.** The
+     in-flight Bash tool call was cancelled outright - the tool_result
+     came back `is_error: true`, `"The user doesn't want to take this
+     action right now. STOP..."`, `non_execution_kind: "cancelled"` - and
+     the whole turn ended with `terminal_reason: "aborted_streaming"`.
+     `sleep 12` never completed; no `DONE_SLEEPING`, no reply to the
+     injected message either. This is functionally `interrupt()` wearing
+     a different name, not a way to answer a ping "on the side."
+   - **`shouldQuery: false` queues without disrupting, but isn't
+     instant.** The same Bash tool call ran to full, undisturbed
+     completion (`task_started` -> `task_notification: completed` ->
+     tool_result `DONE_SLEEPING`). The injected message produced no
+     assistant turn of its own - exactly as the SDK's own doc comment
+     says ("merged into the next user message that does query"). Only
+     once the sleep tool's result naturally started the model's next
+     turn did it address both things at once: `"PONG\n\nThe sleep
+     command already completed with DONE_SLEEPING."`
+
+   **Verdict:** there is no third, better mode where a live signal gets
+   answered immediately *while* a tool keeps running undisturbed -
+   that's not on offer. The real choice is interrupt-and-lose-the-tool-
+   call vs. queue-and-batch-into-the-next-natural-turn-boundary.
+   `shouldQuery: false` still clears the gate as originally written
+   ("lands at the next tool-result boundary, proceed") - it lands
+   exactly there, batched with whatever the tool result triggers next -
+   which is already a real improvement over today (a queued reply
+   currently waits for the *entire remaining plan*, not just the
+   in-flight tool). Approach B proceeds on that corrected, more modest
+   claim: faster and safer, not instantaneous.
 1. `claude-capsule/agent-request.mjs`: `runAgent` takes an injectable
    queue - an async generator yields the initial `SDKUserMessage`, then
    awaits further pushes. Return the `Query` handle (for `interrupt`/
@@ -874,11 +908,14 @@ looked, but doesn't change the recommendation - B wins on its own terms.
 is already open (the human is actively sitting on it) still goes through
 today's queue-and-cold-resume path under this plan - making *that* live
 too is Approach A's territory, not B's, and stays out of scope unless A
-gets revisited later. Also unverified until Phase 0: `priority`'s exact
-ordering semantics, `shouldQuery:false`'s actual visibility guarantees
-(the SDK's own docs tie it to no-response-needed appends, not "arrives
-instantly" - don't build the live-visibility story on it), and whether
-`interrupt()`'s `still_queued` behavior needs explicit handling.
+gets revisited later. Phase 0 settled `priority`'s and `shouldQuery`'s
+practical semantics (interrupt-and-cancel vs. queue-and-batch, see
+above) - injection in step 1 should default to `shouldQuery: false`
+unless a signal is itself an explicit interrupt request (e.g. a human
+reply to an already-open Steering/QA, which today's design routes
+through the cold-resume path anyway, not this one). Still unverified:
+whether `interrupt()`'s `still_queued` receipt needs explicit handling -
+not exercised by this spike, since nothing called `interrupt()`.
 
 ## Later hardening
 
