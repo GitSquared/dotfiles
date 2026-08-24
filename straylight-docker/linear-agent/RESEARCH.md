@@ -2609,3 +2609,110 @@ hit right after a QA request in the same test run ("Claude ended without
 a structured work disposition," after "a few Linear tools" were used
 post-QA) - that's a separate, still-open investigation pending the
 deployed capsule/controller logs.
+
+## Splitting the elicitation and the comment, not duplicating them - 2026-08-24
+
+Immediate follow-up to the above, same conversation: Gaby didn't want the
+full render posted twice (elicitation and comment carrying identical
+text) - "it should BE the elicitation these comments." His actual
+preference, once we talked through what each surface is good for: full
+title/action/recommendation/evidence/open-asks content lives only in the
+tracked issue comment (where he can also dig further with follow-up
+questions, and where screenshots belong), while the elicitation Activity
+- the Agent Session's own card, where the real select/auth buttons ride
+- shrinks to a one-liner title plus a pointer back to the comment.
+
+New `renderElicitationSummary` in `src/attention.ts` produces that
+one-liner; `renderAttentionComment` (unchanged) still produces the full
+render, now used only for the comment. `collaborateLinear` composes two
+different bodies instead of one shared one. Three existing tests had
+real assertions pinning the old shared-body behavior (checking the
+elicitation for the GitHub access-repair link, the full Steering action
+text, and the open-asks rollup) - updated to check each piece against
+the surface that actually carries it now, not deleted.
+
+Also confirmed, second live data point: the `select` signal still didn't
+render as buttons on this test run either (GAB-15, same as the "hidden"
+QA card investigated earlier this session). Nothing in tonight's changes
+touches the `signal`/`signalMetadata` payload itself - only the
+elicitation's `content.body` text changed - so this isn't a regression
+from tonight's work, and it's now two independent live test runs
+confirming the same absence while `auth`'s button reliably renders in
+the same surface. Reinforces the existing conclusion that this is a
+Linear-side gap specific to `select`, not something further payload work
+on our end can fix. The next real step (reporting it to Linear's own
+`#api` community Slack) is Gaby's call, not something to do unprompted.
+
+`bun run check` (167, unchanged - no new tests needed beyond fixing the
+three that pinned the old behavior) and `bun run test:capsule` (22/22,
+unaffected) both green.
+
+## The GAB-15 crash: a queued ask-reply racing a fresh QA - 2026-08-24
+
+Root cause confirmed from the actual capsule logs and the raw Claude
+session transcript (`docker logs linear-agent-claude-capsule`, and the
+SDK's own `~/.claude/projects/-workspace/<sessionId>.jsonl`) - not
+inferred from reading the guard code in isolation, which is what made
+this findable at all:
+
+1. The GAB-15 run answered its own non-blocking "should favoriting
+   notify anyone" ask mid-task. Gaby's reply arrived while the main run
+   was still going (13+ minutes in), so it got queued as `state.pending`
+   rather than injected immediately - correct, existing behavior.
+2. The run finished by requesting QA (`disposition: awaiting_qa`,
+   confirmed clean in the capsule's own tool-call audit log). `execute()`
+   then unconditionally drained `state.pending` and auto-started a second
+   turn - this part was the bug.
+3. That second turn (transcript line 328) opened with "Reply to your
+   open question ... should favoriting a sidebar item notify..." -
+   Claude correctly closed it out (reacted, posted a journal note) and
+   tried to stop - there was nothing else for it to do.
+4. `stopDispositionGuard` blocked the stop (no fresh disposition set this
+   turn) and told it to choose a lifecycle transition.
+5. Claude did exactly what its own prompt says to do when it believes
+   there's nothing new ("request QA again... not stopping") - and got
+   rejected: `request_attention` refuses a second concurrent blocking
+   attention on the same session (by design, to prevent conflicting
+   ones). Line 350: Claude correctly concluded "the original QA request
+   is still open and correctly blocking... I'm stopping here" - a
+   genuinely correct read of the situation, with no tool call left that
+   could express it.
+6. The one-shot self-correction retry let the stop through anyway on its
+   second attempt (the circuit-breaker that stops an infinite block/retry
+   loop), and the final result-building check
+   (`if (!context.disposition) throw new Error("Claude ended without a
+   structured work disposition")`) fired - exactly the error Gaby saw.
+
+**The actual bug**: nothing was wrong with Claude's reasoning at any
+step - it correctly closed the ask, correctly tried to re-affirm the QA,
+correctly read the rejection. The bug is structural: a queued follow-up
+auto-starting a new turn the instant a run ends in a fresh blocking
+attention hands that turn a task with no valid way to conclude, because
+the one-attention-at-a-time guard (correct on its own) collides with "if
+nothing new, request QA again" (also correct on its own) whenever both
+fire in the same turn.
+
+**Fix**: `execute()`'s tail (`src/controller.ts`) now checks
+`state.attention.length` before auto-starting a queued `state.pending`.
+If the run that just finished opened a blocking attention, the queued
+follow-up is left alone rather than started - it picks up normally once
+the attention resolves and the session is genuinely idle again (nothing
+is lost; worst case it runs a turn later than it otherwise would have).
+This isn't ask-tier-specific - any queued follow-up racing a fresh
+blocking attention would have hit the same collision.
+
+**Tests**: one new case in `test/ask-tier.test.ts` reproducing the exact
+shape - a follow-up queued mid-run, the run finishing by requesting QA,
+asserting `runner.run()` is never called a second time. `bun run check`
+(168, up from 167) and `bun run test:capsule` (22/22, unaffected) both
+green.
+
+**Not fixed here, deliberately**: the deeper tension this exposed - a
+resumed turn has no way to say "nothing new, the existing disposition
+from a previous turn still stands" without either fabricating a fresh
+one or hitting the duplicate-attention guard - is a real, harder
+question (would need the capsule to know about controller-side state it
+currently doesn't). The fix above prevents the turn that hits this from
+ever starting in the first place, which is the actual GAB-15 case, but a
+different future trigger could theoretically still reach the same
+collision. Worth naming, not worth solving speculatively tonight.

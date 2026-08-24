@@ -315,10 +315,17 @@ test("ignores a reply notification attributed to the app's own user id", async (
   assert.equal(health.controller.notifications.counts.agentSessionOwned ?? 0, 0);
 });
 
-test("surfaces still-open asks in a QA elicitation's body", async () => {
+test("surfaces still-open asks in the QA comment's body, and keeps the elicitation to a one-liner", async () => {
   const activities: Array<{ type?: string; body?: string }> = [];
+  const comments: string[] = [];
+  let askCommentIssued = false;
   const linear = baseLinear({
-    async createIssueComment(_issueId: string, body: string) { return { id: "ask-comment-1", body }; },
+    async createIssueComment(_issueId: string, body: string) {
+      // The ask itself creates a comment first; only the later QA comment matters here.
+      if (!askCommentIssued) { askCommentIssued = true; return { id: "ask-comment-1", body }; }
+      comments.push(body);
+      return { id: "attention-comment-1", body };
+    },
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
     async setIssueState() {},
@@ -350,9 +357,10 @@ test("surfaces still-open asks in a QA elicitation's body", async () => {
     },
   });
 
+  assert.match(comments[0] ?? "", /Still waiting on:/);
+  assert.match(comments[0] ?? "", /Should this endpoint be paginated\?/);
   const elicitation = activities.find((activity) => activity.type === "elicitation");
-  assert.match(elicitation?.body ?? "", /Still waiting on:/);
-  assert.match(elicitation?.body ?? "", /Should this endpoint be paginated\?/);
+  assert.doesNotMatch(elicitation?.body ?? "", /Still waiting on:/, "the elicitation stays a one-liner - open asks belong in the comment");
 });
 
 test("posts a real, tracked comment alongside a blocking QA elicitation, and approving it via that comment completes the issue", async () => {
@@ -512,4 +520,67 @@ test("ignores a self-authored reply to the tracked attention comment", async () 
 
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(health.controller.attentionQueue.total, 1, "a self-authored comment must never resolve the attention it's attached to");
+});
+
+test("does not auto-start a queued follow-up the instant a run ends by opening a blocking attention (GAB-15)", async () => {
+  // Reproduces a real crash: an ask's reply arrives while the main run is still going, gets
+  // queued (state.pending) since the session is busy; the run then finishes by requesting a
+  // blocking QA. Auto-starting the queued follow-up immediately gave that new turn nothing to
+  // do but discover the "already open" collision (a second request_attention is rejected) and
+  // fail to conclude cleanly - "Claude ended without a structured work disposition."
+  const linear = baseLinear({
+    async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState() {},
+  });
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const pendingRun = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  let runs = 0;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { runs += 1; return pendingRun; },
+    async followUp() { return false; }, // not injected into the active run - queued instead
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+
+  // While the run is still active: a follow-up arrives (e.g. an ask's reply) and gets queued.
+  await controller.handle({
+    action: "prompted",
+    agentSession: { id: "session-1", issueId: "issue-1", comment: { id: "reply-1", body: "Keep it silent." } },
+    agentActivity: { content: { body: "Keep it silent." } },
+  });
+
+  // The run itself requests a blocking QA before finishing (as the actual GAB-15 run did).
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Ready for review",
+      action: "Approve the preview and complete the parent work.",
+      recommendation: "Approve after checking the linked preview.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+
+  finishRun({ ok: true, timedOut: false, awaitingInput: true, summary: "Ready for QA.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  assert.equal(runs, 1, "the queued follow-up must not auto-start a doomed second turn while the blocking QA is still open");
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 1, "the QA itself must still be tracked as open");
 });

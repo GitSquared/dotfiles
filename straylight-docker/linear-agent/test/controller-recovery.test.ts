@@ -736,9 +736,12 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Steering needed"));
   const elicitationBody = (elicitation?.content as { body?: string }).body ?? "";
   assert.match(elicitationBody, /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
-  assert.doesNotMatch(elicitationBody, /Original intent/, "the elicitation must use the terse render, not the bureaucratic full template");
+  assert.match(elicitationBody, /See the comment on this issue/, "the elicitation stays a scannable one-liner, not the full render");
+  assert.doesNotMatch(elicitationBody, /Confirm that the old writer/, "the full action text belongs in the comment, not the elicitation");
   assert.deepEqual((elicitation?.options as { signal?: string }).signal, "select");
-  assert.equal(comments[0]?.body, elicitationBody, "the tracked comment must carry the same content as the elicitation");
+  assert.match(comments[0]?.body ?? "", /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
+  assert.match(comments[0]?.body ?? "", /Confirm that the old writer must remain authoritative/, "the comment carries the full context the elicitation omits");
+  assert.doesNotMatch(comments[0]?.body ?? "", /Original intent/, "the comment must use the terse render, not the bureaucratic full template");
 
   await controller.handle({
     action: "prompted",
@@ -754,6 +757,7 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
 
 test("posts an access-repair Steering request with the native auth signal", async () => {
   const activities: Array<{ content: unknown; options?: unknown }> = [];
+  const comments: string[] = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
@@ -761,7 +765,7 @@ test("posts an access-repair Steering request with the native auth signal", asyn
     async resolveAttentionStateId() { return "state-blocked"; },
     async reactToComment() {},
     async setIssueState() {},
-    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async createIssueComment(_issueId: string, body: string) { comments.push(body); return { id: "comment-1", body }; },
     async createActivity(_sessionId: string, content: unknown, options?: unknown) {
       activities.push({ content, ...(options ? { options } : {}) });
     },
@@ -797,8 +801,10 @@ test("posts an access-repair Steering request with the native auth signal", asyn
   const options = elicitation?.options as { signal?: string; signalMetadata?: { url?: string; providerName?: string } };
   assert.deepEqual(options.signal, "auth");
   assert.deepEqual(options.signalMetadata, { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" });
-  const elicitationBody = (elicitation?.content as { body?: string }).body ?? "";
-  assert.match(elicitationBody, /\[GitHub\]\(https:\/\/straylight\.example\.test\/linear\/tools\/auth\)/);
+  // The native "Link account" button renders off signalMetadata above, regardless of body
+  // text - the elicitation body itself stays a one-liner; the link markdown (for whoever
+  // reads the comment instead of clicking the button) lives in the tracked comment.
+  assert.match(comments[0] ?? "", /\[GitHub\]\(https:\/\/straylight\.example\.test\/linear\/tools\/auth\)/);
 });
 
 test("resumes the paused parent run directly when the engineer replies on the same issue", async () => {

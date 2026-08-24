@@ -5,6 +5,7 @@ import {
   isQaApproval,
   renderAttentionComment,
   renderDeferredItem,
+  renderElicitationSummary,
   type ActiveAttention,
   type OpenAsk,
 } from "./attention.js";
@@ -368,17 +369,19 @@ export class AgentController {
         ? { signal: "auth" as const, signalMetadata: { url: req.accessRepair.url, providerName: req.accessRepair.providerName } }
         : options ? { signal: "select" as const, signalMetadata: { options } } : {};
       const openAsksSection = req.kind === "qa" ? renderOpenAsksSection(state.openAsks) : undefined;
-      const elicitationBody = openAsksSection ? `${renderAttentionComment(req)}\n\n${openAsksSection}` : renderAttentionComment(req);
+      // Two different bodies, not one duplicated: the elicitation (the Agent Session's own
+      // card, where the real select/auth buttons ride) stays a scannable one-liner; the full
+      // title/action/recommendation/evidence/open-asks content lives only in the tracked issue
+      // comment, which is also the surface for a human to dig further with follow-up questions.
+      const commentBody = openAsksSection ? `${renderAttentionComment(req)}\n\n${openAsksSection}` : renderAttentionComment(req);
       await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "elicitation",
-        body: finalText(elicitationBody),
+        body: finalText(renderElicitationSummary(req)),
       }, signalPayload));
-      // Also a real, tracked issue comment with the same content - unlike the pre-2026-08-19
-      // version of this (removed because replying to it silently did nothing), a reply here
-      // now genuinely resolves the attention, via the same tracked-comment-reply-routing the
-      // ask tier already proved live. Gives Steering/QA a real notification-worthy surface,
-      // and a place to attach screenshots/back-and-forth during review.
-      const comment = await this.linear.createIssueComment(state.issueId, finalText(elicitationBody)).catch((error: unknown) => {
+      // A reply here now genuinely resolves the attention (unlike the pre-2026-08-19 version
+      // of this, removed because replying to it silently did nothing), via the same
+      // tracked-comment-reply-routing the ask tier already proved live.
+      const comment = await this.linear.createIssueComment(state.issueId, finalText(commentBody)).catch((error: unknown) => {
         console.warn("failed to post the tracked attention comment; the native elicitation reply path still works", {
           sessionId,
           message: error instanceof Error ? error.message : String(error),
@@ -1108,6 +1111,19 @@ export class AgentController {
     state.active = undefined;
     if (result.conversationId) state.claudeConversationId = result.conversationId;
     const pending = state.pending;
+    if (pending && state.attention.length) {
+      // A queued follow-up (e.g. a non-blocking ask's reply, arriving while this run was
+      // still going) must not auto-start a new turn the instant this one ends in a fresh
+      // blocking Steering/QA - that turn would have nothing left to do but discover the
+      // "already open" collision (request_attention rejects a second concurrent one) and
+      // fail to conclude cleanly. Confirmed live (GAB-15): this is exactly how "Claude ended
+      // without a structured work disposition" happened right after a QA request. Leave it
+      // queued; it starts normally once the attention resolves and the session is genuinely
+      // idle again.
+      this.touch(state);
+      await this.persist();
+      return;
+    }
     state.pending = undefined;
     this.touch(state);
     await this.persist();

@@ -193,6 +193,29 @@ export function renderAttentionComment(request: AttentionRequest): string {
   return lines.join("\n\n");
 }
 
+/**
+ * The compact render for the elicitation Activity itself (the Agent Session's own card,
+ * where the real select/auth buttons ride) - only ever used for blocking Steering/QA, never
+ * Signal. Deliberately just the title and a pointer, not the full renderAttentionComment
+ * text: the full title/action/recommendation/evidence content lives in the tracked issue
+ * comment instead, which is also where a human can dig further with follow-up questions.
+ * Keeping the elicitation to a one-liner is what actually makes the native card scannable -
+ * duplicating the full comment there was the thing that made it feel bureaucratic.
+ */
+export function renderElicitationSummary(request: AttentionRequest): string {
+  const heading = request.kind === "qa" ? "QA needed" : "Steering needed";
+  const lines = [
+    `**${heading}:** ${markdownText(request.title)}`,
+    "See the comment on this issue for full context and evidence.",
+  ];
+  if (request.kind === "qa") {
+    lines.push("Reply **approve** to complete, or reply with changes needed.");
+  } else {
+    lines.push("Reply here to answer, or ask a follow-up.");
+  }
+  return lines.join("\n\n");
+}
+
 export function isDeferredItemRequest(value: unknown): value is DeferredItemRequest {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const request = value as Partial<DeferredItemRequest>;
