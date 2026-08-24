@@ -773,6 +773,113 @@ same bundling failure that started this conversation, one level up.
   paths are provably disjoint, since the common issue is one coupled
   change where coordination overhead costs more than it saves.
 
+## Slice 19 — streaming input (live signals mid-turn)
+
+Status: design proposed after a research pass, not decided, not built.
+
+Origin: the GAB-15 crash (Slice 18's ask tier queuing a reply mid-run,
+then auto-starting a doomed second turn right after the first one opened
+a blocking QA) is a direct symptom of a deeper fact: today's capsule
+invokes the Claude Agent SDK in one-shot "print mode" - `query({prompt:
+someString, ...})` - and `ClaudeHarness.followUp()`
+(`src/claude.ts`) is a hardcoded `return false`, with its own honest
+comment: "Claude's print-mode turn is not bidirectional." A live Linear
+signal arriving mid-turn has nowhere to go but a queue that only drains
+once the turn fully ends. Gaby's own framing: "the same intelligence
+[should] get all the new signals as i send them, and give it a clear set
+of tools to answer them... prioritize trodding along on its main work or
+answering me or just reacting with an emoji... like a coworker would."
+
+**The SDK genuinely supports this.** `query(prompt: string |
+AsyncIterable<SDKUserMessage>)` accepts a live stream instead of a
+string; the returned `Query` object has `streamInput(stream)` to keep
+pushing messages into an already-running conversation, plus
+`interrupt()`, `backgroundTasks()`, and mid-session reconfiguration -
+all gated behind streaming input, none available in today's print mode.
+`SDKUserMessage` even carries a `priority: 'now'|'next'|'later'` field,
+though its exact semantics aren't elaborated in the SDK's own type
+definitions - a real unknown, not assumed behavior.
+
+**Two approaches, not five:**
+
+- **A - session-lived Query.** One `Query` per Linear session, open from
+  first webhook to terminal disposition, surviving blocking Steering/QA
+  waits (potentially hours). Requires pinning or rebinding the task
+  container across that whole window, holding a runner capacity slot
+  continuously, making the Stop-hook's one-disposition-per-run invariant
+  session-scoped instead of per-turn, and an idle-timeout policy with a
+  cold-path fallback.
+- **B - turn-scoped streaming Query (recommended).** Turn boundaries
+  stay exactly as today (start -> terminal disposition), but `query()`
+  takes an `AsyncIterable<SDKUserMessage>` instead of a plain string, so
+  the runner can push new messages into the *live* turn while it's
+  running. Container lifecycle, warm-task TTL, capacity accounting, and
+  the per-turn disposition invariant are all untouched. Between turns,
+  resume works exactly as it does today.
+
+**Why B, not A:** A's only marginal gain over B is skipping the
+cold-resume round-trip after a human reply - bought at the price of
+every cascade above, concentrated in exactly the interval (a human
+sitting on an open QA) where holding a live container and subprocess is
+least wanted. B closes the entire failure window that actually exists: a
+signal has nowhere to go *only while a turn is actively running*, which
+is precisely the GAB-15 case (the reply arrived mid-run, before QA was
+even requested). B is also a strict prerequisite of A, so nothing built
+here is wasted if A is ever revisited. One correction worth naming: an
+initial read of the codebase called session-lived tool credentials
+(`taskUrl`/`taskToken`, rebound whenever the workbench replaces a warm
+task container) a hard blocker for A - overstated. `forward()` in
+`claude-capsule/agent-request.mjs` reads those fields at call time, not
+once at construction, so rebinding on container replacement is a field
+write, not a full `Query` restart. That makes A cheaper than it first
+looked, but doesn't change the recommendation - B wins on its own terms.
+
+**Phased plan, cheapest/most de-risking first:**
+
+0. **Spike, no product code.** Inside the capsule container: open a
+   streaming `Query`, start a long-running Bash tool call, push a
+   message while it's in flight. Gate: if it lands at the next
+   tool-result boundary, proceed; if it only surfaces after the turn's
+   final result (no better than today), the design collapses and stops
+   here. Fold in verifying what `priority: now|next|later` actually does
+   and whether the deployed CLI advertises `interrupt_receipt_v1`.
+1. `claude-capsule/agent-request.mjs`: `runAgent` takes an injectable
+   queue - an async generator yields the initial `SDKUserMessage`, then
+   awaits further pushes. Return the `Query` handle (for `interrupt`/
+   `close`). Reject injection outright while `context.awaitingInput` is
+   set, so a signal can never wake the model onto its own blocking
+   elicitation and hit `assertAgentMayAct`'s rejection - the GAB-15
+   failure shape, one scope tighter, closed structurally rather than
+   patched.
+2. `claude-capsule/server.mjs`: keep the existing ndjson response; key a
+   live-push channel off the existing `requestId` (`POST
+   /v1/agent/:requestId/input`), not the container's `taskToken`.
+3. `src/claude.ts` / `src/workbench.ts` / `src/runner-server.ts`:
+   `ClaudeHarness.followUp()` stops being a stub and posts to the live
+   run, returning `false` only on an `awaitingInput` rejection (the
+   existing cold-queue path stays as the fallback). Convert
+   `piTimeoutMs`'s hard wall-clock abort to an idle timeout (no progress
+   for N minutes), since more live pings otherwise mean hitting a budget
+   the model was never told accounts for interruptions.
+4. `src/controller.ts`: `start()` tries `runner.followUp()` first, falls
+   back to `state.pending` only when that's rejected. The GAB-15 guard
+   (execute()'s tail, added tonight) stays exactly as-is - it's what
+   correctly handles the fallback case.
+5. System prompt: an inbound live ping runs through the same
+   escalate-vs-decide altitude filter Slice 18 already ships - a
+   non-product-level ping resolves to a react or nothing; a mid-flight
+   reply is one tool call, not a new turn.
+
+**Deferred, explicitly:** a signal arriving while a blocking Steering/QA
+is already open (the human is actively sitting on it) still goes through
+today's queue-and-cold-resume path under this plan - making *that* live
+too is Approach A's territory, not B's, and stays out of scope unless A
+gets revisited later. Also unverified until Phase 0: `priority`'s exact
+ordering semantics, `shouldQuery:false`'s actual visibility guarantees
+(the SDK's own docs tie it to no-response-needed appends, not "arrives
+instantly" - don't build the live-visibility story on it), and whether
+`interrupt()`'s `still_queued` behavior needs explicit handling.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit
