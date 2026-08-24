@@ -369,3 +369,18 @@ test("the linear_activity tool call forwards a react request verbatim to the wor
   assert.deepEqual(capturedBody, { action: "react", commentId: "comment-42", emoji: "white_check_mark" });
   assert.deepEqual(result, { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "react" }, null, 2) }] });
 });
+
+test("the linear_activity tool call forwards a non-blocking ask request verbatim to the workbench", async (t) => {
+  const context = accessRepairWorkbenchContext();
+  let capturedBody;
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, text: async () => JSON.stringify({ ok: true, action: "ask", data: { commentId: "ask-1" } }) };
+  });
+  const handler = linearActivityHandler(context);
+
+  const result = await handler({ request: { action: "ask", question: "Should this endpoint be paginated?" } }, {});
+
+  assert.deepEqual(capturedBody, { action: "ask", question: "Should this endpoint be paginated?" });
+  assert.deepEqual(result, { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "ask", data: { commentId: "ask-1" } }, null, 2) }] });
+});

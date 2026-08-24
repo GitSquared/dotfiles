@@ -623,10 +623,42 @@ Acceptance:
 
 ## Slice 18 — parallel work streams and a richer signal taxonomy
 
-Status: design settled after several rounds of review; the ask-tier,
-decision model, and assumption mechanism below are buildable now.
-Sub-issue-per-stream and genuine concurrent sub-agent execution stay
-explicitly deferred - see "Not decided yet" at the end.
+Status: the ask tier, the decision model, and QA surfacing still-open
+asks are implemented and locally verified (typecheck, full `bun run
+check`, and the capsule test suite all green); deployed acceptance
+pending. Sub-issue-per-stream and genuine concurrent sub-agent execution
+stay explicitly deferred - see "Not decided yet" at the end.
+
+Implemented: `linear_activity`'s new `{action: "ask", question}` posts a
+tracked, non-blocking comment thread (`src/controller.ts`'s
+`collaborateLinear`), recorded in new session state
+(`state.openAsks: OpenAsk[]`, `src/attention.ts`) that never touches
+`awaitingInput` or issue status. A reply landing on a *specifically
+tracked* thread - matched by exact comment id, not just "any reply on
+this issue" - resumes the agent with that answer via the same internal
+path a real Steering/QA reply uses, unless a blocking Steering/QA is
+already open on that session (deliberately left unrouted rather than
+fighting that resume path). A QA elicitation's body now lists any
+still-open tracked asks explicitly, rather than depending on Claude to
+remember to mention them. The four-step decision checklist (override on
+irreversibility/destructiveness/security-boundary or the outcome not
+clearly deriving from what was asked; an altitude filter for whether a
+question is even product-level; investigate first; proceed on a cheap,
+reversible guess and record it as a plan-item assumption otherwise) is
+in both `src/prompts.ts` and the capsule's own SDK `systemPrompt`,
+identically.
+
+An adversarial review pass on the first implementation caught three real
+gaps before this landed: the ask-removal-then-resume sequence in
+`routeAskReply` wasn't atomic (a resume failure could silently lose the
+human's reply with no way to retry - fixed by restoring the ask and
+logging on failure, verified by a test that fails once then succeeds on
+retry); two pre-existing `createActivity` calls in the same-turn
+follow-up path lacked the `.catch()` every sibling call already has,
+so a transient failure there would have surfaced as an unhandled
+rejection; and the routing had no actor-identity guard against the app's
+own comments, unlike its `handleQaReactionApproval` sibling. All three
+fixed and covered.
 
 Origin: Gaby rejected the one-blocking-ask-at-a-time model as an accident
 of avoiding a platform limit, not a real fix for "several pending

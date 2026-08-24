@@ -38,6 +38,16 @@ export type ActiveAttention = {
   requestedAt: number;
 };
 
+// A non-blocking, independently-trackable question (ROADMAP.md Slice 18's "ask" tier):
+// unlike ActiveAttention, it never touches awaitingInput or issue status - several can be
+// open at once because the underlying primitive (a comment thread) carries its own
+// independent resolved/unresolved state, unlike Linear's single per-session status field.
+export type OpenAsk = {
+  commentId: string;
+  question: string;
+  askedAt: number;
+};
+
 export type DeferredItemRequest = {
   title: string;
   what: string;

@@ -24,6 +24,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /browser-rendered UI/);
   assert.doesNotMatch(prompt, /worktree\/branch/);
   assert.match(prompt, /include "NEMO-42" in its name/);
+  assert.match(prompt, /an altitude filter/);
+  assert.match(prompt, /linear_activity's non-blocking ask action/);
 });
 
 test("uses the activity body for follow-ups", () => {

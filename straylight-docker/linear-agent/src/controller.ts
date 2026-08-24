@@ -6,6 +6,7 @@ import {
   renderAttentionComment,
   renderDeferredItem,
   type ActiveAttention,
+  type OpenAsk,
 } from "./attention.js";
 import { LinearClient, type AgentSessionSnapshot } from "./linear.js";
 import type {
@@ -40,6 +41,7 @@ type SessionState = {
   teamId: string | undefined;
   humanAssigneeId: string | undefined;
   attention: ActiveAttention[];
+  openAsks: OpenAsk[];
   claudeConversationId: string | undefined;
   updatedAt: number;
 };
@@ -63,6 +65,13 @@ function elapsed(ms: number): string {
 function requiredIssueId(issueId: string | undefined, action: string): string {
   if (!issueId) throw new Error(`${action} requires an issue-backed Agent Session`);
   return issueId;
+}
+
+// A QA elicitation is the checkpoint ROADMAP.md Slice 18 calls for: still-open, non-blocking
+// asks must surface here explicitly, not depend on Claude remembering to mention them in prose.
+function renderOpenAsksSection(openAsks: OpenAsk[]): string | undefined {
+  if (!openAsks.length) return undefined;
+  return ["Still waiting on:", openAsks.map((ask) => `- ${ask.question}`).join("\n")].join("\n");
 }
 
 // Linear's own terminal states for an Agent Session (linear.app/developers/agent-best-practices):
@@ -135,6 +144,7 @@ export class AgentController {
         teamId: record.teamId,
         humanAssigneeId: record.humanAssigneeId,
         attention: record.attention ?? [],
+        openAsks: record.openAsks ?? [],
         claudeConversationId: record.claudeConversationId,
         updatedAt: record.updatedAt,
       };
@@ -273,6 +283,7 @@ export class AgentController {
         ...(state.teamId ? { teamId: state.teamId } : {}),
         ...(state.humanAssigneeId ? { humanAssigneeId: state.humanAssigneeId } : {}),
         ...(state.attention.length ? { attention: state.attention } : {}),
+        ...(state.openAsks.length ? { openAsks: state.openAsks } : {}),
         ...(state.claudeConversationId ? { claudeConversationId: state.claudeConversationId } : {}),
         updatedAt: state.updatedAt,
       }))) ?? Promise.resolve());
@@ -356,9 +367,11 @@ export class AgentController {
       const signalPayload = req.accessRepair
         ? { signal: "auth" as const, signalMetadata: { url: req.accessRepair.url, providerName: req.accessRepair.providerName } }
         : options ? { signal: "select" as const, signalMetadata: { options } } : {};
+      const openAsksSection = req.kind === "qa" ? renderOpenAsksSection(state.openAsks) : undefined;
+      const elicitationBody = openAsksSection ? `${renderAttentionComment(req)}\n\n${openAsksSection}` : renderAttentionComment(req);
       await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "elicitation",
-        body: finalText(renderAttentionComment(req)),
+        body: finalText(elicitationBody),
       }, signalPayload));
       const active: ActiveAttention = {
         kind: req.kind,
@@ -406,6 +419,19 @@ export class AgentController {
     if (request.action === "react") {
       await this.linear.reactToComment(request.commentId, request.emoji).catch(() => undefined);
       return { ok: true, action: request.action };
+    }
+    if (request.action === "ask") {
+      // Non-blocking, independently-trackable (ROADMAP.md Slice 18's "ask" tier): unlike
+      // "attention", this never touches awaitingInput or issue status, so any number can be
+      // open at once - a reply lands on this specific comment's own thread, which carries its
+      // own resolved/unresolved state independent of every other open ask or the session's
+      // single native status field.
+      const issueId = requiredIssueId(state.issueId, "Asking a non-blocking question");
+      const comment = await this.linear.createIssueComment(issueId, finalText(request.question));
+      state.openAsks = [...state.openAsks, { commentId: comment.id, question: request.question, askedAt: Date.now() }];
+      this.touch(state);
+      await this.persist();
+      return { ok: true, action: request.action, data: { commentId: comment.id } };
     }
     if (request.publication.kind === "document") {
       const document = request.publication.update
@@ -518,6 +544,7 @@ export class AgentController {
       teamId: undefined,
       humanAssigneeId: undefined,
       attention: [],
+      openAsks: [],
       claudeConversationId: undefined,
       updatedAt: Date.now(),
     };
@@ -636,12 +663,12 @@ export class AgentController {
         state.active = payload;
         this.touch(state);
         await this.persist();
-        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active agent session." }));
+        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active agent session." }).catch(() => undefined));
       } else {
         state.pending = payload;
         this.touch(state);
         await this.persist();
-        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current agent turn." }));
+        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current agent turn." }).catch(() => undefined));
       }
       return;
     }
@@ -686,6 +713,62 @@ export class AgentController {
     return best?.claudeConversationId;
   }
 
+  /**
+   * Routes a plain issue-comment reply back to the agent if - and only if - it landed on a
+   * comment thread this session itself opened via the non-blocking "ask" tier (ROADMAP.md
+   * Slice 18). Every other reply stays context-only, unchanged: this is deliberately narrow,
+   * not a general re-opening of "any reply wakes the agent," which would reintroduce the
+   * noise the ask tier exists to avoid.
+   */
+  private async routeAskReply(payload: AppUserNotificationWebhook, issueId: string | undefined): Promise<boolean> {
+    const replyCommentId = payload.notification?.commentId ?? payload.notification?.comment?.id;
+    const parentId = payload.notification?.comment?.parentId ?? payload.notification?.parentCommentId;
+    const body = payload.notification?.comment?.body?.trim();
+    const actorId = payload.notification?.actorId;
+    if (!issueId || !replyCommentId || !parentId || !body) return false;
+    if (payload.appUserId && actorId === payload.appUserId) return false; // ignore the app's own comments, if it ever posts one that would match
+    for (const [sessionId, state] of this.states) {
+      if (state.issueId !== issueId) continue;
+      const ask = state.openAsks.find((item) => item.commentId === parentId);
+      if (!ask) continue;
+      if (state.attention.length) {
+        // A blocking Steering/QA is already open on this same session - don't fight that
+        // resume path by injecting an unrelated follow-up. The ask stays open and will still
+        // surface as an unanswered tracked question at checkpoint.
+        return false;
+      }
+      state.openAsks = state.openAsks.filter((item) => item.commentId !== parentId);
+      this.touch(state);
+      this.states.set(sessionId, state);
+      await this.persist();
+      await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
+      try {
+        await this.handle({
+          action: "prompted",
+          agentSession: { id: sessionId, issueId, comment: { id: replyCommentId, body } },
+          agentActivity: { content: { body: `Reply to your open question "${ask.question}":\n\n${body}` } },
+        });
+      } catch (error) {
+        // Restore the tracked ask rather than let a human's answer vanish silently - losing
+        // track of it is worse than the small chance of a duplicate resume on a later retry.
+        state.openAsks = [...state.openAsks, ask];
+        this.touch(state);
+        await this.persist().catch(() => undefined);
+        console.error("failed to resume the agent with a tracked ask's reply", {
+          sessionId,
+          issueId,
+          commentId: parentId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return false;
+      }
+      this.recordNotification("issueNewComment", "agentSessionOwned");
+      console.info("Linear comment reply matched a tracked open question; resuming", { sessionId, issueId, commentId: parentId });
+      return true;
+    }
+    return false;
+  }
+
   async handleNotification(payload: AppUserNotificationWebhook): Promise<void> {
     const action = payload.action ?? "unknown";
     const issueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
@@ -696,6 +779,7 @@ export class AgentController {
       return;
     }
     if (action === "issueNewComment") {
+      if (await this.routeAskReply(payload, issueId)) return;
       this.recordNotification(action, "contextOnly");
       console.info("Linear comment notification retained as context; no prompt was synthesized", { issueId });
       return;

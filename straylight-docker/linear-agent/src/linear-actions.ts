@@ -50,6 +50,7 @@ export type LinearSessionRequest =
   | { action: "external_url"; label: string; url: string }
   | { action: "plan"; steps: AgentPlanStep[] }
   | { action: "react"; commentId: string; emoji: string }
+  | { action: "ask"; question: string }
   | {
       action: "publish";
       publication:
@@ -122,6 +123,7 @@ export function isLinearSessionRequest(value: unknown): value is LinearSessionRe
     });
   }
   if (request.action === "react") return isString(request.commentId, 200) && isString(request.emoji, 100);
+  if (request.action === "ask") return isString(request.question, 2_000);
   if (request.action !== "publish" || !request.publication || typeof request.publication !== "object" || Array.isArray(request.publication)) return false;
   const publication = request.publication as Record<string, unknown>;
   if (publication.kind === "document") {

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { JsonStore } from "./storage.js";
-import type { ActiveAttention } from "./attention.js";
+import type { ActiveAttention, OpenAsk } from "./attention.js";
 import type { AgentSessionWebhook } from "./types.js";
 
 export type ControllerSessionRecord = {
@@ -15,6 +15,7 @@ export type ControllerSessionRecord = {
   teamId?: string;
   humanAssigneeId?: string;
   attention?: ActiveAttention[];
+  openAsks?: OpenAsk[];
   claudeConversationId?: string;
   updatedAt: number;
 };
@@ -52,6 +53,9 @@ export class ControllerStateStore {
         && typeof attention.previousStateId === "string"
         && typeof attention.requestedAt === "number"
       ))))
+      && (record.openAsks === undefined || (Array.isArray(record.openAsks) && record.openAsks.every((ask) => (
+        typeof ask.commentId === "string" && typeof ask.question === "string" && typeof ask.askedAt === "number"
+      ))))
       && (record.claudeConversationId === undefined || typeof record.claudeConversationId === "string")
       && typeof record.updatedAt === "number"
     ));
@@ -63,7 +67,7 @@ export class ControllerStateStore {
       state.sessions = [...records]
         .filter((record) => (
           record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active)
-          || Boolean(record.attention?.length) || Boolean(record.claudeConversationId)
+          || Boolean(record.attention?.length) || Boolean(record.openAsks?.length) || Boolean(record.claudeConversationId)
         ))
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_STORED_SESSIONS);
