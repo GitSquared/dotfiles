@@ -2765,11 +2765,16 @@ So there's no hidden third mode where a ping gets answered immediately
 isn't what streaming input mode offers. The real choice is between
 interrupting (fast, but destroys whatever tool call was in flight - fine
 for a human reply to something the agent is already blocked on, wrong
-for a live ping arriving mid-work) and queuing (safe, but the reaction
-waits for the current tool call's natural boundary, not the whole
-remaining plan the way today's cold-queue does). ROADMAP.md's Slice 19
-plan is updated to default injection to `shouldQuery: false` and to stop
-describing the coworker framing as literal immediacy - it's "notices
-and answers at the next natural break," which is still a real
-improvement over "notices only once the entire run ends," just a more
-modest one than the original framing implied.
+for a live ping arriving mid-work) and queuing (safe, the reaction
+waits for the current tool call's natural boundary). First pass at
+writing this up framed the queuing behavior as a downgrade from the
+original "like a coworker" pitch - Gaby's pushback: a coworker mid-task
+doesn't drop it to read a Slack notification either, they glance at it
+once that task finishes. That's the more accurate model, not a
+consolation prize. Almost every tool call this agent makes - a `Read`,
+an `Edit`, a short `grep` - resolves in seconds, so the next-tool-result
+boundary reads as immediate in the common case; it only becomes a
+visible gap for the minority of long-running calls (a test suite, a
+build), exactly where a human would also be too absorbed to check their
+phone. ROADMAP.md's Slice 19 plan defaults injection to
+`shouldQuery: false` on that basis.

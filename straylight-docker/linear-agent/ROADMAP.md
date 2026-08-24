@@ -866,17 +866,23 @@ looked, but doesn't change the recommendation - B wins on its own terms.
      turn did it address both things at once: `"PONG\n\nThe sleep
      command already completed with DONE_SLEEPING."`
 
-   **Verdict:** there is no third, better mode where a live signal gets
-   answered immediately *while* a tool keeps running undisturbed -
-   that's not on offer. The real choice is interrupt-and-lose-the-tool-
-   call vs. queue-and-batch-into-the-next-natural-turn-boundary.
-   `shouldQuery: false` still clears the gate as originally written
-   ("lands at the next tool-result boundary, proceed") - it lands
-   exactly there, batched with whatever the tool result triggers next -
-   which is already a real improvement over today (a queued reply
-   currently waits for the *entire remaining plan*, not just the
-   in-flight tool). Approach B proceeds on that corrected, more modest
-   claim: faster and safer, not instantaneous.
+   **Verdict:** there is no mode where a live signal interrupts a tool
+   call mid-execution without cancelling it - that's not on offer. The
+   real choice is interrupt-and-lose-the-tool-call vs. queue-and-batch-
+   into-the-next-tool-result-boundary. `shouldQuery: false` clears the
+   gate as originally written ("lands at the next tool-result boundary,
+   proceed"), and on reflection that boundary *is* the coworker
+   behavior, not a fallback from it: a coworker mid-build doesn't drop
+   what they're doing to read a Slack ping either, they glance at it
+   once the build finishes. Almost every tool call this agent makes -
+   a `Read`, an `Edit`, a short `grep`, a quick status check - resolves
+   in seconds, so in the common case "next tool-result boundary" reads
+   as immediate. The gap only becomes noticeable for the minority of
+   long-running calls (a test suite, a build, a long wait), which is
+   exactly when a human coworker would also be heads-down and slow to
+   check their phone. Already a real improvement over today either way
+   (a queued reply currently waits for the *entire remaining plan*, not
+   just the in-flight tool).
 1. `claude-capsule/agent-request.mjs`: `runAgent` takes an injectable
    queue - an async generator yields the initial `SDKUserMessage`, then
    awaits further pushes. Return the `Query` handle (for `interrupt`/
