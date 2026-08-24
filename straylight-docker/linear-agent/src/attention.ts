@@ -65,8 +65,16 @@ export function attentionOptions(request: AttentionRequest): AttentionOption[] |
   return request.kind === "qa" ? QA_OPTIONS : request.options;
 }
 
+// Matched against an exact, normalized set - never a substring - because QA_REVISE_VALUE
+// itself contains the word "approved" ("Not approved; resume the parent work."). The set
+// must include the literal word renderAttentionComment's QA instruction tells the human to
+// type ("Reply **approve** to complete"), not just the canonical button value: Linear's own
+// docs say a select elicitation's free-text reply may be natural language, not necessarily
+// the option's exact value.
+const QA_APPROVAL_REPLIES = new Set(["approve", "approved", QA_APPROVE_VALUE.toLowerCase()]);
+
 export function isQaApproval(value: string): boolean {
-  return value.trim() === QA_APPROVE_VALUE;
+  return QA_APPROVAL_REPLIES.has(value.trim().toLowerCase());
 }
 
 function markdownText(value: string): string {

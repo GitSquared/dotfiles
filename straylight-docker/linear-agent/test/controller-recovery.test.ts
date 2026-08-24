@@ -1012,6 +1012,76 @@ test("completes the issue directly when the engineer approves a QA attention", a
   assert.equal(health.controller.attentionQueue.total, 0);
 });
 
+test("completes the issue directly when the engineer replies with the literal word the QA instruction told them to type", async () => {
+  // renderAttentionComment's QA instruction says "Reply **approve** to complete" (see
+  // attention.test.ts), never the canonical QA_APPROVE_VALUE - a human replying with exactly
+  // what they were told to type must take the same direct path as a real button click, not
+  // fall through to resuming Claude.
+  const activities: Array<{ sessionId: string; content: unknown }> = [];
+  const completedIssues: string[] = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async setIssueState() {},
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async createActivity(sessionId: string, content: unknown) { activities.push({ sessionId, content }); },
+  } as unknown as LinearClient;
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const pending = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  let runs = 0;
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { runs += 1; return pending; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("parent-qa-session", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      title: "Review the checked fix",
+      action: "Approve the preview and complete the parent work, or reply with changes.",
+      recommendation: "Approve after checking the linked preview.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test/fix" }],
+    },
+  });
+  finishRun({ ok: true, timedOut: false, awaitingInput: true, summary: "Ready for QA.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "approve" } },
+    agentSession: { id: "parent-qa-session", issueId: "parent-issue", comment: { id: "reply-1", body: "approve" } },
+  });
+
+  assert.equal(runs, 1, "the reply must resolve directly, never resuming Claude for a second run");
+  assert.deepEqual(completedIssues, ["parent-issue"]);
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
+  assert.equal(activities.some((activity) => activity.sessionId === "parent-qa-session"
+    && (activity.content as { type?: string }).type === "response"), true);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 0);
+});
+
 test("completes the issue directly when the engineer reacts with a checkmark instead of replying", async () => {
   const activities: Array<{ sessionId: string; content: unknown }> = [];
   const completedIssues: string[] = [];

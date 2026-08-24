@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "bun:test";
-import { isAttentionRequest, isDeferredItemRequest, renderAttentionComment, renderDeferredItem } from "../src/attention.js";
+import { isAttentionRequest, isDeferredItemRequest, isQaApproval, QA_APPROVE_VALUE, QA_REVISE_VALUE, renderAttentionComment, renderDeferredItem } from "../src/attention.js";
 
 const steering = {
   kind: "steering" as const,
@@ -42,6 +42,19 @@ test("renders a QA comment with an approve instruction instead of an options lis
   assert.match(comment, /Reply \*\*approve\*\* to complete/);
   assert.match(comment, /\[Preview\]\(https:\/\/preview\.example\.test\)/);
   assert.doesNotMatch(comment, /Approve and complete —/);
+});
+
+test("accepts the literal word the QA instruction tells the human to type, not just the button's canonical value", () => {
+  assert.equal(isQaApproval("approve"), true);
+  assert.equal(isQaApproval(" Approve "), true);
+  assert.equal(isQaApproval("APPROVED"), true);
+  assert.equal(isQaApproval(QA_APPROVE_VALUE), true);
+});
+
+test("never treats a substring match as approval", () => {
+  assert.equal(isQaApproval(QA_REVISE_VALUE), false);
+  assert.equal(isQaApproval("not approved"), false);
+  assert.equal(isQaApproval("looks good, approve pending one more check"), false);
 });
 
 test("requires review evidence before asking for QA attention", () => {

@@ -2206,3 +2206,75 @@ notification"` log line - the fallback for anything still landing in
 unaffected) both green, `bun run check` run twice to rule out the
 `test/controller-recovery.test.ts` Bun.sleep-based polling flake noted
 elsewhere in this file.
+
+## The "approve" reply never approved anything - 2026-08-24
+
+A live GAB-14 test run against the deployed image found two symptoms that
+turned out to share one root cause. Replying **approve** to an open QA
+elicitation - exactly what `renderAttentionComment` tells the human to
+type ("Reply **approve** to complete") - sometimes surfaced `Claude ended
+without a structured work disposition` as a run error, and sometimes
+(on retry) posted a confusing, self-contradictory Signal comment ("GAB-14
+closed out... no further work pending... the run is continuing").
+
+Root cause, confirmed from source rather than guessed: `isQaApproval` in
+`src/attention.ts` did an exact-string comparison against
+`QA_APPROVE_VALUE` ("Approve and complete the parent work.") - the
+canonical button value, never shown to the human. The instruction the
+human actually sees only ever says "approve." Typing exactly what the UI
+asks for therefore never matched, so `handle()`'s fast path
+(`controller.ts` around the `isQaApproval(answer)` check) never fired, and
+every "approve" reply fell through to the generic "resume the run" branch
+instead - which restores issue status, reacts with a checkmark, and
+resumes Claude with the bare reply text. Claude has no legal lifecycle
+transition for a bare "approve" (finish_work is reserved for non-human
+blockers, and the engineer - not Claude - owns marking QA-approved work
+complete), so it either ended the turn with nothing recorded (the
+disposition error) or reached for the one exit it does have - Signal,
+which just posts a comment and continues - producing the confusing
+"closed out... but continuing" text.
+
+This is also exactly the trap Linear's own `select`-signal docs warn
+about (`https://linear.app/developers/agent-signals#select`): "Any
+selected option is emitted as a regular `prompt` activity... your agent
+should always involve an LLM when interpreting the prompt" - i.e. never
+assume a human's free-text reply matches a canonical value verbatim. Our
+QA fast path did exactly that.
+
+Verified before assuming this was the whole story: `src/linear.ts`'s
+`createActivity` mutation already sends the exact `{ signal: "select",
+signalMetadata: { options: [{label, value}] } }` shape Linear's docs
+prescribe for a `select` elicitation - the mutation isn't the bug. Whether
+Linear's issue-activity-feed surface actually renders those options as
+clickable buttons (vs. only the reply text box the screenshots showed) is
+still open - Gaby is checking live, since that's a UI question the docs'
+`auth`-signal screenshot doesn't settle for `select`. Until that's
+confirmed, the text instruction stays as the only guaranteed approval
+path, so `renderAttentionComment`'s "Reply **approve**" line was left
+untouched.
+
+Fix: broadened `isQaApproval` to an exact-match (not substring) check
+against a small normalized set - `"approve"`, `"approved"`, and the
+canonical value lowercased - trim + lowercase only, no fuzzy matching.
+Substring matching was deliberately avoided: `QA_REVISE_VALUE` ("Not
+approved; resume the parent work.") contains the word "approved," so a
+naive `.includes("approve")` would have wrongly matched a rejection too.
+
+**Tests**: the existing QA-approval coverage in
+`test/controller-recovery.test.ts` only ever drove the reply through
+`QA_APPROVE_VALUE` itself, never through the word a human actually types -
+structurally unable to catch this. Added a parallel test that replies
+with the literal `"approve"` and asserts the direct `approveQa` path is
+taken (`runner.run()` invoked exactly once - never resumed for a second
+turn - issue completed, checkmark reaction posted). Added unit coverage
+in `test/attention.test.ts` pinning `isQaApproval("approve")`,
+`isQaApproval(" Approve ")`, and `isQaApproval("APPROVED")` true, and
+`isQaApproval(QA_REVISE_VALUE)` plus a "not approved" string false.
+
+`bun run check` (147 tests, up from 144) and `bun run test:capsule`
+(20/20, unaffected) both green.
+
+**Not fixed here, deliberately**: this is a code fix only - it does
+nothing for tonight's test run until the updated image is actually
+deployed to `gaby@straylight`, which stays gated on Gaby's own go-ahead
+per the existing deploy discipline in this file.
