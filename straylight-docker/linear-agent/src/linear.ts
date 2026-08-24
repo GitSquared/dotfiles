@@ -472,6 +472,39 @@ export class LinearClient {
     return data.attachmentCreate.attachment;
   }
 
+  // Both are integration-aware "rich" attachments (live PR/CI status, etc) Linear renders
+  // when the workspace has the matching integration configured - richer than the generic
+  // attachmentCreate above, which never gets that enrichment. Callers must treat both as
+  // fallible and fall back to createIssueAttachment: attachmentLinkGitHubPR's own schema
+  // documents no graceful-degradation path if the GitHub integration isn't configured, and
+  // attachmentLinkURL's documented fallback is Linear creating "a basic attachment" - not
+  // guaranteed to match what createIssueAttachment's subtitle/commentBody support offers.
+  async linkGitHubPullRequestAttachment(issueId: string, url: string, title?: string): Promise<{ id: string; title: string; url: string }> {
+    const data = await this.graphql<{
+      attachmentLinkGitHubPR: { success: boolean; attachment: { id: string; title: string; url: string } };
+    }>(
+      `mutation LinkGitHubPullRequestAttachment($issueId: String!, $url: String!, $title: String) {
+        attachmentLinkGitHubPR(issueId: $issueId, url: $url, title: $title) { success attachment { id title url } }
+      }`,
+      { issueId, url, ...(title ? { title } : {}) },
+    );
+    if (!data.attachmentLinkGitHubPR.success) throw new Error("Linear rejected the GitHub pull request attachment");
+    return data.attachmentLinkGitHubPR.attachment;
+  }
+
+  async linkUrlAttachment(issueId: string, url: string, title?: string): Promise<{ id: string; title: string; url: string }> {
+    const data = await this.graphql<{
+      attachmentLinkURL: { success: boolean; attachment: { id: string; title: string; url: string } };
+    }>(
+      `mutation LinkUrlAttachment($issueId: String!, $url: String!, $title: String) {
+        attachmentLinkURL(issueId: $issueId, url: $url, title: $title) { success attachment { id title url } }
+      }`,
+      { issueId, url, ...(title ? { title } : {}) },
+    );
+    if (!data.attachmentLinkURL.success) throw new Error("Linear rejected the URL attachment");
+    return data.attachmentLinkURL.attachment;
+  }
+
   async manage(request: LinearManageRequest, context: LinearManageContext): Promise<LinearManageResult> {
     let data: unknown;
     if (request.resource === "issue") data = await this.manageIssue(request, context);

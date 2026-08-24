@@ -2419,3 +2419,43 @@ trial (attempt the rich mutation for PR links only, fall back to the
 existing call on any error) is cheap to build safely, but the actual
 payoff is unconfirmed and conditional - worth doing only as a deliberate
 small bet, not a default.
+
+Gaby took that bet, with two explicit requirements: stream the outcome
+back to Claude rather than swallowing it, and make it fail-safe. Built as
+a three-tier fallback chain in a new `linkAttachment` helper in
+`src/controller.ts`, called from `collaborateLinear`'s attachment-publish
+path: a GitHub PR URL (detected by reusing the existing
+`githubPullRequestUrl` regex, not a new heuristic) tries
+`attachmentLinkGitHubPR` first; any other URL - or a PR URL whose rich
+attempt just failed - tries the more general `attachmentLinkURL`, which
+Linear's own schema documents as gracefully degrading to a basic
+attachment itself; only if that also fails (or the caller supplied a
+subtitle/body, which neither rich mutation accepts) does it fall through
+to the original `createIssueAttachment`. Every path returns a `richness`
+field (`"github_pr" | "url" | "basic"`) plus a `fallbackReason` string
+whenever a richer attempt was actually tried and failed - so the "stream
+status back" requirement means Claude's tool result always says which
+kind of attachment actually landed, not just that *an* attachment landed.
+The `linear_activity` tool description was updated to tell Claude not to
+claim live PR/CI status synced when `richness` comes back `"basic"`, and
+to omit subtitle/body on a PR link so it stays eligible for the upgrade.
+
+Each of the two new `LinearClient` methods
+(`linkGitHubPullRequestAttachment`, `linkUrlAttachment`) is a thin,
+single-purpose wrapper matching the existing `createIssueAttachment`
+style - no shared abstraction was built across them since their mutation
+signatures and failure semantics genuinely differ (only `attachmentLinkURL`
+documents graceful degradation; `attachmentLinkGitHubPR` doesn't). No
+existing test exercised the attachment-publish path end to end before
+this - the two prior hits for "publish" in the test suite only validated
+request-shape parsing, never called through a mocked `LinearClient` - so
+`test/attachment-linking.test.ts` is new: PR-link success (rich mutation
+only, no fallback), non-PR-link success (url-link, no fallback),
+subtitle/body present (skips both rich mutations, unattempted - no
+`fallbackReason`), everything failing down to basic (with the reason
+reported), and the specific "PR-specific rich link fails but the generic
+rich url-link still succeeds" case, which is real: `attachmentLinkURL`'s
+own GitHub-URL recognition can succeed even when `attachmentLinkGitHubPR`
+itself errors, so richness lands on `"url"`, not straight to `"basic"`.
+`bun run check` (152, up from 147) and `bun run test:capsule` (20/20,
+unaffected) both green.

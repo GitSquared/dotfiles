@@ -423,15 +423,67 @@ export class AgentController {
       return { ok: true, action: request.action, data: document };
     }
     if (!state.issueId) throw new Error("Linear issue attachments require an issue-backed Agent Session");
-    const attachment = await this.linear.createIssueAttachment(state.issueId, {
-      title: request.publication.title,
-      url: request.publication.url,
-      ...(request.publication.subtitle ? { subtitle: request.publication.subtitle } : {}),
-      ...(request.publication.body ? { commentBody: request.publication.body } : {}),
-      agentSessionId: sessionId,
-    });
+    const attachment = await this.linkAttachment(sessionId, state.issueId, request.publication);
     await this.linear.addExternalUrl(sessionId, { label: attachment.title, url: attachment.url });
     return { ok: true, action: request.action, data: attachment };
+  }
+
+  /**
+   * Links a "publish" attachment, preferring Linear's integration-aware rich mutations
+   * (live PR/CI status, etc) over the generic createIssueAttachment - anti-fragile by
+   * design: any failure in a richer attempt falls through to the next, ending at the
+   * generic call, which is the only one that supports subtitle/commentBody (so an
+   * attachment carrying either skips straight to it, unattempted). The caller always gets
+   * an attachment back or a thrown error from the final, always-supported fallback; nothing
+   * about a rich attempt failing is hidden - `richness` and `fallbackReason` report exactly
+   * what happened so Claude never claims live status sync it didn't actually get.
+   */
+  private async linkAttachment(
+    sessionId: string,
+    issueId: string,
+    publication: { title: string; url: string; subtitle?: string; body?: string },
+  ): Promise<{ id: string; title: string; url: string; richness: "github_pr" | "url" | "basic"; fallbackReason?: string }> {
+    const eligibleForRichLink = !publication.subtitle && !publication.body;
+    const isPullRequest = eligibleForRichLink && Boolean(githubPullRequestUrl(publication.url));
+    let attemptedRichLink = false;
+    if (isPullRequest) {
+      attemptedRichLink = true;
+      try {
+        const attachment = await this.linear.linkGitHubPullRequestAttachment(issueId, publication.url, publication.title);
+        return { ...attachment, richness: "github_pr" };
+      } catch (error) {
+        console.warn("rich GitHub pull request attachment failed; falling back", {
+          sessionId,
+          issueId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    if (eligibleForRichLink) {
+      attemptedRichLink = true;
+      try {
+        const attachment = await this.linear.linkUrlAttachment(issueId, publication.url, publication.title);
+        return { ...attachment, richness: "url" };
+      } catch (error) {
+        console.warn("rich URL attachment failed; falling back to a basic attachment", {
+          sessionId,
+          issueId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    const attachment = await this.linear.createIssueAttachment(issueId, {
+      title: publication.title,
+      url: publication.url,
+      ...(publication.subtitle ? { subtitle: publication.subtitle } : {}),
+      ...(publication.body ? { commentBody: publication.body } : {}),
+      agentSessionId: sessionId,
+    });
+    return {
+      ...attachment,
+      richness: "basic",
+      ...(attemptedRichLink ? { fallbackReason: "a richer Linear attachment link failed; used a basic attachment instead" } : {}),
+    };
   }
 
   async uploadLinearFile(sessionId: string, request: LinearUploadRequest, signal?: AbortSignal): Promise<string> {
