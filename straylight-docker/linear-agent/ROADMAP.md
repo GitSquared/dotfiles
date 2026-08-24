@@ -755,6 +755,51 @@ different cardinalities, not one.
    read/verification fanout alone (step 1's cheap version) already captures
    most of the value real parallelism was reaching for.
 
+### Revision after Gaby's review (2026-08-24)
+
+Two corrections, both adopted, plus one structural fix to the model itself:
+
+1. **Step 2's spike test was unnecessary caution - Gaby caught it.** Linear's
+   own docs state plainly that session status is computed from whichever
+   activity landed last; this repo's own history already proved it
+   empirically (the 2026-08-19 bug where a subsequent tool-call activity
+   buried a fresh elicitation, fixed by the capsule no longer generating
+   further progress activities once `awaitingInput` is true). No live
+   experiment is needed to learn something the vendor's own documentation
+   and this project's own incident history already establish. What was
+   actually still open - whether tonight's per-session activity-ordering
+   fix (`1abac19`) plus the existing capsule-side guard together fully
+   close the out-of-order-delivery gap the 2026-08-21 retry mechanism
+   reopened - is a code-review question, not an empirical unknown, and
+   it's already answered: the ordering fix ships exactly that.
+2. **Whether/how to split work into parallel streams is the implementing
+   agent's own discretion, not a fixed backend policy decided once** -
+   overriding the panel's recommendation to gate this the way
+   `defer_followup` gates sub-issue creation. Gaby's call: the agent
+   understands the specific task and should decide how to decompose it.
+3. **The bigger correction: work-parallelization and question-parallelization
+   are separate axes, not the same thing.** How the agent splits
+   implementation into concurrent threads (e.g. lock a data schema, then
+   build backend and frontend in parallel) is independent of which
+   product/design questions come up along the way - a question about
+   database indexing, or about what should happen on some action, doesn't
+   necessarily belong to any one implementation thread; it's a challenge to
+   the preciseness of the original expressed intent, cutting across
+   however the work happened to be split. Default handling for any such
+   question: the agent investigates and attempts to answer it itself
+   (check conventions, check the codebase, make the most reasonable call)
+   and tags the result as an assumption, rather than escalating by default -
+   genuine blocking is reserved for what only Gaby can actually decide (a
+   real preference, an authorization, something no amount of investigation
+   resolves). This generalizes "speculative execution" from a narrow
+   technical-decision tactic into the default posture for product
+   questions generally, and it's a cleaner resolution than trying to map
+   the four signal kinds onto the thread/stream structure: the checkpoint's
+   job becomes "here's every question that got a good-faith answer, for
+   your confirmation" plus "here's anything that genuinely couldn't be
+   resolved without you" - regardless of which implementation thread either
+   one happened to come up in.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit
