@@ -22,6 +22,7 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /manage_plan/);
   assert.match(prompt, /persistent notes under/);
   assert.match(prompt, /browser-rendered UI/);
+  assert.match(prompt, /standalone tool, independent of whatever visual-regression or screenshot test setup/);
   assert.doesNotMatch(prompt, /worktree\/branch/);
   assert.match(prompt, /include "NEMO-42" in its name/);
   assert.match(prompt, /an altitude filter/);
