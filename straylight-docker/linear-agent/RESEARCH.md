@@ -2923,3 +2923,79 @@ case where the SDK already pulled the message into its own internal
 buffering without ever using it. Recorded as a known, precise gap in
 ROADMAP.md rather than either silently shipping it or claiming it was
 fixed.
+
+## The GAB-16 live test: QA boilerplate, a rabbit hole, and where narration actually goes - 2026-08-25
+
+The first real test of tonight's streaming-input work (Slice 19) ran
+GAB-16 - a sidebar favorites feature - end to end to QA. Two separate
+threads came out of it, both worth recording precisely rather than by
+impression.
+
+**Boilerplate that a schema was silently forcing.** Gaby's QA comment
+had a "Recommendation" paragraph that added nothing ("Core feature is
+done and verified..."), a "Reply approve to complete" instruction
+nobody needed (the native buttons and a checkmark reaction already
+resolve QA), and three screenshots rendered as plain links instead of
+inline images. Checked the actual schema before assuming the model was
+just padding: `recommendation: z.string().min(1).max(1_000)` in
+`request_attention` (`agent-request.mjs`) had no `.optional()` - every
+single call, QA included, was *required* to invent a recommendation
+whether or not one existed. Made it optional, scoped to "a genuine
+decision worth weighing," dropped the QA reply instruction from both
+`renderAttentionComment` and `renderElicitationSummary`
+(`src/attention.ts`) since the buttons/reaction/free-text-approve paths
+already work without being told to, and added an `image` flag to
+evidence items so a screenshot embeds (`![]()`) instead of linking.
+
+**The rabbit hole and the narration gap - both root-caused against the
+real transcript, not guessed at.** While the capsule container was
+still up, pulled the complete session JSONL directly from
+`~/.claude/projects/-workspace/<id>.jsonl` inside it. Two findings, one
+per thread above the fold in ROADMAP.md's Slice 20: ~13 minutes lost
+fighting the repository's own `vitest.visual.config.ts`/`playwright-
+core` instead of using the simple `manage_service` browser tool it was
+already pointed at (fixed with a one-line prompt clarification), and
+the "agent session looks silent" complaint traced to 63 substantive
+plain-text narration blocks that were already being streamed to
+Linear - just marked `ephemeral: true`, which is transient by design.
+
+**Getting the fix right took a real correction, not just a data
+point.** First pass reasoned that flipping the thought stream to
+durable risked "flooding" - 63 permanent posts over 50 minutes. Gaby's
+pushback: if those land in the Agent Session's own activity log, that's
+exactly where dense narration belongs - it's the record of what the
+agent explored, not a message addressed to the human, and it's a
+fairly hidden UI surface besides. That reframing turned out to be
+exactly right once checked against the actual code: `createActivity`
+(`src/linear.ts`) calls `agentActivityCreate` targeting `agentSessionId`
+- a wholly different mutation, targeting a wholly different object,
+than `createIssueComment`'s `commentCreate` against `issueId`. A
+durable "thought" activity structurally cannot become an issue comment;
+"flooding" was importing a worry from the wrong surface. Shipped:
+`ClaudeHarness.run()` reports thought progress as durable
+unconditionally now; only an in-flight action (no result yet) stays
+ephemeral. One trade-off named rather than silently absorbed: durable
+delivery retries inline, serialized per session, up to ~46s worst case
+per failed post - at 63 posts/run that's fine, but it's an open question
+under a sustained Linear outage. Left unmitigated on purpose, same
+"watch the log before hardening" discipline as the Slice 19 delivery-ack
+gap two entries up.
+
+**A mid-conversation question, answered from the code rather than
+assumed.** Gaby asked whether the Agent Session's own free-input box -
+the one shown alongside an open QA/Steering elicitation - gets the same
+live "steering" treatment Slice 19 built for comments and mentions.
+This repo's own 2026-08-19 finding already settled half of it: a plain
+issue comment reply does not resume or drive a session at all,
+empirically confirmed live back then - only a genuine
+`AgentSessionEvent{action:"prompted"}` does. `controller.ts`'s handling
+of that event doesn't branch on where it came from - a real native
+Linear webhook, or the ask-tier's own synthetic `prompted` call built
+for tracked-comment replies - only on `state.running`. The elicitation's
+own free-input box is shown specifically because the session is
+*paused*, so a reply there hits the pre-existing cold-resume path
+rather than live-injection - correctly, since there is no in-flight
+turn to inject into at that moment. Left open: whether Linear separately
+lets a human message an *actively running* (non-paused) session through
+that same native surface, which would already get live-injection today
+if so - not directly observed either way, worth testing live.

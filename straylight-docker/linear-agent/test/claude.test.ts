@@ -280,7 +280,7 @@ test("publishes safe semantic Claude progress into Linear activity", async () =>
   }
 });
 
-test("posts a completed action durably while in-progress actions and thoughts stay ephemeral", async () => {
+test("posts a completed action and thought narration durably, while an in-progress action stays ephemeral", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-durable-progress-"));
   try {
     const progressConfig = { ...config(workdir), progressDebounceMs: 1, progressHeartbeatMs: 300_000 };
@@ -317,8 +317,10 @@ test("posts a completed action durably while in-progress actions and thoughts st
       agentActivity: { content: { body: "Fix the failing test." } },
     }, async (event) => { events.push(event as typeof events[number]); });
 
-    const thought = events.find((event) => event.content.type === "thought");
-    assert.equal(thought?.ephemeral, true);
+    // Excludes the hardcoded "Claude Code is starting..." thought reporter.start() always
+    // fires first, which stays ephemeral - this checks the progress-derived narration instead.
+    const thought = events.find((event) => event.content.type === "thought" && event.content.body === "Looking at the failing test.");
+    assert.equal(thought?.ephemeral, false);
 
     const inProgress = events.find((event) => event.content.type === "action" && event.content.result === undefined);
     assert.equal(inProgress?.ephemeral, true);

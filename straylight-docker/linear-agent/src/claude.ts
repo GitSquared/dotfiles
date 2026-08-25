@@ -74,9 +74,19 @@ export class ClaudeHarness {
         // A completed action - one that already carries its result - is durable:
         // it's the same "here's what happened" record Linear's own docs show
         // (`{action: "Searched", result: "..."}`), not routine narration. An
-        // action still in flight (no result yet) and raw thought streaming are
-        // both unchanged: transient status, discarded once superseded.
+        // action still in flight (no result yet) stays ephemeral - transient
+        // status, discarded once superseded by its own completed version.
+        // Thought narration is durable too, unconditionally: it only ever
+        // posts to the Agent Session's own activity timeline (agentActivityCreate
+        // targets the session, never the issue - createIssueComment is a wholly
+        // separate call), not the issue's comment thread, so there's no
+        // clutter-the-human risk. A real GAB-16 run showed why this matters:
+        // the model narrated substantively 63 times in plain text but called
+        // the deliberate linear_activity journal tool once - the free stream
+        // the model is already producing is the actual "what is it doing" log;
+        // ephemeral just meant it never stuck around long enough to read later.
         const completedAction = progress.type === "action" && Boolean(progress.result);
+        const ephemeral = progress.type === "action" && !completedAction;
         reporter.report({
           type: "activity",
           content: progress.type === "thought"
@@ -87,7 +97,7 @@ export class ClaudeHarness {
                 parameter: progressText(progress.parameter),
                 ...(progress.result ? { result: progressText(progress.result) } : {}),
               },
-          ephemeral: !completedAction,
+          ephemeral,
         });
       });
       if (timedOut) {

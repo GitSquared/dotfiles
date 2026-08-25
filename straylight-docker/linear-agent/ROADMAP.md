@@ -1045,10 +1045,9 @@ through the cold-resume path anyway, not this one). Still unverified:
 whether `interrupt()`'s `still_queued` receipt needs explicit handling -
 not exercised by this spike, since nothing called `interrupt()`.
 
-## Slice 20 (proposed) — durable narration without a paid tool call
+## Slice 20 — durable narration without a paid tool call
 
-Status: finding confirmed against a real transcript, design proposed,
-not decided, not built.
+Status: done, 2026-08-25.
 
 Origin: the first live GAB-16 test run (the one Slice 19 was built to
 support) showed the exact symptom reported earlier this session and
@@ -1091,43 +1090,50 @@ stream costs the model nothing extra (it's already producing this
 content as normal reasoning) and is already flowing through the
 system today; it just dead-ends at "ephemeral."
 
-**Two shapes worth weighing, not yet chosen between:**
+**Decided: B, not A - "flooding" was the wrong frame.** Two shapes were
+on the table: (A) a harness-driven periodic digest promoting rollups of
+recent thought content, keeping the live stream ephemeral; (B) simply
+stop marking the thought stream ephemeral. The initial worry about B -
+63 posts over 50 minutes reading as flooding - assumed a durable
+"thought" activity would clutter the issue's own comment thread, the
+same surface Signal/Steering/QA comments live on. Gaby's correction:
+that's not the right mental model. Verified directly against
+`src/linear.ts`: `createActivity` calls `agentActivityCreate`, targeting
+`agentSessionId` - a completely different mutation and target than
+`createIssueComment`'s `commentCreate`, which targets `issueId`. A
+durable "thought" activity only ever persists in the Agent Session's
+own activity timeline; it can never become an issue comment. That
+timeline *is* the "what has the agent been doing" log, distinct from
+the human-facing comment thread, and is exactly where dense narration
+belongs - not somewhere it needs to be rationed. Option B shipped:
+`ClaudeHarness.run()` (`src/claude.ts`) now reports thought progress
+with `ephemeral: false` unconditionally; only an in-flight (no-result-
+yet) action stays ephemeral, discarded once superseded by its own
+completed version, unchanged from before.
 
-- **A - harness-driven durable digest.** Keep the live ephemeral
-  stream exactly as-is (still useful for anyone watching in real
-  time), and separately have the *harness* - not the model, no tool
-  call, no judgment call to skip - periodically promote a rollup of
-  recent thought content to a real durable comment. Trigger on a
-  time/quantity heuristic (e.g. every N minutes of continuous work, or
-  every M tool calls, since the last durable post of any kind) rather
-  than model discretion. Keeps the model's own `linear_activity` calls
-  meaningful for genuine narrative beats while guaranteeing a
-  check-in-later trail exists regardless of whether the model bothers.
-- **B - stop marking it ephemeral.** Simplest possible change - flip
-  the existing debounced thought stream to durable, unconditionally.
-  Real risk: 63 posts over 50 minutes might read as flooding rather
-  than narration once every one of them is a permanent comment instead
-  of a transient status line; the 160-char/750ms debounce was tuned for
-  a live-typing indicator, not for scrollback density.
+One real trade-off named and deliberately not pre-solved: durable
+activity delivery is retried inline and awaited, serialized per
+session (up to `DURABLE_ACTIVITY_MAX_ATTEMPTS`, ~46s worst case per
+failed post) to keep the permanent record chronological, unlike
+ephemeral's fire-and-forget-no-retry. At the observed volume (63
+posts/run) that's not extreme, but a sustained Linear outage mid-run
+could now queue up meaningfully more retry-blocked durable posts than
+before, and they share the same per-session FIFO as Signal/QA/Steering
+posts. Not mitigated now - watching for it to actually happen (same
+discipline as the Slice 19 delivery-ack gap) before adding a
+retry-skipping "durable but best-effort" tier specifically for thought
+content.
 
-Leaning toward A on that basis, but this is a real user-facing
-interaction-design call (how chatty should the permanent record be),
-not an implementation detail - not building either without a decision.
-
-**Separately, a cheaper, unrelated finding from the same transcript:**
-~13 minutes of that run (22:19-22:32) went into fighting to wire the
-repository's own `vitest.visual.config.ts`/`playwright-core` visual-
-regression test infrastructure into the isolated `manage_service`
-browser - version mismatches, swapping `node_modules/playwright-core`
-aside and back, before abandoning it for the simple, already-documented
-path (`manage_service`'s browser, direct navigation and screenshot).
-The initial prompt's browser-testing instruction doesn't say
+**Separately, done in the same pass:** ~13 minutes of that run
+(22:19-22:32) went into fighting to wire the repository's own
+`vitest.visual.config.ts`/`playwright-core` visual-regression test
+infrastructure into the isolated `manage_service` browser - version
+mismatches, swapping `node_modules/playwright-core` aside and back,
+before abandoning it for the simple, already-documented path
+(`manage_service`'s browser, direct navigation and screenshot).
+`src/prompts.ts`'s browser-testing instruction now says
 `manage_service`'s browser is a standalone mechanism independent of
-whatever visual-testing setup a given repository happens to already
-have; a model discovering existing visual-test config reasonably (but
-wrongly, here) assumes it should hook into that instead of the simpler
-tool it was actually pointed at. Cheap, low-risk prompt clarification -
-not blocked on the narration design decision above.
+whatever visual-testing setup a repository happens to already have.
 
 ## Later hardening
 
