@@ -657,7 +657,7 @@ export class AgentController {
         });
         return false;
       });
-      await this.dismissAttention(sessionId, state.issueId, attention, "The parent Straylight run was stopped.");
+      await this.dismissAttention(sessionId, state.issueId, attention, "The parent Straylight run was stopped.", true);
       state.attention = [];
       this.touch(state);
       await this.persist();
@@ -978,7 +978,15 @@ export class AgentController {
       }
       if (["completed", "canceled"].includes(state.type)) {
         this.recordNotification(action, "cancellation");
-        await this.cancelMatching((session) => session.issueId === issueId, `Issue entered terminal status ${state.name}.`);
+        // restoreIssueState: false - the terminal status the human just set (e.g. dragging the
+        // issue straight to Done, bypassing the QA "Approve and complete" button entirely) is
+        // itself the reason we're cancelling. Restoring attention.previousStateId here would
+        // silently overwrite that explicit choice back to whatever it was before the open
+        // Steering/QA wait - "moved from Done to In Progress" a moment after a human marked it
+        // Done, undoing the one thing they just did. The other cancelMatching call sites
+        // (unassigned, lost team access, installation revoked) keep restoring: there the current
+        // status is incidental to the cancellation reason, not the reason itself.
+        await this.cancelMatching((session) => session.issueId === issueId, `Issue entered terminal status ${state.name}.`, false);
       } else {
         this.recordNotification(action, "lifecycle");
         console.info("Linear issue status changed without ending the Agent Session", { issueId, state: state.type });
@@ -1286,7 +1294,7 @@ export class AgentController {
     }
   }
 
-  private async cancelMatching(predicate: (state: SessionState) => boolean, reason: string): Promise<void> {
+  private async cancelMatching(predicate: (state: SessionState) => boolean, reason: string, restoreIssueState = true): Promise<void> {
     const cancellations: Promise<void>[] = [];
     for (const [sessionId, state] of this.states) {
       if (!predicate(state)) continue;
@@ -1306,7 +1314,7 @@ export class AgentController {
             message: error instanceof Error ? error.message : String(error),
           });
         }),
-        this.dismissAttention(sessionId, state.issueId, attention, reason),
+        this.dismissAttention(sessionId, state.issueId, attention, reason, restoreIssueState),
       ])
         .then(() => { state.attention = []; this.touch(state); });
       cancellations.push(cancellation);
@@ -1320,10 +1328,11 @@ export class AgentController {
     issueId: string | undefined,
     attention: ActiveAttention[],
     reason: string,
+    restoreIssueState: boolean,
   ): Promise<void> {
     if (!attention.length) return;
     const item = attention[0]!;
-    if (issueId) {
+    if (issueId && restoreIssueState) {
       try {
         await this.linear.setIssueState(issueId, item.previousStateId);
       } catch (error) {

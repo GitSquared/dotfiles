@@ -2999,3 +2999,50 @@ turn to inject into at that moment. Left open: whether Linear separately
 lets a human message an *actively running* (non-paused) session through
 that same native surface, which would already get live-injection today
 if so - not directly observed either way, worth testing live.
+
+## Marking an issue Done got silently reverted to In Progress - 2026-08-25
+
+Gaby dragged GAB-16 from "In Review" straight to "Done" - the direct
+issue-status move, not the QA "Approve and complete" button - and the
+very next Agent Session activity read "straylight moved from Done to
+In Progress." The human's own explicit completion got undone by the
+system a moment after they made it.
+
+Couldn't get live logs this time - Tailscale had no route to the
+`straylight` host from this session (`tailscale status` didn't even
+list it as a known peer, not just offline), a real environmental gap,
+not something to work around by guessing at log contents. Root-caused
+from the code instead, and the mechanism turned out to be unambiguous
+enough not to need the logs anyway.
+
+`issueStatusChanged`'s handler already existed for exactly this kind of
+event: fetch the issue's live state, and if its type is `completed` or
+`canceled`, call `cancelMatching(...)` to stop tracking the session -
+correct, safe, does nothing destructive on its own. The bug was one
+level deeper, in what cancellation does when a Steering/QA attention is
+still open: `cancelMatching` calls `dismissAttention`, and
+`dismissAttention` unconditionally called `setIssueState(issueId,
+attention.previousStateId)` - restoring the issue to whatever status it
+had *before* the QA request was opened (captured then as "In
+Progress"). That restore makes sense for the mechanism's other three
+callers - unassigned from the issue, lost team access, installation
+revoked - where the issue's current status is incidental to why the
+session is being cancelled, and leaving it stuck flagged for attention
+forever would be worse. It's actively wrong for exactly one caller: the
+`issueStatusChanged` branch, where the human's own move to a terminal
+status *is* the reason for the cancellation. Restoring `previousStateId`
+there doesn't clean up after an unrelated event, it overwrites the one
+thing the human just did.
+
+Fix: `cancelMatching` and `dismissAttention` both take an explicit
+`restoreIssueState` boolean now (no default on `dismissAttention` -
+every call site states its intent), and the `issueStatusChanged`
+terminal-status branch passes `false`. The other three call sites keep
+restoring, unchanged. Regression test in `test/notifications.test.ts`
+reproduces the exact GAB-16 sequence - open a QA attention (capturing
+`previousStateId`), then fire `issueStatusChanged` with the issue
+already reporting `completed` - and asserts `setIssueState` is never
+called; confirmed it actually fails against the pre-fix code (flipped
+the flag back to `true` locally, watched it fail with the exact stray
+`state-in-progress` write, then restored the fix) before trusting it as
+a real regression test rather than one that would pass regardless.

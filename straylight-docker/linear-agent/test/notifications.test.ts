@@ -131,6 +131,65 @@ test("treats issueStatusChangedAll the same as issueStatusChanged for the close-
   assert.equal(health.controller.notifications.last?.disposition, "cancellation");
 });
 
+test("does not restore the issue to its pre-attention status when a human sets a terminal status directly (GAB-16)", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "comment-1", body: "" }; },
+    // The first call captures previousStateId when the QA attention opens (still "In Progress");
+    // the second is issueStatusChanged's own live lookup, reflecting the human's direct move to Done.
+    issueState: (() => {
+      let calls = 0;
+      return async () => {
+        calls += 1;
+        return calls === 1
+          ? { id: "state-in-progress", name: "In Progress", type: "started" }
+          : { id: "state-done", name: "Done", type: "completed" };
+      };
+    })(),
+  } as unknown as LinearClient;
+  let aborts = 0;
+  const runner = {
+    async abort(_sessionId: string) { aborts += 1; return true; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "qa",
+      delivery: "queue",
+      priority: "medium",
+      blocking: true,
+      title: "Ready for review",
+      action: "Sidebar favorites are implemented and tested.",
+      evidence: [{ label: "Preview", url: "https://preview.example.test" }],
+    },
+  });
+  // The attention-open flow itself legitimately calls setIssueState to flag the issue -
+  // clear that before checking what the status-change notification does on its own.
+  stateFlips.length = 0;
+
+  // Gaby drags the issue straight to Done, bypassing the QA "Approve and complete" button -
+  // the exact live GAB-16 sequence: "Gaby moved from In Review to Done" immediately followed by
+  // "straylight moved from Done to In Progress".
+  await controller.handleNotification({ action: "issueStatusChanged", notification: { issueId: "issue-1" } });
+
+  assert.equal(aborts, 1, "the run must still stop once the issue reaches a terminal status");
+  assert.deepEqual(stateFlips, [], "the human's own terminal status change must never be reverted");
+});
+
 test("records an other issue-prefixed notification as contextOnly instead of unknown", async () => {
   const linear = {} as unknown as LinearClient;
   const runner = { async health() { return { mode: "test" }; } } as unknown as AgentRunner;
