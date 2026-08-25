@@ -492,14 +492,14 @@ export function createStraylightTools(context) {
     ),
     tool(
       "request_attention",
-      "Signal, Steering, or QA on the current issue. Signal posts a nonblocking comment and work must continue. Steering and QA flip the issue to the team's attention state, post the request as a native elicitation activity (not a comment), and pause for the engineer's reply on that same issue. QA requires evidence and provides standard approval controls. For a blocking Steering request caused specifically by missing developer-tool or capsule access, set missingAccess instead of evidence: Linear renders a dedicated account-linking control instead of a plain link.",
+      "Signal, Steering, or QA on the current issue. Signal posts a nonblocking comment and work must continue - a Signal is never blocking by definition, so don't add a \"no action needed\" or \"work continues\" disclaimer to one, that's filler. Steering and QA flip the issue to the team's attention state, post the request as a native elicitation activity (not a comment), and pause for the engineer's reply on that same issue - QA's native controls (a select button, or a checkmark reaction on the comment) already cover approval, so don't instruct the engineer to type a specific word either. QA requires evidence. Mark an evidence item's image field true when its url is a screenshot so it renders embedded in the comment instead of as a bare link; leave it false for things like a PR or test-run link. For a blocking Steering request caused specifically by missing developer-tool or capsule access, set missingAccess instead of evidence: Linear renders a dedicated account-linking control instead of a plain link.",
       {
         kind: z.enum(["signal", "steering", "qa"]),
         delivery: z.enum(["interrupt", "queue"]),
         priority: z.enum(["urgent", "high", "medium", "low", "none"]).optional(),
         title: z.string().min(1).max(160),
         action: z.string().min(1).max(1_000),
-        recommendation: z.string().min(1).max(1_000),
+        recommendation: z.string().min(1).max(1_000).optional().describe("Only for a genuine decision worth weighing - two real options, a tradeoff the engineer should compare or could challenge. Most QA requests have nothing to recommend beyond \"try it\" - omit it rather than manufacture one."),
         options: z.array(z.object({
           label: z.string().min(1).max(200),
           value: z.string().min(1).max(1_000),
@@ -508,6 +508,7 @@ export function createStraylightTools(context) {
         evidence: z.array(z.object({
           label: z.string().min(1).max(200),
           url: z.string().url().max(2_000),
+          image: z.boolean().optional(),
         })).min(1).max(8).optional(),
         missingAccess: z.object({
           workspace: z.enum(["capsule", "tools"]).describe("capsule: the Claude/Straylight identity itself needs re-authentication. tools: a developer tool (GitHub, npm, ...) in the task workspace needs a credential."),

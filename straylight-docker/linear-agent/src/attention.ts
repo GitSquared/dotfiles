@@ -11,6 +11,7 @@ export type AttentionOption = {
 export type AttentionEvidence = {
   label: string;
   url: string;
+  image?: boolean;
 };
 
 export type AttentionAccessRepair = {
@@ -25,7 +26,7 @@ export type AttentionRequest = {
   blocking?: boolean;
   title: string;
   action: string;
-  recommendation: string;
+  recommendation?: string;
   options?: AttentionOption[];
   evidence?: AttentionEvidence[];
   accessRepair?: AttentionAccessRepair;
@@ -82,10 +83,10 @@ export function attentionOptions(request: AttentionRequest): AttentionOption[] |
 
 // Matched against an exact, normalized set - never a substring - because QA_REVISE_VALUE
 // itself contains the word "approved" ("Not approved; resume the parent work."). The set
-// must include the literal word renderAttentionComment's QA instruction tells the human to
-// type ("Reply **approve** to complete"), not just the canonical button value: Linear's own
-// docs say a select elicitation's free-text reply may be natural language, not necessarily
-// the option's exact value.
+// keeps "approve"/"approved" as a quiet fallback even though the comment no longer instructs
+// anyone to type them - the native select buttons and a checkmark reaction are the advertised
+// paths, but Linear's own docs say a select elicitation's free-text reply may be natural
+// language, so someone typing it anyway should still work.
 const QA_APPROVAL_REPLIES = new Set(["approve", "approved", QA_APPROVE_VALUE.toLowerCase()]);
 
 export function isQaApproval(value: string): boolean {
@@ -117,9 +118,8 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
   );
   if (!(["signal", "steering", "qa"] as unknown[]).includes(request.kind)) return false;
   if (!(["interrupt", "queue"] as unknown[]).includes(request.delivery)) return false;
-  if (!bounded(request.title, 160)
-    || !bounded(request.action, 1_000)
-    || !bounded(request.recommendation, 1_000)) return false;
+  if (!bounded(request.title, 160) || !bounded(request.action, 1_000)) return false;
+  if (request.recommendation !== undefined && !bounded(request.recommendation, 1_000)) return false;
   if (request.priority !== undefined && !(["urgent", "high", "medium", "low", "none"] as unknown[]).includes(request.priority)) return false;
   if (request.blocking !== undefined && request.blocking !== attentionBlocking(request as AttentionRequest)) return false;
   if (request.kind === "signal" && request.delivery !== "queue") return false;
@@ -142,6 +142,7 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
     for (const evidence of request.evidence) {
       if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) return false;
       if (!bounded(evidence.label, 200) || !bounded(evidence.url, 2_000) || !isHttpsUrl(evidence.url)) return false;
+      if (evidence.image !== undefined && typeof evidence.image !== "boolean") return false;
     }
   }
 
@@ -181,15 +182,22 @@ export function renderAttentionComment(request: AttentionRequest): string {
     lines.push(options.map((option) => `- **${markdownLabel(option.label)}** — ${markdownText(option.value)}`).join("\n"));
   }
   if (request.evidence?.length) {
-    lines.push(request.evidence.map((evidence) => `- [${markdownLabel(evidence.label)}](${evidence.url})`).join("\n"));
+    lines.push(request.evidence.map((evidence) => (
+      evidence.image
+        ? `![${markdownLabel(evidence.label)}](${evidence.url})`
+        : `- [${markdownLabel(evidence.label)}](${evidence.url})`
+    )).join("\n"));
   }
-  if (request.kind === "qa") {
-    lines.push("Reply **approve** to complete, or reply with changes needed.");
-  } else if (request.kind === "steering") {
+  // QA gets no "reply approve" footer: the native select buttons, a checkmark reaction, and a
+  // plain-language reply all already resolve it (isQaApproval below), so spelling out one
+  // specific phrase to type is redundant hand-holding, not a real instruction. Steering keeps
+  // its footer because it genuinely requires a free-text answer, not just an approve/revise
+  // choice. Signal gets no footer either: there's nothing actionable to instruct, and a
+  // hardcoded "no action needed" line was pure filler that duplicated whatever Claude's own
+  // action text already said.
+  if (request.kind === "steering") {
     lines.push("Reply here to answer, or ask a follow-up.");
   }
-  // Signal gets no footer: there's nothing actionable to instruct, and a hardcoded "no action
-  // needed" line was pure filler that duplicated whatever Claude's own action text already said.
   return lines.join("\n\n");
 }
 
@@ -208,9 +216,8 @@ export function renderElicitationSummary(request: AttentionRequest): string {
     `**${heading}:** ${markdownText(request.title)}`,
     "See the comment on this issue for full context and evidence.",
   ];
-  if (request.kind === "qa") {
-    lines.push("Reply **approve** to complete, or reply with changes needed.");
-  } else {
+  // QA needs no reply instruction here either - see renderAttentionComment's comment above.
+  if (request.kind === "steering") {
     lines.push("Reply here to answer, or ask a follow-up.");
   }
   return lines.join("\n\n");

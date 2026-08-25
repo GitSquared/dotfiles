@@ -302,6 +302,14 @@ function baseAttentionRequest(overrides) {
   };
 }
 
+test("the request_attention tool description tells the model Signal needs no disclaimer and QA needs no reply instruction", () => {
+  const { instance } = createStraylightTools(accessRepairWorkbenchContext());
+  const description = instance._registeredTools.request_attention.description;
+  assert.match(description, /don't add a "no action needed" or "work continues" disclaimer/i);
+  assert.match(description, /don't instruct the engineer to type a specific word/i);
+  assert.match(description, /Mark an evidence item's image field true when its url is a screenshot/i);
+});
+
 test("the request_attention tool call rejects missingAccess on a non-blocking Signal or a QA request", async (t) => {
   const context = accessRepairWorkbenchContext();
   const fetchCalls = [];

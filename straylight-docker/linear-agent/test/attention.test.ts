@@ -37,7 +37,7 @@ test("renders a Signal comment with no hardcoded action-needed footer", () => {
   assert.doesNotMatch(comment, /No action needed/, "Signal has nothing actionable to instruct - a hardcoded reassurance line is just filler");
 });
 
-test("renders a QA comment with an approve instruction instead of an options list", () => {
+test("renders a QA comment with no approve instruction or options list - the native controls already cover it", () => {
   const { options: _options, ...steeringWithoutOptions } = steering;
   const qa = {
     ...steeringWithoutOptions,
@@ -46,9 +46,33 @@ test("renders a QA comment with an approve instruction instead of an options lis
   };
   const comment = renderAttentionComment(qa);
   assert.match(comment, /\*\*QA needed:\*\* Choose the migration boundary/);
-  assert.match(comment, /Reply \*\*approve\*\* to complete/);
+  assert.doesNotMatch(comment, /Reply \*\*approve\*\*/);
   assert.match(comment, /\[Preview\]\(https:\/\/preview\.example\.test\)/);
   assert.doesNotMatch(comment, /Approve and complete —/);
+});
+
+test("embeds image evidence inline instead of linking it", () => {
+  const { options: _options, ...steeringWithoutOptions } = steering;
+  const comment = renderAttentionComment({
+    ...steeringWithoutOptions,
+    kind: "qa" as const,
+    evidence: [
+      { label: "Before", url: "https://assets.example.test/before.png", image: true },
+      { label: "Test run", url: "https://ci.example.test/run/42" },
+    ],
+  });
+  assert.match(comment, /!\[Before\]\(https:\/\/assets\.example\.test\/before\.png\)/);
+  assert.match(comment, /- \[Test run\]\(https:\/\/ci\.example\.test\/run\/42\)/);
+});
+
+test("omits the recommendation line entirely when none is given", () => {
+  const { options: _options, recommendation: _recommendation, ...steeringWithoutRecommendation } = steering;
+  const comment = renderAttentionComment({
+    ...steeringWithoutRecommendation,
+    kind: "qa" as const,
+    evidence: [{ label: "Preview", url: "https://preview.example.test" }],
+  });
+  assert.doesNotMatch(comment, /Recommendation/);
 });
 
 test("accepts the literal word the QA instruction tells the human to type, not just the button's canonical value", () => {
@@ -72,12 +96,6 @@ test("requires review evidence before asking for QA attention", () => {
     kind: "qa",
     evidence: [{ label: "Preview", url: "https://preview.example.test" }],
   }), true);
-  const comment = renderAttentionComment({
-    ...qa,
-    kind: "qa",
-    evidence: [{ label: "Preview", url: "https://preview.example.test" }],
-  });
-  assert.match(comment, /Reply \*\*approve\*\* to complete/);
 });
 
 test("rejects unsafe evidence and duplicate choice values", () => {
