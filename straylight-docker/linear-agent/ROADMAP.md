@@ -1045,6 +1045,90 @@ through the cold-resume path anyway, not this one). Still unverified:
 whether `interrupt()`'s `still_queued` receipt needs explicit handling -
 not exercised by this spike, since nothing called `interrupt()`.
 
+## Slice 20 (proposed) — durable narration without a paid tool call
+
+Status: finding confirmed against a real transcript, design proposed,
+not decided, not built.
+
+Origin: the first live GAB-16 test run (the one Slice 19 was built to
+support) showed the exact symptom reported earlier this session and
+never actually fixed - "I see permanent tool calls, but the messages
+history in the agent session is still completely blank." Root-caused
+against the real session transcript (fetched from the capsule
+container's own `~/.claude/projects/-workspace/<id>.jsonl` while the
+container was still up, not guessed at): across a 50-minute, 253-tool-
+call run, the model produced 63 separate plain-text narration blocks
+between tool calls - "Now let's set up the plan...", "All 13 tests
+pass, including the axe accessibility check...", "Committed locally on
+`agent/gab-16`. Now let's publish the screenshots..." - genuinely
+substantive, exactly the "what is it doing" content Gaby wants to see.
+It called `linear_activity` (the durable journal tool) exactly once in
+that entire run, plus one Signal and one QA at the very end.
+
+**The streaming mechanism already exists - it's just marked
+ephemeral.** `createProgressProjector` (`agent-request.mjs`) already
+turns every `text_delta` stream event into a `{type:"thought", body}`
+progress event, debounced (160 chars or 750ms). `ClaudeHarness.run()`
+reports it with `ephemeral: !completedAction` - since a thought is
+never a completed action, every one of those 63 narration blocks *was*
+sent to Linear, as an `ephemeral: true` activity. `controller.ts`
+posts ephemeral activities best-effort, no retry, and by design they
+are transient status, superseded and gone rather than retained - a
+"still typing" indicator, not a scrollback entry. That is exactly why
+someone watching live would catch flickers of real narration while
+someone checking in later sees nothing between the tool-call log and
+the final QA: the content was never missing, it was never meant to
+persist.
+
+Gaby's own framing cuts to the actual fix: "perhaps we should rely on
+a tool call, which the model will intrinsically consider expensive -
+maybe we can just stream the messages from the agent as it is
+naturally working?" The transcript confirms the "expensive tool call"
+half of that directly - `linear_activity` competes with the model's
+own judgment about whether narrating is worth a deliberate action, and
+across a real run it decided no, 62 times out of 63. The plain-text
+stream costs the model nothing extra (it's already producing this
+content as normal reasoning) and is already flowing through the
+system today; it just dead-ends at "ephemeral."
+
+**Two shapes worth weighing, not yet chosen between:**
+
+- **A - harness-driven durable digest.** Keep the live ephemeral
+  stream exactly as-is (still useful for anyone watching in real
+  time), and separately have the *harness* - not the model, no tool
+  call, no judgment call to skip - periodically promote a rollup of
+  recent thought content to a real durable comment. Trigger on a
+  time/quantity heuristic (e.g. every N minutes of continuous work, or
+  every M tool calls, since the last durable post of any kind) rather
+  than model discretion. Keeps the model's own `linear_activity` calls
+  meaningful for genuine narrative beats while guaranteeing a
+  check-in-later trail exists regardless of whether the model bothers.
+- **B - stop marking it ephemeral.** Simplest possible change - flip
+  the existing debounced thought stream to durable, unconditionally.
+  Real risk: 63 posts over 50 minutes might read as flooding rather
+  than narration once every one of them is a permanent comment instead
+  of a transient status line; the 160-char/750ms debounce was tuned for
+  a live-typing indicator, not for scrollback density.
+
+Leaning toward A on that basis, but this is a real user-facing
+interaction-design call (how chatty should the permanent record be),
+not an implementation detail - not building either without a decision.
+
+**Separately, a cheaper, unrelated finding from the same transcript:**
+~13 minutes of that run (22:19-22:32) went into fighting to wire the
+repository's own `vitest.visual.config.ts`/`playwright-core` visual-
+regression test infrastructure into the isolated `manage_service`
+browser - version mismatches, swapping `node_modules/playwright-core`
+aside and back, before abandoning it for the simple, already-documented
+path (`manage_service`'s browser, direct navigation and screenshot).
+The initial prompt's browser-testing instruction doesn't say
+`manage_service`'s browser is a standalone mechanism independent of
+whatever visual-testing setup a given repository happens to already
+have; a model discovering existing visual-test config reasonably (but
+wrongly, here) assumes it should hook into that instead of the simpler
+tool it was actually pointed at. Cheap, low-risk prompt clarification -
+not blocked on the narration design decision above.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit
