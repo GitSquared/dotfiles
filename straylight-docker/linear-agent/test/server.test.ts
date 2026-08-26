@@ -139,3 +139,17 @@ test("acknowledges a raw signed webhook before delayed dispatch", async () => {
   await Bun.sleep(1);
   assert.equal(handled, true);
 });
+
+test("serves git commit identity and signing key setup alongside GitHub CLI auth instructions", async () => {
+  const controller = {} as unknown as AgentController;
+  const handler = createServer(config, {} as LinearClient, controller);
+  const response = await handler(new Request("https://straylight.example.test/linear/tools/auth"));
+  assert.equal(response.status, 200);
+  const bodyText = await response.text();
+  assert.match(bodyText, /entrypoint git linear-agent-runner config --global user\.name/);
+  assert.match(bodyText, /entrypoint git linear-agent-runner config --global user\.email/);
+  assert.match(bodyText, /entrypoint git linear-agent-runner config --global gpg\.format ssh/);
+  assert.match(bodyText, /entrypoint git linear-agent-runner config --global user\.signingkey \/tool-profile\/signing\/id_ed25519/);
+  assert.match(bodyText, /entrypoint git linear-agent-runner config --global commit\.gpgsign true/);
+  assert.match(bodyText, /GH_CONFIG_DIR and GIT_CONFIG_GLOBAL point there, so authentication, commit identity, and signing keys survive/);
+});

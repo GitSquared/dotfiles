@@ -176,9 +176,10 @@ described below.
 - `workspace/runs/<session-hash>` is the persistent private workspace for one
   Linear Agent Session.
 - `tool-profile/` contains the single engineer's persistent GitHub CLI and Git
-  credential-helper state plus an optional web-search provider configuration. It
-  is mounted read-only into coding tasks and is not mounted into the controller
-  or Claude capsule.
+  credential-helper state, the same global Git config's committer identity
+  (`user.name`/`user.email`) and optional commit-signing key, plus an optional
+  web-search provider configuration. It is mounted read-only into coding tasks
+  and is not mounted into the controller or Claude capsule.
 - `data/tasks/<session-hash>` contains Claude conversation state and a
   `session.json` mapping back to the Linear session and issue.
 - `state/controller-sessions.json` retains active, queued, or awaiting-input
@@ -384,6 +385,34 @@ It is appropriate for the personal pilot, but it is not a multi-user capability
 broker. Claude requests Steering with the developer-tools workspace when the
 CLI reports missing or expired authentication; after SSH setup, reply `resume`
 in Linear.
+
+The same `/tool-profile` global Git config also carries the committer identity
+task commits use, and an optional SSH commit-signing key - both set once from
+the same trusted workbench and reused by every task container afterward:
+
+```sh
+cd /home/gaby/straylight-docker
+./compose run --rm --no-deps --entrypoint git \
+  linear-agent-runner config --global user.name "Your Name"
+./compose run --rm --no-deps --entrypoint git \
+  linear-agent-runner config --global user.email "you@example.com"
+
+# Optional commit signing with an SSH key - openssh-client is already in the
+# image, so no GPG setup is required:
+ssh-keygen -t ed25519 -C "straylight commit signing" -N "" \
+  -f linear-agent/tool-profile/signing/id_ed25519
+./compose run --rm --no-deps --entrypoint git \
+  linear-agent-runner config --global gpg.format ssh
+./compose run --rm --no-deps --entrypoint git \
+  linear-agent-runner config --global user.signingkey /tool-profile/signing/id_ed25519
+./compose run --rm --no-deps --entrypoint git \
+  linear-agent-runner config --global commit.gpgsign true
+# then add the printed .pub key to GitHub as a *Signing Key*, not just an
+# Authentication Key: https://github.com/settings/keys
+```
+
+Claude asks for the same Steering when a commit fails for a missing identity
+or signing key, pointing at `/tools/auth`, which carries these exact commands.
 
 RTK is available in the task shell as a CLI for compacting supported command
 output; invoke it explicitly (for example `rtk git status`) to reduce verbose
