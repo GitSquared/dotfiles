@@ -1648,3 +1648,56 @@ passes.
   if hostile repository code becomes an explicit threat model.
 - Split `/tool-profile` into typed, short-lived capabilities if the pilot grows
   beyond one trusted engineer.
+
+## Slice 27 — git commit identity and signing keys (GAB-24)
+
+Status: done, 2026-08-26.
+
+Origin: Gaby, GAB-24 - "In the same way that first delegations by unknown
+users should prompt them to ssh in and authenticate their claude code agent,
+we should instruct them to setup the git committing identity and signing
+keys if any, and store and re-use those."
+
+Slice 14's GitHub CLI auth already established the whole pattern this needed:
+`/tools/auth` serves plain-text SSH instructions Claude points a blocking
+Steering `missingAccess` request at, the engineer runs the commands from the
+trusted `linear-agent-runner` workbench (never inside a task jail), and the
+result lands under the single shared `/tool-profile` mount so it survives
+every ephemeral task container and image rebuild - `GIT_CONFIG_GLOBAL` and
+`GH_CONFIG_DIR` already pointed there for exactly this reason. Committer
+identity and commit signing were the one remaining gap: nothing told the
+engineer where to put `user.name`/`user.email`, and a task's `git commit`
+had no path to a working signature at all.
+
+**Change shipped:** `/tools/auth` (`src/server.ts`) now also documents, right
+after the GitHub CLI block:
+
+- `git config --global user.name`/`user.email` through the same
+  `linear-agent-runner` entrypoint the `gh auth` commands already use - it
+  writes into the same `GIT_CONFIG_GLOBAL` file, so no new storage or mount
+  was needed.
+- an optional SSH-based commit-signing key (`gpg.format ssh`,
+  `user.signingkey`, `commit.gpgsign`) generated straight onto
+  `tool-profile/signing/` with `ssh-keygen`. SSH signing was chosen over GPG
+  specifically because `openssh-client` is already in the shared runner/task
+  image (`Dockerfile`'s `runner-system` stage) and both `git` and
+  `ssh-keygen -Y sign` ship there today; GPG would have needed a new package
+  and a `GNUPGHOME`, for a personal pilot where the SSH keys GitHub already
+  supports as commit-signing verifiers are the simpler answer. The private
+  key lives under the same read-only `/tool-profile` a task container already
+  trusts for the GitHub OAuth token, so no capability line was crossed.
+
+README's "Developer-tool authentication" section and its `tool-profile/` data
+layout bullet gained the matching write-up so this isn't `/tools/auth`-only
+documentation. One test (`test/server.test.ts`) asserts `/tools/auth` still
+serves every one of these commands verbatim - the existing suite had no
+coverage at all for that endpoint's text, and a silently wrong instruction
+here is a genuine footgun the engineer would only discover mid-SSH-session.
+`bun run check` (typecheck + all 208 tests) passes.
+
+Deliberately out of scope: no code path detects a missing identity or key on
+its own - exactly like `gh auth status` today, this stays reactive, on
+Claude's own judgment when a `git commit`/signing operation actually fails,
+per the existing `missingAccess` Steering convention. Nothing forwards an
+`ssh-agent` socket into task containers either; the stored private key file is
+read directly, matching how the GitHub OAuth token file already works there.
