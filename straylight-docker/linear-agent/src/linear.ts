@@ -703,6 +703,23 @@ export class LinearClient {
     return comment;
   }
 
+  // GAB-24/GAB-26: threads a reply under an existing tracked comment (a still-open Steering/QA
+  // discussion's own root) instead of opening a disconnected new top-level comment every time
+  // a follow-up round continues the same conversation.
+  async replyToIssueComment(issueId: string, parentId: string, body: string): Promise<{ id: string; body: string }> {
+    const data = await this.graphql<{
+      commentCreate: { success: boolean; comment?: { id: string; body: string } | null };
+    }>(
+      `mutation ReplyToIssueComment($input: CommentCreateInput!) {
+        commentCreate(input: $input) { success comment { id body } }
+      }`,
+      { input: { issueId, parentId, body } },
+    );
+    const comment = data.commentCreate.comment;
+    if (!data.commentCreate.success || !comment) throw new Error("Linear rejected issue comment reply creation");
+    return comment;
+  }
+
   async setIssueState(issueId: string, stateId: string): Promise<void> {
     const data = await this.graphql<{ issueUpdate: { success: boolean } }>(
       `mutation SetIssueState($id: String!, $input: IssueUpdateInput!) {

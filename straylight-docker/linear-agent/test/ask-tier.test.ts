@@ -440,10 +440,18 @@ test("a non-approval reply to the tracked attention comment restores issue statu
     async completeIssue(issueId: string) { completedIssues.push(issueId); },
     async resolveComment(commentId: string) { resolvedComments.push(commentId); },
   });
+  // The turn that requested the attention is still live throughout (matches production: a
+  // task's Claude Agent SDK subprocess stays running while blocked on collaborateLinear mid-
+  // turn) - a reply while state.running is true is injected via followUp(), not a fresh
+  // run(), and this same run() promise is what eventually resolves once that turn wraps up.
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }) => void;
+  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
   const runner = {
     async repositories() { return []; },
     async health() { return { mode: "test" }; },
-    async run() { return new Promise(() => {}); },
+    async run() { return run; },
     async followUp() { return true; },
   } as unknown as AgentRunner;
   const controller = new AgentController(linear, runner);
@@ -476,10 +484,26 @@ test("a non-approval reply to the tracked attention comment restores issue statu
   });
 
   assert.deepEqual(completedIssues, []);
+  // GAB-26: a reply is only acknowledged, not resolved, the instant it lands - the issue must
+  // not drop out of its attention state, and the tracked thread must not resolve, until the
+  // resumed turn this reply feeds actually concludes without needing to raise a fresh
+  // attention of its own.
+  assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }],
+    "a bare reply must not immediately restore issue status (GAB-25/GAB-26)");
+  assert.deepEqual(resolvedComments, [], "a bare reply must not immediately resolve the tracked thread either (GAB-25/GAB-26)");
+
+  finishRun({ ok: true, timedOut: false, awaitingInput: false, summary: "Kept the old writer, added a rollback plan.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  assert.deepEqual(completedIssues, []);
   assert.deepEqual(stateFlips, [
     { issueId: "issue-1", stateId: "state-blocked" },
     { issueId: "issue-1", stateId: "state-in-progress" },
-  ]);
+  ], "the deferred restore fires once the resumed turn concludes cleanly");
   assert.deepEqual(resolvedComments, ["attention-comment-1"], "the Steering thread was still answered/acted on, even though QA wasn't approved (GAB-22)");
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(health.controller.attentionQueue.total, 0);
@@ -593,4 +617,184 @@ test("does not auto-start a queued follow-up the instant a run ends by opening a
   assert.equal(runs, 1, "the queued follow-up must not auto-start a doomed second turn while the blocking QA is still open");
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(health.controller.attentionQueue.total, 1, "the QA itself must still be tracked as open");
+});
+
+test("threads a mid-discussion follow-up attention as a reply under the original tracked comment, and resolves only once the discussion genuinely concludes (GAB-24/GAB-26)", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const reactions: Array<{ commentId: string; emoji: string }> = [];
+  const resolvedComments: string[] = [];
+  const topLevelComments: Array<{ issueId: string; body: string }> = [];
+  const replies: Array<{ issueId: string; parentId: string; body: string }> = [];
+  let issueStateCalls = 0;
+  const linear = baseLinear({
+    async issueState() { issueStateCalls += 1; return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment(issueId: string, body: string) {
+      topLevelComments.push({ issueId, body });
+      return { id: "root-comment-1", body };
+    },
+    async replyToIssueComment(issueId: string, parentId: string, body: string) {
+      replies.push({ issueId, parentId, body });
+      return { id: `reply-comment-${replies.length}`, body };
+    },
+    async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
+  });
+  // The turn that opened the first attention stays live throughout (matches production: the
+  // task's Claude Agent SDK subprocess keeps running while blocked on collaborateLinear
+  // mid-turn) - every reply below is injected via followUp(), and this one run() promise is
+  // what eventually resolves once the whole discussion wraps up.
+  let finishRun!: (value: { ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }) => void;
+  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }>((resolve) => {
+    finishRun = resolve;
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return run; },
+    async followUp() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "medium",
+      title: "Pick a boundary",
+      action: "Decide the migration boundary before continuing.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+  assert.equal(topLevelComments.length, 1, "the first attention in a fresh discussion opens a real top-level comment");
+  assert.equal(issueStateCalls, 1);
+  assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
+
+  // The human replies with a genuine question, not a decision.
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "What happens to in-flight writes during the cutover?" } },
+    agentSession: { id: "session-1", comment: { id: "reply-1", body: "What happens to in-flight writes during the cutover?" } },
+  });
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }], "the reply is acknowledged immediately");
+  assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }],
+    "GAB-26: a bare reply must not immediately restore issue status");
+  assert.deepEqual(resolvedComments, [], "GAB-26: a bare reply must not immediately resolve the tracked thread");
+
+  // The resumed turn answers the question but needs to keep discussing - it raises a fresh
+  // Steering attention of its own, mid-turn, on the same still-running session.
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "medium",
+      title: "In-flight writes during cutover",
+      action: "In-flight writes would be dropped unless we drain first - drain before cutover, or accept the loss?",
+      recommendation: "Drain first.",
+    },
+  });
+  assert.equal(issueStateCalls, 1, "GAB-26: a continuation must reuse the discussion's original previousStateId, not re-query the issue's current (attention) state");
+  assert.equal(topLevelComments.length, 1, "GAB-24: a continuation must not open a disconnected new top-level comment");
+  assert.equal(replies.length, 1, "GAB-24: the continuation threads a reply under the discussion's own root comment");
+  assert.equal(replies[0]?.issueId, "issue-1");
+  assert.equal(replies[0]?.parentId, "root-comment-1");
+  assert.match(replies[0]?.body ?? "", /In-flight writes during cutover/);
+  // Opening any attention always (re-)flips the issue into the attention state - harmless
+  // and idempotent from Linear's point of view, and unrelated to the GAB-26 restore, which
+  // only ever needs to fire once the whole discussion is actually settled.
+  assert.deepEqual(stateFlips, [
+    { issueId: "issue-1", stateId: "state-blocked" },
+    { issueId: "issue-1", stateId: "state-blocked" },
+  ]);
+
+  // The human answers that second question too - still just discussion, still deferred.
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "Drain first." } },
+    agentSession: { id: "session-1", comment: { id: "reply-2", body: "Drain first." } },
+  });
+  assert.deepEqual(stateFlips, [
+    { issueId: "issue-1", stateId: "state-blocked" },
+    { issueId: "issue-1", stateId: "state-blocked" },
+  ], "still no restore - the discussion is still open");
+  assert.deepEqual(resolvedComments, []);
+
+  // Only now does the resumed turn actually conclude, without raising yet another attention.
+  finishRun({ ok: true, timedOut: false, awaitingInput: false, summary: "Draining before cutover, as decided.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  assert.deepEqual(stateFlips, [
+    { issueId: "issue-1", stateId: "state-blocked" },
+    { issueId: "issue-1", stateId: "state-blocked" },
+    { issueId: "issue-1", stateId: "state-in-progress" },
+  ], "the whole discussion settles at once, restoring the issue's ORIGINAL pre-attention state");
+  assert.deepEqual(resolvedComments, ["root-comment-1"], "only the discussion's single root thread is resolved, not each individual reply");
+});
+
+test("restores issue status when the run is stopped mid-discussion, even though no attention is currently open (GAB-26)", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const resolvedComments: string[] = [];
+  const linear = baseLinear({
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "root-comment-1", body: "" }; },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
+  });
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run() { return new Promise(() => {}); }, // the turn that opened the attention never returns on its own
+    async followUp() { return true; },
+    async abort() { return true; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("session-1", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "medium",
+      title: "Pick a boundary",
+      action: "Decide the migration boundary before continuing.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+
+  // The human's reply defers resolution instead of resolving it immediately (GAB-26) - the
+  // session is left with no currently-open attention (state.attention.length === 0) but a
+  // still-pending discussion.
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "What happens to in-flight writes?" } },
+    agentSession: { id: "session-1", comment: { id: "reply-1", body: "What happens to in-flight writes?" } },
+  });
+  const midDiscussion = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(midDiscussion.controller.attentionQueue.total, 0, "no attention is currently open while the deferred discussion is mid-flight");
+
+  // The human stops the run before it ever answers.
+  await controller.handle({ action: "stop", agentSession: { id: "session-1" } });
+
+  assert.deepEqual(stateFlips, [
+    { issueId: "issue-1", stateId: "state-blocked" },
+    { issueId: "issue-1", stateId: "state-in-progress" },
+  ], "stopping mid-discussion must still restore the issue out of its attention state, not leave it stuck in 'In Review' forever");
+  assert.deepEqual(resolvedComments, [], "a stopped session's still-open question stays visible, matching dismissAttention's own convention");
 });

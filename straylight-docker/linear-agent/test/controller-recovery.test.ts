@@ -716,8 +716,8 @@ test("does not clear a genuinely open attention just because its latest activity
       };
     },
   } as unknown as LinearClient;
-  let finishRun: ((value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void) | undefined;
-  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+  let finishRun: ((value: { ok: true; timedOut: false; awaitingInput: boolean; summary: string; elapsedMs: number }) => void) | undefined;
+  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: boolean; summary: string; elapsedMs: number }>((resolve) => {
     finishRun = resolve;
   });
   const runner = {
@@ -755,10 +755,20 @@ test("does not clear a genuinely open attention just because its latest activity
   assert.ok(snapshotCalls >= 1, "the opportunistic check must run for a session with an open attention");
   const resumed = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(resumed.controller.attentionQueue.total, 0, "the reply itself still resolves the attention through the normal flow");
-  assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" },
-    "the normal reply flow's issue-state restore must still run - the live check must not have already cleared attention");
   assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
-  finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
+  // GAB-26: the issue-state restore is now deferred until the resumed turn concludes, not
+  // fired the instant the reply lands - so it must not have happened yet here.
+  assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }],
+    "the live check must not have already cleared attention, but the reply must not immediately restore issue status either");
+
+  finishRun?.({ ok: true, timedOut: false, awaitingInput: false, summary: "Kept the old writer.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+  assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" },
+    "the normal reply flow's issue-state restore must still run, once the resumed turn concludes");
 });
 
 test("keeps a Pi run alive when an ephemeral Linear activity fails", async () => {
@@ -902,8 +912,8 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
       activities.push({ content, ...(options ? { options } : {}) });
     },
   } as unknown as LinearClient;
-  let finishRun: ((value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void) | undefined;
-  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+  let finishRun: ((value: { ok: true; timedOut: false; awaitingInput: boolean; summary: string; elapsedMs: number }) => void) | undefined;
+  const run = new Promise<{ ok: true; timedOut: false; awaitingInput: boolean; summary: string; elapsedMs: number }>((resolve) => {
     finishRun = resolve;
   });
   const runner = {
@@ -963,9 +973,22 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   });
   const resumed = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(resumed.controller.attentionQueue.total, 0);
-  assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" });
+  // GAB-26: the reply is only acknowledged, not resolved, the instant it lands - the issue
+  // must not drop out of its attention state until the resumed turn it feeds actually
+  // concludes without raising a fresh attention of its own.
+  assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }],
+    "a bare reply must not immediately restore issue status (GAB-25/GAB-26)");
   assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
-  finishRun?.({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting", elapsedMs: 1 });
+
+  finishRun?.({ ok: true, timedOut: false, awaitingInput: false, summary: "Kept the old writer.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+  assert.deepEqual(stateFlips[1], { issueId: "issue-1", stateId: "state-in-progress" },
+    "the deferred restore fires once the resumed turn concludes cleanly");
+  assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
 });
 
 test("posts an access-repair Steering request with the native auth signal", async () => {

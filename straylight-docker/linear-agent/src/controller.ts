@@ -31,6 +31,22 @@ import type {
 } from "./types.js";
 import { PermanentWebhookDeliveryError } from "./webhook-inbox.js";
 
+// GAB-26: a reply landed on a blocking Steering/QA attention, but the controller isn't
+// unilaterally sure yet whether it was the real decision or just discussion - this is the
+// bookkeeping that lets it defer restoring the issue's pre-attention state and resolving the
+// discussion's tracked comment thread until the resumed turn it fed genuinely concludes. See
+// settlePendingAttentionResolution.
+type PendingAttentionResolution = {
+  // The issue's state before the very first attention opened in this still-open discussion -
+  // never overwritten by a later continuation round, since by then the issue's "current"
+  // state is just the attention state itself, not a real value to restore to.
+  previousStateId: string;
+  // The discussion's own root tracked comment, so every later round threads a reply under it
+  // (GAB-24) instead of opening a disconnected new top-level comment, and so there is exactly
+  // one thread to resolve once the discussion is genuinely settled.
+  rootCommentId?: string;
+};
+
 type SessionState = {
   running: boolean;
   awaitingInput: boolean;
@@ -45,6 +61,7 @@ type SessionState = {
   openAsks: OpenAsk[];
   claudeConversationId: string | undefined;
   pullRequest: { url: string; owner: string; repo: string; number: number; lastKnownReviewAt: string | undefined } | undefined;
+  pendingAttentionResolution: PendingAttentionResolution | undefined;
   updatedAt: number;
 };
 
@@ -166,6 +183,7 @@ export class AgentController {
         openAsks: record.openAsks ?? [],
         claudeConversationId: record.claudeConversationId,
         pullRequest: record.pullRequest ? { ...record.pullRequest, lastKnownReviewAt: record.pullRequest.lastKnownReviewAt } : undefined,
+        pendingAttentionResolution: record.pendingAttentionResolution,
         updatedAt: record.updatedAt,
       };
       this.states.set(record.sessionId, state);
@@ -332,6 +350,7 @@ export class AgentController {
             ...(state.pullRequest.lastKnownReviewAt ? { lastKnownReviewAt: state.pullRequest.lastKnownReviewAt } : {}),
           },
         } : {}),
+        ...(state.pendingAttentionResolution ? { pendingAttentionResolution: state.pendingAttentionResolution } : {}),
         updatedAt: state.updatedAt,
       }))) ?? Promise.resolve());
     return this.persistence;
@@ -407,7 +426,17 @@ export class AgentController {
       if (state.attention.length) {
         throw new Error("This Agent Session already has an unresolved blocking attention request");
       }
-      const previousState = await this.linear.issueState(state.issueId);
+      // GAB-26/GAB-24: if a discussion is still open from an earlier round on this same
+      // session (a human reply the controller deliberately hasn't resolved yet - see
+      // settlePendingAttentionResolution below), this new attention is a continuation of
+      // that same conversation, not an unrelated fresh one. Re-querying the issue's current
+      // state now would just capture "In Review" itself (the attention state, not the real
+      // pre-attention one), so reuse the discussion's original previousStateId instead, and
+      // thread the tracked comment as a reply under the discussion's own root comment rather
+      // than opening a disconnected new top-level comment (GAB-24: "the agent had to post a
+      // new top-level task comment instead of being able to answer my question in-thread").
+      const continuation = state.pendingAttentionResolution;
+      const previousStateId = continuation?.previousStateId ?? (await this.linear.issueState(state.issueId)).id;
       const attentionStateId = await this.linear.resolveAttentionStateId(state.teamId, this.attentionStateName);
       await this.linear.setIssueState(state.issueId, attentionStateId);
       const options = attentionOptions(req)?.map(({ label, value }) => ({ label, value }));
@@ -427,7 +456,10 @@ export class AgentController {
       // A reply here now genuinely resolves the attention (unlike the pre-2026-08-19 version
       // of this, removed because replying to it silently did nothing), via the same
       // tracked-comment-reply-routing the ask tier already proved live.
-      const comment = await this.linear.createIssueComment(state.issueId, finalText(commentBody)).catch((error: unknown) => {
+      const comment = await (continuation?.rootCommentId
+        ? this.linear.replyToIssueComment(state.issueId, continuation.rootCommentId, finalText(commentBody))
+        : this.linear.createIssueComment(state.issueId, finalText(commentBody))
+      ).catch((error: unknown) => {
         console.warn("failed to post the tracked attention comment; the native elicitation reply path still works", {
           sessionId,
           message: error instanceof Error ? error.message : String(error),
@@ -437,7 +469,7 @@ export class AgentController {
       const active: ActiveAttention = {
         kind: req.kind,
         priority: attentionPriority(req),
-        previousStateId: previousState.id,
+        previousStateId,
         requestedAt: Date.now(),
         ...(comment ? { commentId: comment.id } : {}),
       };
@@ -610,6 +642,7 @@ export class AgentController {
       openAsks: [],
       claudeConversationId: undefined,
       pullRequest: undefined,
+      pendingAttentionResolution: undefined,
       updatedAt: Date.now(),
     };
     state.issueId = session.issueId ?? session.issue?.id ?? state.issueId;
@@ -670,19 +703,29 @@ export class AgentController {
         await this.approveQa(sessionId, state, state.issueId, replyCommentId, attentionCommentId);
         return;
       }
-      if (state.issueId) {
-        await this.linear.setIssueState(state.issueId, attention.previousStateId).catch((error: unknown) => {
-          console.warn("failed to restore issue status after resolving attention", {
-            sessionId,
-            message: error instanceof Error ? error.message : String(error),
-          });
-        });
-      }
       if (replyCommentId) await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
-      // The decision this thread existed to get has now landed and been acted on - resolve it
-      // the same way a human would via the comment's "..." menu, instead of leaving every
-      // answered Steering/QA thread open forever (GAB-22).
-      if (attentionCommentId) await this.linear.resolveComment(attentionCommentId).catch(() => undefined);
+      // GAB-26: a reply to a Steering/QA elicitation might be the actual decision, or it might
+      // just be a follow-up question - weighing options or asking for clarification before
+      // deciding. The controller can't tell those apart from the text alone (unlike the
+      // QA-approval fast path above, which is an unambiguous structured signal), and guessing
+      // wrong is exactly the GAB-25 bug: a reply that was really a question got the thread
+      // auto-resolved, the issue dropped out of its attention status, and a fresh run started,
+      // all before the question was ever actually answered. So this only reacts with an
+      // immediate checkmark - true receipt acknowledgement, not resolution - and defers the
+      // real "decision landed" bookkeeping (issue-state restore, thread resolve) until the
+      // resumed turn this reply feeds into actually concludes without needing to raise another
+      // blocking attention of its own. See settlePendingAttentionResolution, called from
+      // execute()'s normal completion path, start()'s crash handler, and the stop/cancellation
+      // paths. Chained across possibly several rounds of discussion on the same original
+      // attention (only the oldest previousStateId and the discussion's root comment id are
+      // kept, not overwritten by each new round), rather than resolving one round at a time and
+      // leaving the issue's own state field bouncing between attention and non-attention while
+      // a single conversation is still ongoing.
+      const rootCommentId = state.pendingAttentionResolution?.rootCommentId ?? attentionCommentId;
+      state.pendingAttentionResolution = {
+        previousStateId: state.pendingAttentionResolution?.previousStateId ?? attention.previousStateId,
+        ...(rootCommentId ? { rootCommentId } : {}),
+      };
       await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "thought",
         body: "Reply received; resuming the run.",
@@ -721,6 +764,13 @@ export class AgentController {
         });
       }
       await this.dismissAttention(sessionId, state.issueId, attention, "The parent Straylight run was stopped.", true);
+      // GAB-26: dismissAttention already restored issue state from `attention` above when
+      // there was one currently open; only fall back to the deferred discussion's own
+      // previousStateId when there wasn't (a stop landing in the window between a reply and
+      // its resumed turn concluding), so the issue doesn't stay stuck in "In Review" forever.
+      // Never resolves the thread here either way - a stopped session's still-open question
+      // stays visible, matching dismissAttention's own convention.
+      await this.settlePendingAttentionResolution(sessionId, state, { restoreIssueState: !attention.length, resolveThread: false });
       state.attention = [];
       this.touch(state);
       await this.persist();
@@ -1112,6 +1162,12 @@ export class AgentController {
       state.running = false;
       state.startedAt = undefined;
       state.active = undefined;
+      // GAB-26: a crash still ends the round - don't leave a deferred discussion (and the
+      // issue's attention status) stuck forever just because this particular turn blew up
+      // instead of concluding cleanly.
+      if (!state.attention.length) {
+        await this.settlePendingAttentionResolution(sessionId, state, { restoreIssueState: true, resolveThread: true });
+      }
       this.touch(state);
       await this.persist().catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
@@ -1195,6 +1251,14 @@ export class AgentController {
     state.startedAt = undefined;
     state.active = undefined;
     if (result.conversationId) state.claudeConversationId = result.conversationId;
+    // GAB-26: this turn just concluded without needing to raise a fresh blocking attention of
+    // its own, so whatever discussion an earlier reply deferred (settlePendingAttentionResolution)
+    // is now genuinely settled - restore the issue's pre-attention state and resolve its tracked
+    // thread. If a fresh attention DID land (state.attention.length), the conversation is still
+    // live - leave it deferred for the next round.
+    if (!state.attention.length) {
+      await this.settlePendingAttentionResolution(sessionId, state, { restoreIssueState: true, resolveThread: true });
+    }
     const pending = state.pending;
     if (pending && state.attention.length) {
       // A queued follow-up (e.g. a non-blocking ask's reply, arriving while this run was
@@ -1612,6 +1676,10 @@ export class AgentController {
           })
           : Promise.resolve(),
         this.dismissAttention(sessionId, state.issueId, attention, reason, restoreIssueState),
+        // GAB-26: mirrors the isStopRequest handling above - only fall back to restoring
+        // from a deferred discussion's own previousStateId when dismissAttention didn't
+        // already do it for a currently-open attention, and never resolve the thread here.
+        this.settlePendingAttentionResolution(sessionId, state, { restoreIssueState: restoreIssueState && !attention.length, resolveThread: false }),
       ])
         .then(() => { state.attention = []; this.touch(state); });
       cancellations.push(cancellation);
@@ -1650,6 +1718,44 @@ export class AgentController {
   }
 
   /**
+   * Finalizes a still-open, deferred Steering/QA discussion (GAB-26): restores the issue to
+   * its pre-attention state and, when asked, resolves the discussion's own tracked comment
+   * thread. Shared by every place a "this round is genuinely over" signal can arrive - a
+   * resumed turn concluding without raising a fresh attention of its own (execute()'s normal
+   * completion path), that same turn crashing outright (start()'s catch handler), and the
+   * whole run being stopped or the session invalidated while no other attention is currently
+   * open for dismissAttention to already be handling the restore itself.
+   *
+   * Always clears `state.pendingAttentionResolution` first, even when there's nothing else to
+   * do (no issueId, resolution not requested) - a session id can be reused by a later,
+   * unrelated Agent Session, and leaving stale bookkeeping around would make a brand-new
+   * attention on that session wrongly thread itself under a long-settled conversation.
+   */
+  private async settlePendingAttentionResolution(
+    sessionId: string,
+    state: SessionState,
+    options: { restoreIssueState: boolean; resolveThread: boolean },
+  ): Promise<void> {
+    const pending = state.pendingAttentionResolution;
+    state.pendingAttentionResolution = undefined;
+    if (!pending) return;
+    if (options.restoreIssueState && state.issueId) {
+      await this.linear.setIssueState(state.issueId, pending.previousStateId).catch((error: unknown) => {
+        console.warn("failed to restore issue status after a settled Steering/QA discussion", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+    // Cancellation never resolves comments (matches dismissAttention's existing convention
+    // above) - a stopped or invalidated session's still-open question genuinely deserves to
+    // stay visible/unresolved, since nobody actually answered it.
+    if (options.resolveThread && pending.rootCommentId) {
+      await this.linear.resolveComment(pending.rootCommentId).catch(() => undefined);
+    }
+  }
+
+  /**
    * Completes the parent work for an approved QA attention. Shared by the two ways a human
    * can approve: replying with the exact QA_APPROVE_VALUE text (handled inline in `handle()`),
    * and reacting with a checkmark emoji (handled by `handleQaReactionApproval` below). Callers
@@ -1676,6 +1782,10 @@ export class AgentController {
     if (ackCommentId) await this.linear.reactToComment(ackCommentId, "white_check_mark").catch(() => undefined);
     // Approval is the clearest possible "decision made, no longer relevant" signal (GAB-22).
     if (attentionCommentId) await this.linear.resolveComment(attentionCommentId).catch(() => undefined);
+    // The whole discussion this attention was part of (if any) is moot now that the parent
+    // work is complete - drop the deferred GAB-26 bookkeeping so a later reused session id
+    // never mistakes stale state for a still-open conversation.
+    state.pendingAttentionResolution = undefined;
     state.awaitingInput = false;
     this.touch(state);
     this.states.set(sessionId, state);

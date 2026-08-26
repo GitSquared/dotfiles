@@ -18,6 +18,9 @@ export type ControllerSessionRecord = {
   openAsks?: OpenAsk[];
   claudeConversationId?: string;
   pullRequest?: { url: string; owner: string; repo: string; number: number; lastKnownReviewAt?: string };
+  // GAB-26: a still-open Steering/QA discussion, deferred rather than immediately resolved -
+  // see AgentController.settlePendingAttentionResolution.
+  pendingAttentionResolution?: { previousStateId: string; rootCommentId?: string };
   updatedAt: number;
 };
 
@@ -65,6 +68,10 @@ export class ControllerStateStore {
         && typeof record.pullRequest.number === "number"
         && (record.pullRequest.lastKnownReviewAt === undefined || typeof record.pullRequest.lastKnownReviewAt === "string")
       ))
+      && (record.pendingAttentionResolution === undefined || (
+        typeof record.pendingAttentionResolution.previousStateId === "string"
+        && (record.pendingAttentionResolution.rootCommentId === undefined || typeof record.pendingAttentionResolution.rootCommentId === "string")
+      ))
       && typeof record.updatedAt === "number"
     ));
   }
@@ -76,7 +83,7 @@ export class ControllerStateStore {
         .filter((record) => (
           record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active)
           || Boolean(record.attention?.length) || Boolean(record.openAsks?.length) || Boolean(record.claudeConversationId)
-          || Boolean(record.pullRequest)
+          || Boolean(record.pullRequest) || Boolean(record.pendingAttentionResolution)
         ))
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_STORED_SESSIONS);
