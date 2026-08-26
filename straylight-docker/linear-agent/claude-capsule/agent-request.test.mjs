@@ -118,6 +118,21 @@ test("folds a repository hoist request into a durable, readable action", async (
   ]);
 });
 
+test("folds a non-default working directory into the durable bash action instead of a cd prefix", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-1", name: "mcp__straylight__bash", input: {} } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"npm test","directory":"carbonfact"}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 1 } });
+
+  assert.deepEqual(events, [
+    { type: "action", action: "Running command", parameter: "npm test (in carbonfact)" },
+  ]);
+});
+
 test("marks a failed tool call's durable action so it reads differently from a success", async () => {
   const events = [];
   const project = createProgressProjector(async (event) => events.push(event));

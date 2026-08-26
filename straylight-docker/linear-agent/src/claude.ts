@@ -201,12 +201,13 @@ export class ClaudeHarness {
   }
 
   async shell(
-    request: { command: string; timeoutMs?: number },
+    request: { command: string; timeoutMs?: number; directory?: string },
     signal?: AbortSignal,
   ): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }> {
     const timeout = Math.max(1_000, Math.min(request.timeoutMs ?? 120_000, 300_000));
+    const cwd = await workspaceDirectory(this.config.piWorkdir, request.directory);
     const result = await captureCommand("bash", ["-lc", request.command], {
-      cwd: this.config.piWorkdir,
+      cwd,
       env: brokerlessEnvironment(),
       timeout,
       maxBuffer: 256 * 1024,
@@ -401,13 +402,15 @@ async function workspaceArtifact(workdir: string, filename: string): Promise<{ d
 
 async function workspaceDirectory(workdir: string, directory?: string): Promise<string> {
   const root = await fs.realpath(workdir);
-  const resolved = await fs.realpath(path.resolve(workdir, directory || "."));
+  const resolved = await fs.realpath(path.resolve(workdir, directory || ".")).catch(() => {
+    throw new Error("Working directory must be an existing directory inside /workspace");
+  });
   const relative = path.relative(root, resolved);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Patch directories must stay inside /workspace");
+    throw new Error("Working directory must stay inside /workspace");
   }
   const stat = await fs.stat(resolved);
-  if (!stat.isDirectory()) throw new Error("Patch target is not a directory");
+  if (!stat.isDirectory()) throw new Error("Working directory must be a directory, not a file");
   return resolved;
 }
 

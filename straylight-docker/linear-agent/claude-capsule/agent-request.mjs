@@ -108,9 +108,11 @@ function progressParameter(name, input) {
   const values = input;
   let parameter;
   switch (toolName(name)) {
-    case "bash":
-      parameter = values.command;
+    case "bash": {
+      const directory = typeof values.directory === "string" ? values.directory.trim() : "";
+      parameter = directory ? `${values.command} (in ${directory})` : values.command;
       break;
+    }
     case "apply_patch":
       parameter = values.directory || "/workspace";
       break;
@@ -501,12 +503,20 @@ export function createStraylightTools(context) {
   const tools = [
     tool(
       "bash",
-      "Run a shell command inside the current task's isolated writable /workspace. Use this for repository inspection, tests, local servers, and ordinary development tools; use apply_patch for multi-line source edits. timeoutMs defaults to 120 seconds when omitted and is capped at 300 seconds; a command that runs past its timeout, or whose stdout or stderr alone grows past roughly 256 KB, is killed outright (SIGTERM) instead of left running. Whatever output it produced before that is still returned, with stdout and stderr each independently truncated to their last 128 KB - the tail is kept, the head is dropped, and no marker indicates where the cut happened; very large combined output can still fail the call instead of coming back truncated.",
+      "Run a shell command inside the current task's isolated writable /workspace. Use this for repository inspection, tests, local servers, and ordinary development tools; use apply_patch for multi-line source edits. Set directory to run the command from a specific path relative to /workspace (defaults to /workspace itself) instead of prefixing the command with cd path &&. timeoutMs defaults to 120 seconds when omitted and is capped at 300 seconds; a command that runs past its timeout, or whose stdout or stderr alone grows past roughly 256 KB, is killed outright (SIGTERM) instead of left running. Whatever output it produced before that is still returned, with stdout and stderr each independently truncated to their last 128 KB - the tail is kept, the head is dropped, and no marker indicates where the cut happened; very large combined output can still fail the call instead of coming back truncated.",
       {
         command: z.string().min(1).max(20_000),
         timeoutMs: z.number().int().min(1_000).max(300_000).optional(),
+        directory: z.string().min(1).max(4_096).optional(),
       },
-      async ({ command, timeoutMs }, extra) => text(await forward("/v1/shell", { command, timeoutMs }, extra?.signal, context.taskUrl, MAX_TOOL_RESULT, true)),
+      async ({ command, timeoutMs, directory }, extra) => text(await forward(
+        "/v1/shell",
+        { command, timeoutMs, directory },
+        extra?.signal,
+        context.taskUrl,
+        MAX_TOOL_RESULT,
+        true,
+      )),
       { alwaysLoad: true },
     ),
     tool(
