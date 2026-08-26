@@ -3209,3 +3209,63 @@ request straight to the controller's `/internal/linear-session` route,
 bypassing that re-check entirely - reasonable, since a usage record for
 a run that already completed doesn't need re-authorization from state
 that has since moved on.
+
+## Scoping the PR watcher: what already exists vs. what's actually missing - 2026-08-26
+
+Gaby's framing for Slice 23 ("a centralized PR-in-progress record with
+a single watcher... dispatch incoming reviews or CI status down to
+implementing agents") is a real architectural question, not a quick
+edit, so this got a dedicated research pass before any plan got
+written - specifically to answer "is this a webhook receiver or a
+polling loop," since that choice shapes everything else.
+
+Traced the existing Linear webhook path first (`src/server.ts:229-247`)
+as the thing a GitHub receiver would need to be symmetric with:
+signature-verified (`src/signature.ts`), dispatched into
+`AgentController.handle`. Then checked whether this host is even
+publicly reachable for a second webhook sender to hit - it is,
+confirmed live: Caddy (`docker-compose.yml:96-98`,
+`straylight-docker/caddy/config/Caddyfile`) terminates TLS for
+`agent.gaby.dev` and proxies `/linear/*` to the controller, which
+itself only binds `127.0.0.1` - unreachable any other way. One loose
+end: `.config/yadm/straylight/README.md:79` mentions a Tailscale
+Funnel path in prose, but no `tailscale funnel`/`serve` invocation
+exists anywhere in-repo (expected - that's host runtime state, not
+committed). Left unreconciled since it doesn't matter either way: the
+Caddy path alone is sufficient and already live.
+
+Also checked `RESEARCH.md:1353` on this file's own timeline (this same
+document, months earlier) for whether polling had ever been considered
+and rejected before - found the opposite of a coincidence: "this whole
+system is webhook-driven and there was no polling loop anywhere"
+already stated as existing architectural doctrine. That settled
+webhook vs. polling on its own, before Gaby's follow-up answers even
+came back.
+
+Two things the research surfaced that reshape the plan more than the
+webhook-vs-polling question did:
+
+- The only GitHub credential in the whole system is a human-run `gh
+  auth login` OAuth token (`src/server.ts:191-193`) - not a GitHub App
+  installation. A plain OAuth token cannot receive App-level webhooks.
+  This means the very first step isn't code at all - it's Gaby
+  creating and installing a GitHub App by hand. Named explicitly in
+  the plan rather than glossed over, since starting to write the
+  webhook-handler code before that exists would be building against
+  nothing.
+- A PR's URL is already known at the moment `linear_activity`'s
+  `publish` action runs, but only forwarded to Linear, never kept
+  (`controller.ts:469-470`, `1241-1243`). `ControllerSessionRecord`
+  has no PR field. The registry a watcher needs isn't a refinement of
+  something half-built - it doesn't exist at all yet.
+
+Ran the AskUserQuestion tool for the three genuinely open decisions
+(checks vs. checks+reviews, dispatch semantics, whether to plan now) -
+a Stop-hook check on the *previous* turn had already flagged that a
+prose "recommend one, wait" close without ever calling the tool skips
+`confirm-gate.py` entirely, since that hook only sees actual tool
+calls, not a typed status line pretending to be one. Recommended
+checks-only for a smaller first cut; Gaby picked checks+reviews
+instead - noted above without re-litigating it, since the review-body
+summarization question in the plan's open-questions section exists
+specifically because of that choice.

@@ -1250,6 +1250,110 @@ literal `"sonnet"` for now. Reviving cost-aware model selection would
 make this receipt immediately more useful, but is a separate,
 larger piece of work.
 
+## Slice 23 — centralized PR/CI/review watcher (proposed)
+
+Status: proposed, 2026-08-26. Not started - this section is the plan,
+not an implementation log.
+
+Origin: Slice 21 made agents responsible for pushing their own branch
+and not requesting QA on red/pending CI, but the "wait for green"
+half is pure prompt instruction with zero harness enforcement - the
+agent has to manually poll `gh pr checks` and might just not bother.
+Gaby: "this feels like a mechanical bit we should have the harness
+support to pull some weight off of the agents' shoulders. maybe we
+should do a centralized PR-in-progress record with a single watcher
+and something to dispatch incoming reviews or CI status down to
+implementing agents." Scoped explicitly to CI checks *and* human PR
+reviews (not checks-only), dispatched via live-inject with cold-resume
+fallback - reusing Slice 19's mechanism rather than inventing a second
+one.
+
+Chosen approach: a GitHub webhook receiver, event-driven, symmetric to
+how this system already receives Linear's own webhooks - not a
+polling loop. Confirmed this is additive, not new infrastructure:
+
+- `POST /webhook` (`src/server.ts:229-247`) already does exactly this
+  shape of thing for Linear - reads the raw body, verifies an
+  HMAC-SHA256 signature (`src/signature.ts:7-12`, timing-safe), checks
+  a 60s freshness window, then dispatches into
+  `AgentController.handle`/`handleNotification`. A GitHub receiver
+  should be a sibling of this, not a parallel design.
+- Public HTTPS ingress already exists and terminates at this exact
+  service: Caddy binds host `80`/`443` (`docker-compose.yml:96-98`),
+  serves `agent.gaby.dev` with its own ACME TLS
+  (`straylight-docker/caddy/config/Caddyfile`), and proxies `/linear/*`
+  to `linear-agent-controller:8787`, which itself only binds
+  `127.0.0.1` (`docker-compose.yml:235`) - unreachable except through
+  Caddy. **The new route must live under `/linear/*`** (e.g.
+  `/linear/github/webhook`) or Caddy 404s it before Bun ever sees it;
+  `/internal/*` routes are deliberately excluded from that prefix and
+  must stay that way.
+- `RESEARCH.md:1353` already states this whole system is
+  webhook-driven with no polling loop anywhere - direct architectural
+  precedent, not a new pattern being introduced.
+
+Two real gaps have to close before this can go live, neither of which
+is a code change alone:
+
+1. **No GitHub App exists.** The only GitHub credential in this
+   system today is a human-provisioned `gh` CLI OAuth token
+   (`gh auth login --hostname github.com ... --web`, `src/server.ts:191-193`,
+   stored at `GH_CONFIG_DIR=/tool-profile/gh`). A user-scoped OAuth
+   token cannot receive GitHub App installation webhooks - creating
+   and installing a GitHub App (with `checks:read`/`pull_requests:read`
+   webhook subscriptions, a webhook secret) is a manual, one-time step
+   only Gaby can do, outside this repo, before any of the code below
+   can be tested against real GitHub events.
+2. **No PR-URL to sessionId index exists.** A published PR URL is
+   currently forwarded to Linear and discarded
+   (`linkGitHubPullRequestAttachment`/`addExternalUrl`,
+   `src/controller.ts:469-470`; the scrape path,
+   `githubPullRequestUrl`, `src/controller.ts:1241-1243,1406`).
+   `ControllerSessionRecord` (`src/controller-state.ts:6-21`) has no PR
+   field today - needs a new persisted `sessionId ↔ owner/repo#number`
+   entry, captured at those exact two call sites, durable the same way
+   the rest of session state already is (survives a controller
+   restart).
+
+Shape of the new pieces, once those two gaps are closed:
+
+- A small PR registry module (persisted alongside existing controller
+  state) storing `{sessionId, prUrl, lastKnownCiStatus, lastKnownReviewState}`.
+  Entries expire when their session reaches a terminal state - mirror
+  `cancelMatching`'s existing session-lifecycle cleanup so a stale
+  webhook for a closed-out session has nowhere to dispatch to.
+- `POST /linear/github/webhook`: verify GitHub's `X-Hub-Signature-256`
+  the same way `verifyWebhookSignature` does for Linear, parse
+  `check_suite`/`check_run` and `pull_request_review` events, look up
+  the registry by `owner/repo#number`, and on a match dispatch a
+  compact, summarized message (not the raw GitHub payload) into the
+  owning session.
+- Dispatch itself reuses Slice 19/21's existing chain: try a live
+  push (`pushAgentInput`) if the session is actively mid-turn, fall
+  back to a cold `followUp`-driven resume otherwise. `followUp`
+  currently has exactly one caller - the `prompted` Linear webhook
+  path inside `handle()` (`src/controller.ts:678`) - this becomes its
+  second.
+
+Open questions, named rather than pre-decided:
+
+- **Check-name filtering.** Lean toward dispatching on any status
+  change and trusting the agent's own judgment (the same "wait for
+  green, name a known-flaky failure otherwise" instruction from Slice
+  21) rather than hardcoding which checks matter - a filter list will
+  rot the moment a repo adds or renames a job.
+- **Debouncing a multi-job rollup.** A single PR's check suite
+  completing can fire many `check_run` events near-simultaneously.
+  Worth debouncing into one summarized dispatch (matching Slice 20's
+  160ms/750ms narration debounce) rather than flooding the session
+  with one push per job - or accepting the noise for a first cut,
+  matching Slice 22's "no aggregator" scope discipline. Not decided;
+  revisit once real event volume is observed.
+- **Review content.** A `pull_request_review` event carries the
+  reviewer's actual comment body - worth summarizing/bounding it the
+  same way prompt-construction already bounds untrusted external text
+  elsewhere in this codebase, not forwarding it verbatim.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit
