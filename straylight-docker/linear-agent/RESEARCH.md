@@ -3344,3 +3344,107 @@ github.com -s admin:repo_hook`) rather than a whole new app
 installation flow. Still a manual, human-only step before Slice 23's
 code can be tested against real events - just a smaller one than what
 got written down the first time.
+
+## Slice 23, again: "I don't want to set up any webhooks" reopened the whole design - 2026-08-26
+
+The scope-corrected webhook plan above lasted about as long as it took
+to describe it back to Gaby. His response named the actual constraint
+directly: "I think polling is acceptable IF we centralize it and
+control it somehow at the cloud host... level or in a separate
+container/service instead of letting each and every agent stay alive
+and do their own polling. Otherwise, maybe Linear actually offers some
+kind of PR monitoring hooks for us? but i doubt it." Two claims worth
+checking rather than assuming, so both got checked live before any
+plan got rewritten.
+
+**Does Linear offer this natively? No - confirmed against the actual
+docs, not memory.** Fetched and indexed `linear.app/developers/webhooks`,
+`linear.app/developers/agent-interaction`,
+`linear.app/developers/agent-best-practices`, and
+`linear.app/integrations/github`. `AgentSessionEvent` webhooks fire
+only on session lifecycle (`created`/mention/prompted);
+`AppUserNotification` fires only on issue-level events
+(mention/reaction/status-change/etc.) - neither is GitHub-shaped.
+Linear's GitHub integration does sync live PR/CI status, but the
+"live status" is Linear's own backend polling GitHub and rendering it
+in Linear's UI for a human looking at the issue - a read-only surface
+for a person, not a push signal to a third party. Gaby's doubt was
+correct.
+
+**Then a genuinely better idea arrived mid-investigation, worth
+recording because it reshaped the design more than the "no webhooks"
+constraint did on its own:** "if the github CLI has some dedicated
+watch mode, we should use that instead of polling the github API
+ourselves directly. Lets them do any kind of optimizations they want
+without us getting in the way and hammering traffic needlessly."
+Checked live rather than assumed: `gh pr checks --help` and `gh run
+watch --help` on the machine actually running this session confirmed
+`gh pr checks <url> --watch --fail-fast --json ...` is a real,
+documented primitive - GitHub's own client owns the refresh interval
+and whatever backoff it applies internally, and the caller just spawns
+it and reads the exit code plus JSON output once it returns. No
+polling loop to author for the checks half at all. The gap: nothing
+equivalent exists for PR reviews - no `gh pr view --watch`, no review
+equivalent anywhere in the CLI's help output - so that half still
+needs a small, real interval poll against the reviews REST endpoint.
+Rewrote Slice 23 around this hybrid rather than either extreme (full
+webhook receiver, or reimplementing check polling by hand).
+
+One thing worth being explicit about since it was the actual point of
+Gaby's original worry: this design was never "each per-task container
+polls on its own" - the confusion risk was real enough that it needed
+restating plainly rather than assumed understood. Every watcher
+process is owned by `linear-agent-controller`, the one process in this
+system already alive for its whole lifetime (already running Slice
+24's auto-resume timers the same way) - a per-task container is
+ephemeral and gone the moment its own turn ends, so it was never a
+candidate for owning anything long-lived in the first place.
+
+## The "real messages" complaint outlived the fix that was supposed to solve it - 2026-08-26
+
+Gaby's screenshot earlier this session ("thinking step messages...
+still showing as ephemeral hidden thoughts") triggered a re-
+investigation, since the prior session's fix (Slice 20, durable
+narration) predates this one and was never confirmed live. A dedicated
+research pass found the code is correct: `thought`-type narration has
+posted with `ephemeral: false` unconditionally since Slice 20
+(`src/claude.ts:88-100`), confirmed by re-reading the code fresh, not
+by trusting the earlier session's own conclusion. That should have
+settled it. It didn't - because it was answering the wrong question.
+
+Reporting that back, framed carefully to avoid restating an unverified
+hypothesis as fact, drew the actual correction: "My educated guess
+would be that I see no reason for these to be 'thought-type' messages.
+We want real fucking messages." The durability question and the
+type/framing question are different questions, and only the first one
+had been checked. Gaby's own follow-up sketched a mental model -
+"ephemeral thinking -> durable thinking -> messages -> issue comments
+-> issue status" - close enough to Linear's actual schema (five
+documented activity types, plus the separate `commentCreate`/issueId
+channel entirely outside Agent Activities) that it was worth verifying
+against the real type reference rather than eyeballing it as roughly
+right.
+
+That verification is where the wrong-citation mistake happened (see
+Slice 25 in ROADMAP.md for the full account) - a stale, pre-Slice-13
+research note got treated as current for a few tool calls before its
+actual date was checked and it turned out to describe an architecture
+(child-issue-based attention) this system replaced outright. Caught
+before it shaped the fix, not after - the same "check the source's own
+date/context before trusting a citation" discipline this file has
+already needed once this session (the Slice 6 status correction,
+2026-08-26 earlier). Worth naming as a pattern: a search hit that
+*sounds* authoritative for the current codebase is not evidence it
+still describes the current codebase.
+
+Net result: composed model narration (the debounced text stream, the
+final-turn assistant flush) now posts as `type: "response"` instead of
+`type: "thought"` - a real message per Linear's own documented
+semantics ("work has been completed or a final result is available"),
+durable by construction since `response` can't even be marked
+ephemeral. Genuine chain-of-thought content and harness-generated
+status pings stay `thought`, on a "who's speaking" line rather than a
+"how interesting is this" one. Still not verified against the live
+rendered UI - that gap doesn't close until the next real test run, and
+is named as such rather than assumed fixed just because the type
+changed.

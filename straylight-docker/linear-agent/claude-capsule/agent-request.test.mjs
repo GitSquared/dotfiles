@@ -54,10 +54,25 @@ test("projects Claude SDK reasoning and useful tool targets", async () => {
     { type: "action", action: "Applying patch", parameter: "carbonfact" },
     { type: "action", action: "Linear", parameter: "Reading comments" },
     { type: "thought", body: "Thinking: private chain of thought" },
-    { type: "thought", body: "I found the relevant module." },
+    { type: "response", body: "I found the relevant module." },
     { type: "action", action: "Running command", parameter: "rg -n TODO src · 12s elapsed" },
     { type: "thought", body: "Claude is retrying a model request (2/4, HTTP 529)." },
   ]);
+});
+
+test("reports the model's own composed narration as a real message, not an internal note", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  // A short final assistant turn: too little text to cross the streamed text_delta
+  // debounce threshold, so the only progress event comes from the "assistant"
+  // message's own final-flush path, not the streaming one covered above.
+  await project({ type: "stream_event", event: { type: "message_start" } });
+  await project({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "text", text: "Network access is available." }] },
+  });
+
+  assert.deepEqual(events, [{ type: "response", body: "Network access is available." }]);
 });
 
 test("logs a completed tool call as a durable action carrying its real result", async () => {

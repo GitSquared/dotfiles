@@ -263,7 +263,10 @@ export function createProgressProjector(report, clock = Date.now) {
         const enoughText = totalTextLength - lastTextLength >= 160;
         const enoughTime = now - lastTextAt >= 750;
         if (enoughText || enoughTime || partialText.endsWith("\n")) {
-          progress = { type: "thought", body: boundedProgress(partialText) };
+          // The model's own composed words, not raw reasoning - a real message, not
+          // an internal note. Kept distinct from the thinking_delta branch above,
+          // which stays "thought": that one really is a chain-of-thought dump.
+          progress = { type: "response", body: boundedProgress(partialText) };
           partialTextReported = true;
           lastTextLength = totalTextLength;
           lastTextAt = now;
@@ -271,7 +274,7 @@ export function createProgressProjector(report, clock = Date.now) {
       }
     } else if (message?.type === "assistant") {
       const body = assistantText(message);
-      if (body && !partialTextReported) progress = { type: "thought", body };
+      if (body && !partialTextReported) progress = { type: "response", body };
     } else if (message?.type === "tool_progress") {
       // Still running, not completed - the elapsed/retry status belongs in
       // parameter (which stays ephemeral), not result. result is reserved for

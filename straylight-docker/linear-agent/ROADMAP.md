@@ -1252,8 +1252,8 @@ larger piece of work.
 
 ## Slice 23 — centralized PR/CI/review watcher (proposed)
 
-Status: proposed, 2026-08-26. Not started - this section is the plan,
-not an implementation log.
+Status: proposed, 2026-08-26 (revised same day). Not started - this
+section is the plan, not an implementation log.
 
 Origin: Slice 21 made agents responsible for pushing their own branch
 and not requesting QA on red/pending CI, but the "wait for green"
@@ -1268,81 +1268,114 @@ reviews (not checks-only), dispatched via live-inject with cold-resume
 fallback - reusing Slice 19's mechanism rather than inventing a second
 one.
 
-Chosen approach: a GitHub webhook receiver, event-driven, symmetric to
-how this system already receives Linear's own webhooks - not a
-polling loop. Confirmed this is additive, not new infrastructure:
+**Revised same day: no webhook, of any shape.** The first version of
+this plan (a GitHub webhook receiver) required a manual prerequisite
+outside this repo before any of the code could even be tested - first
+written as "register a GitHub App," corrected mid-session to "a
+lighter repo-level webhook plus a scope refresh" once `gh auth status`
+was actually checked live, but even that lighter version is still
+webhook setup. Gaby: "I think polling is acceptable IF we centralize
+it and control it somehow at the cloud host (here: straylight) level
+or in a separate container/service instead of letting each and every
+agent stay alive and do their own polling. Otherwise, maybe Linear
+actually offers some kind of PR monitoring hooks for us? but i doubt
+it." Checked rather than assumed: Linear's own webhook docs
+(`linear.app/developers/webhooks`, `agent-interaction`,
+`agent-best-practices`) show `AgentSessionEvent` fires only on session
+lifecycle (mention/delegation/prompted) and `AppUserNotification` only
+on issue-level events (mention, reaction, status change, etc.) -
+nothing GitHub-shaped in either. Linear's GitHub integration
+(`linear.app/integrations/github`) does sync live PR/CI status, but
+only into Linear's own UI for a human looking at the issue's
+attachment - it doesn't push anything to a third party. Doubt
+confirmed: nothing native exists.
 
-- `POST /webhook` (`src/server.ts:229-247`) already does exactly this
-  shape of thing for Linear - reads the raw body, verifies an
-  HMAC-SHA256 signature (`src/signature.ts:7-12`, timing-safe), checks
-  a 60s freshness window, then dispatches into
-  `AgentController.handle`/`handleNotification`. A GitHub receiver
-  should be a sibling of this, not a parallel design.
-- Public HTTPS ingress already exists and terminates at this exact
-  service: Caddy binds host `80`/`443` (`docker-compose.yml:96-98`),
-  serves `agent.gaby.dev` with its own ACME TLS
-  (`straylight-docker/caddy/config/Caddyfile`), and proxies `/linear/*`
-  to `linear-agent-controller:8787`, which itself only binds
-  `127.0.0.1` (`docker-compose.yml:235`) - unreachable except through
-  Caddy. **The new route must live under `/linear/*`** (e.g.
-  `/linear/github/webhook`) or Caddy 404s it before Bun ever sees it;
-  `/internal/*` routes are deliberately excluded from that prefix and
-  must stay that way.
-- `RESEARCH.md:1353` already states this whole system is
-  webhook-driven with no polling loop anywhere - direct architectural
-  precedent, not a new pattern being introduced.
+**Chosen approach: the controller polls, but it doesn't reinvent
+polling.** Gaby's own follow-up named the actual fix: "if the github
+CLI has some dedicated watch mode, we should use that instead of
+polling the github API ourselves directly. Lets them do any kind of
+optimizations they want without us getting in the way and hammering
+traffic needlessly." Checked live (`gh pr checks --help`, `gh run
+watch --help`): `gh pr checks <number|url> --watch --fail-fast --json
+bucket,name,link,workflow,state` is a real, purpose-built primitive -
+blocks until every check resolves (or exits early on the first
+failure with `--fail-fast`), with GitHub's own client owning the
+refresh cadence (`--interval`, default 10s) and whatever backoff it
+chooses to apply. Spawning this as a child process is a "run it and
+read the exit code + JSON," not a poll loop we author and maintain.
+No equivalent exists for PR reviews - `gh pr view --help` has no
+watch flag, and neither does anything else in the CLI - so that half
+still needs an actual interval poll against
+`gh api repos/{owner}/{repo}/pulls/{number}/reviews`, diffed against
+last-seen state.
 
-Two real gaps have to close before this can go live, neither of which
-is a code change alone:
+**Centralization, stated explicitly since it was the load-bearing part
+of Gaby's ask:** every watcher process - the `gh pr checks --watch`
+child and the review-poll loop alike - is owned by
+`linear-agent-controller`, the one process in this system that is
+already long-lived for its entire lifetime (it already runs Slice 24's
+auto-resume timers the same way). A per-task container never runs any
+of this; it is dead the moment its turn ends, which is exactly why
+Gaby's worry ("each and every agent stay alive and do their own
+polling") was correct to raise and is fully avoided by this design.
 
-1. **No webhook-registration scope exists yet - checked live, not
-   assumed.** `gh auth status` inside the actual task image
-   (`linear-agent-runner:local`, same `GH_CONFIG_DIR=/tool-profile/gh`
-   mount real tasks use) reports the existing OAuth token's scopes as
-   `gist`, `read:org`, `repo`, `workflow` - no `admin:repo_hook` /
-   `write:repo_hook`. That rules out a full GitHub App as the only
-   path: a plain **repo-level webhook** (`POST
-   /repos/{owner}/{repo}/hooks`) is the lighter alternative - no app
-   registration, no separate installation flow, just a webhook secret
-   and a scope this token doesn't have yet. The real one-time
-   prerequisite is smaller than originally written here: either
-   `gh auth refresh -h github.com -s admin:repo_hook` on the existing
-   login, or a separate token with that scope - still a manual step
-   only Gaby can do, outside this repo, but not a GitHub App
-   registration.
-2. **No PR-URL to sessionId index exists.** A published PR URL is
-   currently forwarded to Linear and discarded
-   (`linkGitHubPullRequestAttachment`/`addExternalUrl`,
-   `src/controller.ts:469-470`; the scrape path,
-   `githubPullRequestUrl`, `src/controller.ts:1241-1243,1406`).
-   `ControllerSessionRecord` (`src/controller-state.ts:6-21`) has no PR
-   field today - needs a new persisted `sessionId ↔ owner/repo#number`
-   entry, captured at those exact two call sites, durable the same way
-   the rest of session state already is (survives a controller
-   restart).
+Net effect versus the original webhook plan: **zero new credentials,
+zero scope changes, zero public-ingress changes.** The existing `gh`
+OAuth token's `repo` scope already covers reading checks and reviews -
+confirmed the same way the earlier (now-moot) scope check was done,
+`gh auth status` inside the real task image. The one real gap that
+survives the redesign unchanged, because it was never about
+transport:
 
-Shape of the new pieces, once those two gaps are closed:
+- **No PR-URL to sessionId index exists.** A published PR URL is
+  currently forwarded to Linear and discarded
+  (`linkGitHubPullRequestAttachment`/`addExternalUrl`,
+  `src/controller.ts:469-470`; the scrape path,
+  `githubPullRequestUrl`, `src/controller.ts:1241-1243,1406`).
+  `ControllerSessionRecord` (`src/controller-state.ts:6-21`) has no PR
+  field today - needs a new persisted `sessionId ↔ owner/repo#number`
+  entry, captured at those exact two call sites, durable the same way
+  the rest of session state already is (survives a controller
+  restart).
+
+Shape of the new pieces, once that gap is closed:
 
 - A small PR registry module (persisted alongside existing controller
   state) storing `{sessionId, prUrl, lastKnownCiStatus, lastKnownReviewState}`.
   Entries expire when their session reaches a terminal state - mirror
-  `cancelMatching`'s existing session-lifecycle cleanup so a stale
-  webhook for a closed-out session has nowhere to dispatch to.
-- `POST /linear/github/webhook`: verify GitHub's `X-Hub-Signature-256`
-  the same way `verifyWebhookSignature` does for Linear, parse
-  `check_suite`/`check_run` and `pull_request_review` events, look up
-  the registry by `owner/repo#number`, and on a match dispatch a
-  compact, summarized message (not the raw GitHub payload) into the
-  owning session.
+  `cancelMatching`'s existing session-lifecycle cleanup so a
+  completed session's PR has nothing left watching it.
+- **One global poll loop** (not a per-PR timer, despite Slice 24's
+  auto-resume precedent for the latter) - a single interval walks the
+  registry each tick, (re)spawning a `gh pr checks --watch` child for
+  any tracked PR that doesn't already have one running, and polling
+  reviews for all of them. Chosen over per-PR timers specifically
+  because it matches Gaby's own framing ("a centralized... record with
+  a single watcher") and keeps total process/API load auditable in one
+  place rather than scattered across independent timers - the adaptive
+  cadence a per-PR timer would buy isn't worth the complexity at this
+  pilot's scale.
 - Dispatch itself reuses Slice 19/21's existing chain: try a live
   push (`pushAgentInput`) if the session is actively mid-turn, fall
   back to a cold `followUp`-driven resume otherwise. `followUp`
-  currently has exactly one caller - the `prompted` Linear webhook
-  path inside `handle()` (`src/controller.ts:678`) - this becomes its
-  second.
+  currently has two callers - the `prompted` Linear webhook path
+  inside `handle()` (`src/controller.ts:678`) and Slice 24's
+  `runScheduledResume` - this becomes its third.
 
 Open questions, named rather than pre-decided:
 
+- **Review-poll interval.** No CLI primitive to defer to here, so this
+  needs an actual number - something in the 60-120s range is plenty
+  for human review latency at a one-engineer pilot's scale and stays
+  far under GitHub's 5000 req/hour authenticated limit even with
+  several PRs tracked at once. Not tuned yet.
+- **`gh pr checks --watch` child-process lifecycle.** Long-lived
+  spawned processes need to be tracked and cleaned up when a PR
+  registry entry expires (an orphaned watch process for a closed-out
+  session is pure waste) and re-spawned if the controller itself
+  restarts - state Slice 24's own `unref()`'d-timer, not-persisted
+  tradeoff already accepted for auto-resume, worth reusing rather than
+  solving more thoroughly here.
 - **Check-name filtering.** Lean toward dispatching on any status
   change and trusting the agent's own judgment (the same "wait for
   green, name a known-flaky failure otherwise" instruction from Slice
@@ -1355,10 +1388,10 @@ Open questions, named rather than pre-decided:
   with one push per job - or accepting the noise for a first cut,
   matching Slice 22's "no aggregator" scope discipline. Not decided;
   revisit once real event volume is observed.
-- **Review content.** A `pull_request_review` event carries the
-  reviewer's actual comment body - worth summarizing/bounding it the
-  same way prompt-construction already bounds untrusted external text
-  elsewhere in this codebase, not forwarding it verbatim.
+- **Review content.** `gh api .../reviews` carries the reviewer's
+  actual comment body - worth summarizing/bounding it the same way
+  prompt-construction already bounds untrusted external text elsewhere
+  in this codebase, not forwarding it verbatim.
 
 ## Slice 24 — honest failure and auto-resume on a mid-turn usage limit
 
@@ -1438,6 +1471,69 @@ call `request_attention` already makes today, proven live - not a new
 path. Worth a deliberate check the first time this branch actually
 fires in production, rather than continuing to assume the analogy
 holds.
+
+## Slice 25 — the model's own words are a message, not a note
+
+Status: done, 2026-08-26.
+
+Origin: Gaby, reacting to the "durable narration" explanation above -
+"My educated guess would be that I see no reason for these to be
+'thought-type' messages. We want real fucking messages." Slice 20 made
+narration durable (persists after reload) but never questioned its
+`content.type` - narration has posted as `type: "thought"` since this
+system's earliest experiments, unquestioned since. Gaby's read: fixing
+persistence didn't necessarily fix the actual complaint, which was
+never really about durability.
+
+Checked against Linear's own type reference
+(`linear.app/developers/agent-interaction`) rather than guessed at:
+Linear defines exactly five allowed activity content types, each with
+distinct documented semantics - `thought` ("A thought or internal
+note"), `action`, `elicitation`, `response` ("Indicates work has been
+completed or a final result is available"), `error`. `thought`/`action`
+are the only types Linear allows to be marked ephemeral at all -
+`response` is durable by construction, a firmer schema-level
+commitment than a type choice alone.
+
+**A wrong citation almost shaped this decision, worth recording so it
+doesn't happen again.** Mid-investigation, a search surfaced a
+RESEARCH.md line reading "Comments notify by default and carry real UI
+weight; an Agent Activity does not" and it was initially treated as
+still-current fact - implying a `thought`→`response` swap might stay
+inside a uniformly low-weight surface and not visibly fix anything.
+Checking the line's actual origin caught the mistake before it shaped
+the fix: it's from `RESEARCH.md`'s "Current experiment" section,
+predating Slice 13 entirely - written when Steering/QA still worked by
+spawning a child issue with two labels, a mechanism Slice 13 replaced
+outright. In today's architecture, blocking Steering/QA already ships
+as `type: "elicitation"` Agent Activities, direct on the session, and
+demonstrably do reach a human (live-tested this session, repeatedly) -
+so "an Agent Activity does not carry real UI weight" is false for the
+current system on its face; the quote describes an abandoned
+mechanism, not the current one. Retracted rather than left standing
+uncorrected once identified.
+
+**Change shipped:** in `createProgressProjector`
+(`claude-capsule/agent-request.mjs`), the two paths carrying the
+model's own composed text - the debounced `text_delta` stream and the
+final-turn `assistant`-message flush - now post `type: "response"`
+instead of `type: "thought"`. Left as `thought`, deliberately:
+genuine `thinking_delta` content (prefixed `"Thinking: "` - actual
+chain-of-thought, which fits Linear's own "internal note" framing
+much more literally than composed narration ever did) and every
+harness/system-generated status ping (session start, compaction,
+retry, rate-limit warnings) - these are the harness talking about the
+run, not the model talking to the human, so the `thought`/`response`
+line is drawn at "who is speaking," not at "is this interesting."
+Two new tests cover both changed paths
+(`claude-capsule/agent-request.test.mjs`); one pre-existing test's
+inline expectation for the streamed-text case was updated in place.
+
+Not verified live yet - whether `response` actually reads differently
+from `thought` in Linear's rendered UI (as opposed to just being a
+different value in the schema) is still unconfirmed, same caveat as
+the durability question Slice 20 shipped without live confirmation.
+Worth a look on the next real test run.
 
 ## Later hardening
 
