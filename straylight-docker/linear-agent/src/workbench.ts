@@ -442,7 +442,7 @@ export class WorkbenchHarness {
         ...(result.status === "ok" ? { disposition: result.disposition.status } : {}),
       });
       if (result.status === "ok" && result.usage) {
-        await this.recordUsage(token, active.sessionId, result.usage, elapsedMs);
+        await this.recordUsage(active.sessionId, result.usage, elapsedMs, !result.awaitingInput);
       }
       return result;
     } catch (error) {
@@ -458,15 +458,24 @@ export class WorkbenchHarness {
     }
   }
 
-  // Two independent, best-effort sinks - neither blocks the run or each other.
-  // The JSONL row (written to this long-lived process's own volume-mounted
-  // data directory, not the ephemeral per-task container) is the durable
-  // source of truth; the Linear activity is just its human-visible echo.
+  // Two independent, best-effort sinks. The JSONL row (written to this
+  // long-lived process's own volume-mounted data directory, not the
+  // ephemeral per-task container) is the durable source of truth and is
+  // awaited - it's fast, local, and worth knowing about before this returns.
+  // The Linear activity is just its human-visible echo, and deliberately not
+  // awaited: a slow or wedged controller must never hold up the turn's own
+  // result. It also posts through a raw internal request rather than
+  // `collaborateLinear`, on purpose - that method re-validates the task is
+  // still active/unaborted under the *task's own* token, a check aimed at an
+  // untrusted in-container caller. By the time this fires the run already
+  // legitimately completed; the outer task bookkeeping racing ahead in the
+  // background (see RESEARCH.md, 2026-08-26) is not a reason to drop a real
+  // usage record.
   private async recordUsage(
-    token: string, // yadm-secret-scan: ignore
     sessionId: string,
     usage: CapsuleAgentUsage,
     elapsedMs: number,
+    postReceipt: boolean,
   ): Promise<void> {
     try {
       await fs.mkdir(this.config.dataDirectory, { recursive: true });
@@ -478,17 +487,31 @@ export class WorkbenchHarness {
         message: error instanceof Error ? error.message : String(error),
       });
     }
-    try {
-      await this.collaborateLinear(token, {
-        action: "activity",
-        content: { type: "response", body: formatUsageReceipt(usage, elapsedMs) },
-      });
-    } catch (error) {
+    // A blocking Steering/QA elicitation is Linear's own live "waiting for
+    // reply" card (real buttons riding on it). Linear renders session status
+    // from whichever Agent Session activity landed last, not whichever was
+    // requested last (confirmed live, RESEARCH.md 2026-08-24 - a stray
+    // narration post once silently buried an open elicitation's buttons this
+    // same way). Posting the receipt while `postReceipt` is false - i.e. this
+    // result left a blocking attention open - would risk the exact same
+    // failure, so skip the Linear echo in that case; the JSONL row above
+    // still captured it.
+    if (!postReceipt) return;
+    void fetch(`${this.config.controllerUrl}/internal/linear-session`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${this.config.authToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        request: { action: "activity", content: { type: "thought", body: formatUsageReceipt(usage, elapsedMs) } },
+      }),
+    }).then((response) => {
+      if (!response.ok) throw new Error(`controller rejected the cost receipt (HTTP ${response.status})`);
+    }).catch((error: unknown) => {
       console.error("failed to post the cost receipt activity", {
         sessionId,
         message: error instanceof Error ? error.message : String(error),
       });
-    }
+    });
   }
 
   async pushAgentInput(

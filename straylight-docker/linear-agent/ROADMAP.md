@@ -1201,25 +1201,32 @@ Two sinks, both best-effort and independent of each other:
   bind-mounted host-side for `tasks/<key>` data) - not the per-task
   container's `/workspace`, which is this long-lived process's own
   disk and survives container churn.
-- A one-line "Turn cost: ..." Linear activity via the same
-  `{action:"activity"}` relay the model's own `linear_activity` tool
-  already uses (`collaborateLinear`, ordered but not retried - same
-  tier as `finish()`'s completion summary). No new retry
-  infrastructure: the JSONL row is the actual source of truth, and a
-  lost receipt costs nothing since it isn't reconstructing anything
-  that couldn't be regenerated from the log.
+- A one-line "Turn cost: ..." Linear activity (`type: "thought"`,
+  Slice 20's background-record channel) - but only when the turn ended
+  *without* leaving a blocking Steering/QA attention open. Linear
+  renders session status from whichever Agent Session activity landed
+  last, not whichever was requested last (confirmed live, see
+  RESEARCH.md 2026-08-24); posting anything after an open elicitation
+  risks burying its buttons, so the receipt is skipped - JSONL-only -
+  whenever the result's `awaitingInput` is true. Fire-and-forget, not
+  awaited: a slow or wedged controller must never hold up the turn's
+  own result.
 
 Plumbing: `agent-request.mjs`'s `runAgent` already read
 `result.usage.*`/`result.total_cost_usd` for its own console logging -
 it just never returned them. Added a `usage` field to the "ok" variant
 of `CapsuleAgentResult` (`src/capsule-client.ts`) and populated it on
 return. `WorkbenchHarness.runClaude` (the one process in the chain
-that's both long-lived and already holds the task's own bearer token)
-writes the JSONL row and posts the receipt right after `runAgent`
-resolves - no changes needed to `PiResult`/`ClaudeHarness`/the
-controller, since the receipt reuses the exact same
-token-authenticated Linear relay the task container's own tool calls
-already go through.
+that's both long-lived and already knows the completed result's
+`sessionId`/`awaitingInput`) writes the JSONL row and, when safe, posts
+the receipt right after `runAgent` resolves - no changes needed to
+`PiResult`/`ClaudeHarness`/the controller. The receipt posts through a
+raw internal request to the controller's existing
+`/internal/linear-session` route rather than through
+`WorkbenchHarness.collaborateLinear` - that method re-validates the
+task is still active/unaborted under the task's own bearer token, a
+check meant for an untrusted in-container caller, not for an internal
+post firing after the task's own bookkeeping may have already moved on.
 
 Two things named but not yet resolved, both flagged for the first live
 run to settle empirically rather than guessed at now:

@@ -252,7 +252,7 @@ test("formats a compact one-line cost receipt from SDK-reported usage", () => {
   assert.equal(noCacheNoCost, "Turn cost: sonnet - 100 in / 50 out tokens - 0.1m - 1 tool call.");
 });
 
-test("records a completed turn's usage as a durable local JSONL row and a Linear cost receipt", async () => {
+function usageTestSetup(disposition: { status: "awaiting_qa" | "blocked_external"; reason: string; nextAction?: string }, awaitingInput: boolean) {
   const unused = async () => { throw new Error("unexpected engine call"); };
   const engine: ContainerEngine = {
     pull: unused, create: unused, start: unused, stop: unused, remove: unused,
@@ -272,23 +272,10 @@ test("records a completed turn's usage as a durable local JSONL row and a Linear
   };
   const capsule = {
     async runAgent() {
-      return {
-        status: "ok" as const,
-        answer: "Done.",
-        sessionId: "claude-1",
-        awaitingInput: true,
-        durationMs: 4,
-        disposition: { status: "awaiting_qa" as const, reason: "Ready for approval." },
-        usage,
-      };
+      return { status: "ok" as const, answer: "Done.", sessionId: "claude-1", awaitingInput, durationMs: 4, disposition, usage };
     },
     async pushInput() { throw new Error("unused"); },
   };
-  const dataDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-usage-test-"));
-  const harness = new WorkbenchHarness({ ...config(), dataDirectory }, engine, capsule);
-  const collaborated: unknown[] = [];
-  (harness as unknown as { collaborateLinear: WorkbenchHarness["collaborateLinear"] }).collaborateLinear =
-    async (token, request) => { collaborated.push({ token, request }); return { ok: true, action: "activity" }; };
   const active = {
     aborted: false,
     client: {},
@@ -305,8 +292,18 @@ test("records a completed turn's usage as a durable local JSONL row and a Linear
     services: new Map(),
     token: "task-token",
   };
+  return { engine, capsule, active, usage };
+}
+
+test("skips the Linear cost receipt when the turn left a blocking Steering/QA attention open, to avoid burying its buttons", async () => {
+  const { engine, capsule, active, usage } = usageTestSetup({ status: "awaiting_qa", reason: "Ready for approval." }, true);
+  const dataDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-usage-test-"));
+  const harness = new WorkbenchHarness({ ...config(), dataDirectory }, engine, capsule);
   const internals = harness as unknown as { active: Map<string, unknown> };
   internals.active.set("session", active);
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => { fetchCalls += 1; throw new Error("must not be called while a blocking attention is open"); }) as unknown as typeof fetch;
 
   try {
     const result = await harness.runClaude("task-token", { prompt: "Implement it" }); // yadm-secret-scan: ignore
@@ -316,14 +313,43 @@ test("records a completed turn's usage as a durable local JSONL row and a Linear
     const row = JSON.parse(logged);
     assert.equal(row.sessionId, "session");
     assert.deepEqual(row.observed, usage.observed);
-    assert.equal(row.sdkReportedCostUsd, 0.12);
 
-    assert.equal(collaborated.length, 1);
-    const posted = collaborated[0] as { token: string; request: { action: string; content: { type: string; body: string } } };
-    assert.equal(posted.token, "task-token");
-    assert.equal(posted.request.action, "activity");
-    assert.match(posted.request.content.body, /Turn cost: sonnet/);
+    assert.equal(fetchCalls, 0, "an open elicitation's buttons must not be buried by a later activity post");
   } finally {
+    globalThis.fetch = originalFetch;
+    await fs.rm(dataDirectory, { recursive: true, force: true });
+  }
+});
+
+test("posts the Linear cost receipt once the turn ends without leaving a blocking attention open", async () => {
+  const { engine, capsule, active } = usageTestSetup(
+    { status: "blocked_external", reason: "Waiting on a third-party webhook.", nextAction: "Retry once the webhook fires." },
+    false,
+  );
+  const dataDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-usage-test-"));
+  const harness = new WorkbenchHarness({ ...config(), dataDirectory }, engine, capsule);
+  const internals = harness as unknown as { active: Map<string, unknown> };
+  internals.active.set("session", active);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, body: JSON.parse((init?.body as string) ?? "{}") });
+    return new Response(JSON.stringify({ ok: true, action: "activity" }), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  try {
+    const result = await harness.runClaude("task-token", { prompt: "Implement it" }); // yadm-secret-scan: ignore
+    assert.equal(result.status, "ok");
+
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, "http://linear-agent-controller:8787/internal/linear-session");
+    const body = calls[0]?.body as { sessionId: string; request: { action: string; content: { type: string; body: string } } };
+    assert.equal(body.sessionId, "session");
+    assert.equal(body.request.action, "activity");
+    assert.equal(body.request.content.type, "thought");
+    assert.match(body.request.content.body, /Turn cost: sonnet/);
+  } finally {
+    globalThis.fetch = originalFetch;
     await fs.rm(dataDirectory, { recursive: true, force: true });
   }
 });

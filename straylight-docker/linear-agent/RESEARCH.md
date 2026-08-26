@@ -3165,3 +3165,47 @@ anything as "cost" under subscription auth, versus being a notional
 API-equivalent price. Named the field `sdkReportedCostUsd` and put the
 caveat directly in the receipt text rather than asserting an answer
 either way.
+
+## The cost receipt almost reintroduced the buried-elicitation bug - 2026-08-26
+
+An advisor review of the first cut of Slice 22 (requested before
+declaring it done, same discipline as the Phase 1 hang review two
+sections up) caught a real regression before it shipped: the receipt
+posted unconditionally right after `runClaude` resolved, including on
+the `awaiting_qa` path - the single most common ending for a real run.
+That is exactly the shape of the bug documented three sections up
+("Why the select-signal buttons went missing"): Linear renders Agent
+Session status from whichever activity landed *last*, not whichever
+was requested last. The QA elicitation (with its live buttons) posts
+mid-turn, the moment the model calls `request_attention` - strictly
+before the turn's SDK stream finishes and `runClaude` resolves. A
+receipt posted after that point, of any activity type, would become
+the new "last activity" and risk silently burying the elicitation's
+buttons on the exact run Gaby was about to test live.
+
+Fixed by gating the Linear echo on the completed result's own
+`awaitingInput` flag - `false` only for `blocked_external`/`deferred`
+endings, where there's no live interactive card to bury. A blocking
+Steering/QA ending now gets the JSONL row only, no Linear echo; this
+does mean the most common, most interesting runs won't show a receipt
+in Linear, only in the log - judged an acceptable trade for not
+risking a repeat of a bug that already cost real debugging time once.
+
+Two smaller findings from the same review, both fixed: the activity's
+`content.type` was `"response"` (Linear's channel for the agent's
+answer to the human); changed to `"thought"`, matching Slice 20's own
+framing of this kind of receipt as the session's background record,
+not something addressed to the human. And the receipt was originally
+posted through `WorkbenchHarness.collaborateLinear(token, ...)`, reusing
+the task's own bearer token - which re-validates the task is still
+`running`/unaborted, a check aimed at an untrusted in-container caller.
+Advisor flagged that this check could race: making the fetch itself
+fire-and-forget (needed anyway, so a wedged controller can't hold up
+the turn's own result) widens the window between the capsule call
+resolving and the receipt actually posting, during which the outer task
+lifecycle can legitimately flip `running`/`aborted` on its own. Rather
+than accept that race, the receipt now posts through a raw internal
+request straight to the controller's `/internal/linear-session` route,
+bypassing that re-check entirely - reasonable, since a usage record for
+a run that already completed doesn't need re-authorization from state
+that has since moved on.
