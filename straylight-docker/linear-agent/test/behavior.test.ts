@@ -33,6 +33,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /not a Signal comment/);
   assert.match(prompt, /can now join this conversation while you're still mid-task/);
   assert.match(prompt, /usage-limit warning appears and its utilization keeps climbing toward 100%/);
+  assert.match(prompt, /not you giving up on the task/);
+  assert.match(prompt, /resumes you automatically on this exact same work/);
 });
 
 test("uses the activity body for follow-ups", () => {
