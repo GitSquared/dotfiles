@@ -14,6 +14,7 @@ test("streams structured events across the controller-runner boundary", async ()
   let viewedImage: unknown;
   let appliedPatch: unknown;
   let hoisted: unknown;
+  let shelled: unknown;
   let managedPlan: unknown;
   let runPayload: unknown;
   const harness = {
@@ -29,7 +30,8 @@ test("streams structured events across the controller-runner boundary", async ()
       }
       return { status: "error" as const, message: "Unauthorized." };
     },
-    async shell(request: { command: string }) {
+    async shell(request: { command: string; directory?: string }) {
+      shelled = request;
       return { ok: true, exitCode: 0, stdout: request.command, stderr: "" };
     },
     async applyPatch(request: { patch: string; directory?: string }) {
@@ -116,9 +118,10 @@ test("streams structured events across the controller-runner boundary", async ()
     const shell = await fetch(`${baseUrl}/v1/shell`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
-      body: JSON.stringify({ command: "pwd" }),
+      body: JSON.stringify({ command: "pwd", directory: "carbonfact" }),
     });
     assert.deepEqual(await shell.json(), { ok: true, exitCode: 0, stdout: "pwd", stderr: "" });
+    assert.deepEqual(shelled, { command: "pwd", directory: "carbonfact" });
     const patch = await fetch(`${baseUrl}/v1/patch`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },

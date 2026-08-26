@@ -396,6 +396,28 @@ test("runs shell commands in the task workspace and strips broker credentials", 
   }
 });
 
+test("runs shell commands inside a selected workspace subdirectory", async () => {
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-shell-dir-"));
+  try {
+    const repository = path.join(workdir, "repository");
+    await fs.mkdir(repository);
+    const harness = new ClaudeHarness(config(workdir), { async runBrokeredAgent() { throw new Error("unused"); }, async followUpBrokered() { throw new Error("unused"); } });
+    const result = await harness.shell({ command: "pwd", directory: "repository" });
+    assert.equal(result.ok, true);
+    assert.match(result.stdout, new RegExp(repository.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    await assert.rejects(
+      harness.shell({ command: "pwd", directory: "../elsewhere" }),
+      /inside \/workspace/,
+    );
+    await assert.rejects(
+      harness.shell({ command: "pwd", directory: "does-not-exist" }),
+      /existing directory/,
+    );
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
 test("applies a unified diff inside the selected workspace directory", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-patch-"));
   try {

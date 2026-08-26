@@ -49,7 +49,7 @@ type RunnerHarness = {
   watchPullRequestChecks?(sessionId: string, prUrl: string): Promise<{ accepted: boolean }>;
   abortPullRequestWatch?(sessionId: string): Promise<void>;
   checkPullRequestReviews?(prUrl: string): Promise<{ reviews: PullRequestReview[] }>;
-  shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
+  shell?(request: { command: string; timeoutMs?: number; directory?: string }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   applyPatch?(request: { patch: string; directory?: string }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   managePlan?(request: PlanRequest, signal?: AbortSignal): Promise<{ ok: true; plan: PlanDetails; mirrored?: boolean; message: string }>;
   shareArtifact?(request: { path: string; title?: string; body?: string }, signal?: AbortSignal): Promise<{ ok: true; assetUrl: string; contentType: string; filename: string }>;
@@ -212,14 +212,16 @@ export function createRunnerServer(
     if (!authorized(request, token)) return json(401, { ok: false, error: "unauthorized" });
 
     if (method === "POST" && pathname === "/v1/shell") {
-      const input = await body<{ command?: string; timeoutMs?: number }>(request);
-      if (!pi.shell || typeof input.command !== "string" || !input.command.trim() || input.command.length > 20_000) {
+      const input = await body<{ command?: string; timeoutMs?: number; directory?: string }>(request);
+      if (!pi.shell || typeof input.command !== "string" || !input.command.trim() || input.command.length > 20_000
+        || (input.directory !== undefined && (typeof input.directory !== "string" || !input.directory.trim() || input.directory.length > 4_096))) {
         return json(400, { ok: false, error: "invalid_shell_request" });
       }
       server?.timeout(request, 0);
       return json(200, await pi.shell({
         command: input.command,
         ...(input.timeoutMs === undefined ? {} : { timeoutMs: input.timeoutMs }),
+        ...(input.directory ? { directory: input.directory } : {}),
       }, request.signal));
     }
 
