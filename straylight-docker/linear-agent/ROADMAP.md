@@ -1581,6 +1581,63 @@ different value in the schema) is still unconfirmed, same caveat as
 the durability question Slice 20 shipped without live confirmation.
 Worth a look on the next real test run.
 
+## Slice 26 — resolve tracked comment threads once their decision lands (GAB-22)
+
+Status: done, 2026-08-26.
+
+Origin: Gaby, GAB-22 - "It would be cool if the agent was able to
+automatically properly 'resolve' threads in Linear when decisions have
+been made and they are not relevant anymore," illustrated with a
+screenshot of the native comment "..." menu's "Resolve thread" action
+being used right after a Steering reply landed.
+
+Claude already had `manage_linear`'s generic `comment`/`resolve` and
+`/unresolve` operations (`LinearClient.manage`'s `commentResolve`
+mutation), so the primitive existed - but nothing made using it
+*automatic* for the threads the controller itself opens and already
+knows the full lifecycle of: the real, tracked issue comment posted
+alongside a blocking Steering/QA elicitation (`ActiveAttention.commentId`,
+Slice 13/19-era work), and a non-blocking "ask" (`OpenAsk.commentId`,
+Slice 18). Leaving that to Claude's own judgment mid-turn is exactly the
+kind of thing worth making deterministic instead: the controller
+unambiguously knows the moment a reply lands on one of these and gets
+processed - that's the paper-trail equivalent of a human clicking
+"Resolve thread" themselves.
+
+**Change shipped:** a new `LinearClient.resolveComment(commentId)` calls
+`commentResolve` directly (`src/linear.ts`), and `src/controller.ts` calls
+it, best-effort (`.catch(() => undefined)`, matching the existing
+`reactToComment` convention - never lets a resolve failure block the
+actual resume), at every point a tracked thread's question has been
+answered and acted on:
+
+- `routeTrackedCommentReply`'s ask branch, right after the reply's own
+  checkmark reaction - the ask's own `commentId`.
+- `handle()`'s `"prompted" && state.attention.length` branch (covers both
+  a native elicitation reply and a routed tracked-comment reply, since
+  the latter calls into the former) - `attention.commentId`, whether the
+  reply approved QA, gave a non-approving Steering answer, or anything
+  else that isn't itself another parentless follow-up.
+- `approveQa`, now taking an optional `attentionCommentId` parameter -
+  covers both ways a QA gets approved (replying with the exact approve
+  text, and `handleQaReactionApproval`'s checkmark-reaction path), since
+  both routes call through this one shared completion function.
+
+Deliberately resolves on "answered," not "issue closed": a non-approving
+Steering reply (`"Keep the old writer, but add a rollback plan."`) still
+resolves that thread, since the specific question it asked was answered
+and the answer's now been acted on - reopening a fresh Steering/QA later
+opens a brand-new tracked comment with its own thread, so nothing is lost
+by closing this one out.
+
+Twelve tests updated/added: three in `test/ask-tier.test.ts` now assert
+`resolveComment` is actually called with the right tracked comment id (the
+ask-reply case, the QA-approval case, and the non-approving-Steering-reply
+case); six `test/controller-recovery.test.ts` fakes and `test/ask-tier.test.ts`'s
+shared `baseLinear` helper gained a `resolveComment` stub so every fake
+`LinearClient` stays complete. `bun run check` (typecheck + all 201 tests)
+passes.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit

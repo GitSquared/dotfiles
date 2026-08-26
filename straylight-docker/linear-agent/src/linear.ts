@@ -686,6 +686,25 @@ export class LinearClient {
     if (!data.reactionCreate.success) throw new Error("Linear rejected the comment reaction");
   }
 
+  /**
+   * Marks a tracked issue-comment thread resolved (Linear's native "Resolve thread"), the
+   * same primitive `manage`'s `comment`/`resolve` operation exposes to Claude - but called
+   * directly by the controller for threads *it* opened and knows the lifecycle of: the real
+   * comment posted alongside a blocking Steering/QA elicitation, and a non-blocking "ask"
+   * (ROADMAP.md Slice 18 / 26). Once a reply lands and that decision is acted on, the thread
+   * genuinely is resolved - this makes that automatic rather than relying on Claude to
+   * remember, mirroring the UI action a human takes via a comment's "..." menu.
+   */
+  async resolveComment(commentId: string): Promise<void> {
+    const data = await this.graphql<{ commentResolve: { success: boolean } }>(
+      `mutation ResolveComment($id: String!) {
+        commentResolve(id: $id) { success }
+      }`,
+      { id: commentId },
+    );
+    if (!data.commentResolve.success) throw new Error("Linear rejected the comment thread resolution");
+  }
+
   async resolveAttentionStateId(teamId: string, stateName: string): Promise<string> {
     const data = await this.graphql<{
       team: { states: { nodes: Array<{ id: string; name: string }> } } | null;
