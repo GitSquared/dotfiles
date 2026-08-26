@@ -108,6 +108,12 @@ export function claudeInitialPrompt(payload: AgentTaskPayload): string {
     issue?.title ? `- Title: ${issue.title}` : undefined,
     issue?.url ? `- URL: ${issue.url}` : undefined,
     issue?.description ? `- Description:\n${issue.description}` : undefined,
+    payload.projectContext?.name
+      ? `- Project: ${payload.projectContext.name}${payload.projectContext.url ? ` (${payload.projectContext.url})` : ""}`
+      : undefined,
+    payload.projectContext?.content?.trim() ? `  Project notes:\n${payload.projectContext.content.trim()}` : undefined,
+    payload.teamContext?.name ? `- Team: ${payload.teamContext.name}` : undefined,
+    payload.teamContext?.description?.trim() ? `  Team notes:\n${payload.teamContext.description.trim()}` : undefined,
     issue?.identifier ? `When creating a git branch for this work, include "${issue.identifier}" in its name - Linear's Git integration, where the workspace has one configured, links matching branches back to the issue automatically.` : undefined,
     context && context !== request ? `\nSupporting Linear context:\n${context}` : undefined,
     ...documentReview(payload),

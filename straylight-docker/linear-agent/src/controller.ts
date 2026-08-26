@@ -1163,6 +1163,17 @@ export class AgentController {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+    if (state.issueId) {
+      try {
+        const context = await this.linear.issueWorkspaceContext(state.issueId);
+        if (context.project) taskPayload.projectContext = context.project;
+        if (context.team) taskPayload.teamContext = context.team;
+      } catch (error) {
+        console.warn("Linear project/team context unavailable; the agent will fetch it directly if needed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
     const result = await this.runner.run(taskPayload, async (event) => {
       if (state.generation !== generation) return;
       await this.publishActivity(sessionId, event.content, event.ephemeral);

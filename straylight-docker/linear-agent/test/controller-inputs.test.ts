@@ -113,3 +113,72 @@ test("updates an existing Document from a Document-only Agent Session", async ()
 
   assert.deepEqual(update, { id: "doc-1", title: "Setup", content: "# Revised" });
 });
+
+test("gathers Linear project and team context at session boot", async () => {
+  const linear = {
+    async createActivity() {},
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async repositorySuggestions() { return []; },
+    async issueWorkspaceContext(issueId: string) {
+      assert.equal(issueId, "issue-1");
+      return {
+        project: { id: "project-1", name: "Linear coding harness", url: "https://linear.app/gaby-s/project/linear-coding-harness", content: "Code lives in GitSquared/dotfiles, straylight branch." },
+        team: { id: "team-1", name: "Gaby", description: "Straylight's own team." },
+      };
+    },
+  } as unknown as LinearClient;
+  let received: AgentTaskPayload | undefined;
+  const runner = {
+    async repositories() { return []; },
+    async run(payload: AgentTaskPayload) {
+      received = payload;
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 };
+    },
+    async health() { return { mode: "test" }; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    type: "AgentSessionEvent",
+    action: "created",
+    agentSession: { id: "session-3", issueId: "issue-1" },
+  });
+  for (let attempt = 0; attempt < 50 && !received; attempt += 1) await Bun.sleep(2);
+
+  assert.deepEqual(received?.projectContext, {
+    id: "project-1",
+    name: "Linear coding harness",
+    url: "https://linear.app/gaby-s/project/linear-coding-harness",
+    content: "Code lives in GitSquared/dotfiles, straylight branch.",
+  });
+  assert.deepEqual(received?.teamContext, { id: "team-1", name: "Gaby", description: "Straylight's own team." });
+});
+
+test("continues session boot when Linear project/team context lookup fails", async () => {
+  const linear = {
+    async createActivity() {},
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async repositorySuggestions() { return []; },
+    async issueWorkspaceContext() { throw new Error("Linear GraphQL request timed out"); },
+  } as unknown as LinearClient;
+  let received: AgentTaskPayload | undefined;
+  const runner = {
+    async repositories() { return []; },
+    async run(payload: AgentTaskPayload) {
+      received = payload;
+      return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 };
+    },
+    async health() { return { mode: "test" }; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    type: "AgentSessionEvent",
+    action: "created",
+    agentSession: { id: "session-4", issueId: "issue-1" },
+  });
+  for (let attempt = 0; attempt < 50 && !received; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(received?.projectContext, undefined);
+  assert.equal(received?.teamContext, undefined);
+});

@@ -131,6 +131,19 @@ export type RepositoryCandidate = {
 
 export type RepositorySuggestion = RepositoryCandidate & { confidence?: number };
 
+export type LinearProjectContext = {
+  id: string;
+  name: string;
+  url?: string;
+  content?: string | null;
+};
+
+export type LinearTeamContext = {
+  id: string;
+  name: string;
+  description?: string | null;
+};
+
 export type LinearInputFile = {
   filename: string;
   mimeType: string;
@@ -168,6 +181,8 @@ export type AgentTaskPayload = AgentSessionWebhook & {
   linearInputs?: LinearInputFile[];
   linearSourceComment?: LinearSourceComment;
   linearDocumentReview?: LinearDocumentReview;
+  projectContext?: LinearProjectContext;
+  teamContext?: LinearTeamContext;
   workbench?: {
     repositories?: RepositoryCandidate[];
     repositorySuggestions?: RepositorySuggestion[];

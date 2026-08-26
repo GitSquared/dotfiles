@@ -174,6 +174,31 @@ test("includes ranked workbench repositories without choosing for the agent", ()
   assert.match(prompt, /manage_linear/);
 });
 
+test("includes Linear project and team context gathered at session boot", () => {
+  const prompt = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-23", title: "Improve repository discovery" } },
+    projectContext: {
+      id: "project-1",
+      name: "Linear coding harness",
+      url: "https://linear.app/gaby-s/project/linear-coding-harness",
+      content: "Code lives in GitSquared/dotfiles, straylight branch.",
+    },
+    teamContext: { id: "team-1", name: "Gaby", description: "Straylight's own team." },
+  });
+  assert.match(prompt, /- Project: Linear coding harness \(https:\/\/linear\.app\/gaby-s\/project\/linear-coding-harness\)/);
+  assert.match(prompt, /Code lives in GitSquared\/dotfiles, straylight branch/);
+  assert.match(prompt, /- Team: Gaby/);
+  assert.match(prompt, /Straylight's own team/);
+});
+
+test("omits project and team context lines when boot-time lookup found nothing", () => {
+  const prompt = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-5", title: "No project attached" } },
+  });
+  assert.doesNotMatch(prompt, /- Project:/);
+  assert.doesNotMatch(prompt, /- Team:/);
+});
+
 test("redacts common credentials and sensitive URL parameters", () => {
   const safe = redact('Authorization: Bearer abcdefghijklmnop https://x.test/a?token=hello sk-abcdefghijklmnop {"refresh_token":"super-private-value"}'); // yadm-secret-scan: ignore
   assert.doesNotMatch(safe, /abcdefghijklmnop/);
