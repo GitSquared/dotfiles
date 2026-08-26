@@ -1,8 +1,34 @@
 import type { WorkDisposition } from "./runner-protocol.js";
 import type { AgentActivityContent } from "./types.js";
 
+// SDK-reported usage for one runAgent turn. Two token counts are captured on
+// purpose: `usage` (from the SDK's own `result` message) and `observed` (this
+// harness's own running total across streamed assistant messages) - it is not
+// yet confirmed whether `result.usage` reflects the whole multi-turn
+// streaming-input session (Slice 19) or just the final turn. Compare the two
+// on the first live run and drop whichever one turns out redundant.
+export type CapsuleAgentUsage = {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  // The SDK's own cost estimate. Under subscription auth this is very likely
+  // a notional API-equivalent price, not money actually spent - do not
+  // relabel it as real spend without confirming the billing model first.
+  sdkReportedCostUsd: number | undefined;
+  modelTurns: number;
+  toolCallCount: number;
+  observed: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+  };
+};
+
 export type CapsuleAgentResult =
-  | { status: "ok"; answer: string; sessionId: string; awaitingInput: boolean; durationMs: number; disposition: WorkDisposition }
+  | { status: "ok"; answer: string; sessionId: string; awaitingInput: boolean; durationMs: number; disposition: WorkDisposition; usage?: CapsuleAgentUsage }
   | { status: "error"; message: string; sessionId?: string; durationMs?: number };
 
 export type CapsuleAgentRequest = {

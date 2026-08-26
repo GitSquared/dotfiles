@@ -1180,6 +1180,69 @@ machinery. Model selection today is a hardcoded `"sonnet"` literal.
 Marked Slice 6 superseded rather than rewritten, so a future read of
 this roadmap doesn't repeat the same stale claim.
 
+## Slice 22 — a cheap per-task cost receipt
+
+Status: done, 2026-08-26.
+
+Origin: after Slice 21 landed, Gaby asked about token/cost logging and
+benchmarking, and explicitly scoped it down when the conversation
+started drifting toward Sentry/PostHog integration and org-wide
+advocacy: "is there a cheap trick in the middle where we just store
+cost per task and usage metrics in the code / on the containers,
+perhaps if Linear offers some place where we can publish it as well?"
+Deliberately not a telemetry platform - one JSONL row per completed
+turn, plus one Linear activity mirroring it. No aggregator, no query
+CLI, no cost-budget enforcement.
+
+Two sinks, both best-effort and independent of each other:
+
+- A durable JSONL row appended to `usage.jsonl` in `WorkbenchHarness`'s
+  own volume-mounted data directory (`PI_WORKBENCH_DATA_DIR`, already
+  bind-mounted host-side for `tasks/<key>` data) - not the per-task
+  container's `/workspace`, which is this long-lived process's own
+  disk and survives container churn.
+- A one-line "Turn cost: ..." Linear activity via the same
+  `{action:"activity"}` relay the model's own `linear_activity` tool
+  already uses (`collaborateLinear`, ordered but not retried - same
+  tier as `finish()`'s completion summary). No new retry
+  infrastructure: the JSONL row is the actual source of truth, and a
+  lost receipt costs nothing since it isn't reconstructing anything
+  that couldn't be regenerated from the log.
+
+Plumbing: `agent-request.mjs`'s `runAgent` already read
+`result.usage.*`/`result.total_cost_usd` for its own console logging -
+it just never returned them. Added a `usage` field to the "ok" variant
+of `CapsuleAgentResult` (`src/capsule-client.ts`) and populated it on
+return. `WorkbenchHarness.runClaude` (the one process in the chain
+that's both long-lived and already holds the task's own bearer token)
+writes the JSONL row and posts the receipt right after `runAgent`
+resolves - no changes needed to `PiResult`/`ClaudeHarness`/the
+controller, since the receipt reuses the exact same
+token-authenticated Linear relay the task container's own tool calls
+already go through.
+
+Two things named but not yet resolved, both flagged for the first live
+run to settle empirically rather than guessed at now:
+
+- Whether `result.usage` (the SDK's own per-turn accounting) reports
+  the same thing as this harness's own `observedUsage` accumulator
+  across a multi-turn streaming-input session (Slice 19) - both are
+  logged side by side for comparison; drop whichever is redundant
+  once observed.
+- `total_cost_usd` is renamed `sdkReportedCostUsd` and the receipt
+  text says "subscription-notional, not billed spend" - under
+  subscription auth this is very likely an API-equivalent notional
+  price, not money actually spent, and mislabeling it would put
+  Gaby's requested benchmarking on a number that doesn't mean what it
+  says.
+
+Not done, and correctly stale as of Slice 17: no `reasoningTier` or
+per-model routing dimension - `src/model-policy.ts` doesn't exist
+(see Slice 6's superseded note above), so `model` is always the
+literal `"sonnet"` for now. Reviving cost-aware model selection would
+make this receipt immediately more useful, but is a separate,
+larger piece of work.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit

@@ -3102,3 +3102,66 @@ fallback runner was removed; model selection today is a hardcoded
 superseded in place rather than rewriting its historical plan, so it
 stops misleading whoever reads it next - including a future instance of
 this agent.
+
+## Finding the shortest path for a cost receipt: three hops turned into one - 2026-08-26
+
+Gaby scoped his own ask down mid-conversation, on purpose: cost/token
+logging was drifting toward a Sentry/PostHog integration and org-wide
+advocacy for Linear-agent workflows, and he named that as a separate,
+bigger, later decision. What he actually wanted now: "a cheap trick in
+the middle where we just store cost per task and usage metrics in the
+code / on the containers, perhaps if Linear offers some place where we
+can publish it as well."
+
+First orientation pass (an Explore agent) found the data was already
+being computed and thrown away: `agent-request.mjs`'s `runAgent`
+already reads `result.usage.*` and `result.total_cost_usd` off the
+Claude Agent SDK's own `result` message for its console logging
+(`console.info("Claude run tool audit", ...)`), but its actual return
+value - the thing that survives past that log line - never carried
+them. The Explore pass also caught something that would have shaped
+the whole design wrong: it named Slice 6 ("cost-aware model policy") as
+already implemented, quoting ROADMAP.md's own status line. Didn't take
+that at face value against advisor's own read of the same transcript:
+`ls src/` confirmed `model-policy.ts` doesn't exist, and Slice 17's
+text says plainly it was deleted. Fixed the roadmap claim (see the
+entry above) before designing anything on top of it - a `reasoningTier`
+field in the log would have described a mechanism that isn't there.
+
+The interesting design question was how many hops the usage data
+needed to travel to reach both sinks (the local log and the Linear
+receipt). The naive read of the architecture (capsule to workbench to
+task-container `ClaudeHarness` to the controller, since the
+controller's the one that talks to Linear) suggested three hops of
+plumbing: widen `CapsuleAgentResult`, thread it through `ClaudeHarness`,
+widen the shared `PiResult` wire type and its strict `parseRunnerEvent`
+validator, and have the controller emit the receipt once the final
+result reaches it. That's a lot of surface for something scoped as "a
+cheap trick."
+
+Traced the actual call graph instead of assuming the naive path was
+required: `WorkbenchHarness.runClaude` - the one place that already
+receives the widened `CapsuleAgentResult` straight from the real
+capsule - turns out to already hold everything needed for both sinks
+without going anywhere else. It's the long-lived process (survives
+container churn, so its own volume-mounted `PI_WORKBENCH_DATA_DIR` is a
+safe place for a durable log - the per-task container's disk is not,
+per Slice 21's finding two sections up). And it already receives the
+task's own bearer `token` as its first parameter, which is exactly what
+`WorkbenchHarness.collaborateLinear(token, request)` needs to relay a
+Linear activity through the controller - the same
+`{action:"activity"}` path the model's own `linear_activity` tool
+already uses when the agent is still running. Both sinks turned out to
+be reachable from inside `runClaude`, right after `this.capsule.runAgent(...)`
+resolves - no `PiResult`/`ClaudeHarness`/controller changes at all.
+
+Two open questions named rather than guessed at, since neither can be
+settled from code alone: whether `result.usage` reports the whole
+multi-turn streaming-input session (Slice 19 made turns injectable
+mid-flight) or just the closing turn - both `result.usage` and this
+harness's own `observedUsage` accumulator are logged side by side so
+the first live run can settle it - and whether `total_cost_usd` means
+anything as "cost" under subscription auth, versus being a notional
+API-equivalent price. Named the field `sdkReportedCostUsd` and put the
+caveat directly in the receipt text rather than asserting an answer
+either way.

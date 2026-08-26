@@ -725,6 +725,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
   let sdkEventCount = 0;
   let lastSdkEvent;
   let sdkSessionId;
+  let resolvedModel;
   let modelTurns = 0;
   let toolCallCount = 0;
   const seenAssistantMessages = new Set();
@@ -798,6 +799,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
       sdkEventCount += 1;
       lastSdkEvent = message.subtype ? `${message.type}:${message.subtype}` : message.type;
       sdkSessionId = message.session_id || sdkSessionId;
+      if (message.type === "system" && message.subtype === "init" && message.model) resolvedModel = message.model;
       if (sdkEventCount === 1) {
         console.info("Claude Agent SDK stream opened", {
           sessionId: sdkSessionId,
@@ -902,5 +904,16 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
     awaitingInput: context.awaitingInput,
     disposition: context.disposition,
     durationMs: result.duration_ms,
+    usage: {
+      model: resolvedModel || input.model || "sonnet",
+      inputTokens: result.usage?.input_tokens ?? 0,
+      outputTokens: result.usage?.output_tokens ?? 0,
+      cacheReadInputTokens: result.usage?.cache_read_input_tokens ?? 0,
+      cacheCreationInputTokens: result.usage?.cache_creation_input_tokens ?? 0,
+      sdkReportedCostUsd: result.total_cost_usd,
+      modelTurns,
+      toolCallCount,
+      observed: { ...observedUsage },
+    },
   };
 }

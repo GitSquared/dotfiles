@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { test } from "bun:test";
 import type { WorkbenchConfig } from "../src/config.js";
 import { decodeDockerStream, type ContainerEngine } from "../src/docker-engine.js";
-import { parseRepositoryRemote, repositoryCloneUrl, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
+import { formatUsageReceipt, parseRepositoryRemote, repositoryCloneUrl, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
 
 function config(): WorkbenchConfig {
   return {
@@ -219,6 +222,110 @@ test("forwards a running task to the Claude capsule without mounting its identit
     status: "error",
     message: "Unauthorized or unavailable task workspace.",
   });
+});
+
+test("formats a compact one-line cost receipt from SDK-reported usage", () => {
+  const receipt = formatUsageReceipt({
+    model: "sonnet",
+    inputTokens: 12_345,
+    outputTokens: 3_210,
+    cacheReadInputTokens: 890,
+    cacheCreationInputTokens: 0,
+    sdkReportedCostUsd: 0.4231,
+    modelTurns: 6,
+    toolCallCount: 8,
+    observed: { inputTokens: 12_345, outputTokens: 3_210, cacheReadInputTokens: 890, cacheCreationInputTokens: 0 },
+  }, 252_000);
+  assert.equal(receipt, "Turn cost: sonnet - 12,345 in / 3,210 out tokens (+890 cache-read) - ~$0.42 SDK-estimated (subscription-notional, not billed spend) - 4.2m - 8 tool calls.");
+
+  const noCacheNoCost = formatUsageReceipt({
+    model: "sonnet",
+    inputTokens: 100,
+    outputTokens: 50,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    sdkReportedCostUsd: undefined,
+    modelTurns: 1,
+    toolCallCount: 1,
+    observed: { inputTokens: 100, outputTokens: 50, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+  }, 6_000);
+  assert.equal(noCacheNoCost, "Turn cost: sonnet - 100 in / 50 out tokens - 0.1m - 1 tool call.");
+});
+
+test("records a completed turn's usage as a durable local JSONL row and a Linear cost receipt", async () => {
+  const unused = async () => { throw new Error("unexpected engine call"); };
+  const engine: ContainerEngine = {
+    pull: unused, create: unused, start: unused, stop: unused, remove: unused,
+    listByLabel: unused, inspect: unused, logs: unused, createNetwork: unused,
+    connectNetwork: unused, removeNetwork: unused, listNetworksByLabel: unused,
+  };
+  const usage = {
+    model: "sonnet",
+    inputTokens: 1_000,
+    outputTokens: 200,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+    sdkReportedCostUsd: 0.12,
+    modelTurns: 2,
+    toolCallCount: 3,
+    observed: { inputTokens: 1_000, outputTokens: 200, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 },
+  };
+  const capsule = {
+    async runAgent() {
+      return {
+        status: "ok" as const,
+        answer: "Done.",
+        sessionId: "claude-1",
+        awaitingInput: true,
+        durationMs: 4,
+        disposition: { status: "awaiting_qa" as const, reason: "Ready for approval." },
+        usage,
+      };
+    },
+    async pushInput() { throw new Error("unused"); },
+  };
+  const dataDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-usage-test-"));
+  const harness = new WorkbenchHarness({ ...config(), dataDirectory }, engine, capsule);
+  const collaborated: unknown[] = [];
+  (harness as unknown as { collaborateLinear: WorkbenchHarness["collaborateLinear"] }).collaborateLinear =
+    async (token, request) => { collaborated.push({ token, request }); return { ok: true, action: "activity" }; };
+  const active = {
+    aborted: false,
+    client: {},
+    containerId: "task-id",
+    containerName: "linear-agent-task-abc123",
+    idleTimer: undefined,
+    capsuleRequestId: undefined,
+    lastUsedAt: Date.now(),
+    networkId: "network-id",
+    networkName: "network-name",
+    running: true,
+    sessionId: "session",
+    sessionKey: "session-key",
+    services: new Map(),
+    token: "task-token",
+  };
+  const internals = harness as unknown as { active: Map<string, unknown> };
+  internals.active.set("session", active);
+
+  try {
+    const result = await harness.runClaude("task-token", { prompt: "Implement it" }); // yadm-secret-scan: ignore
+    assert.equal(result.status, "ok");
+
+    const logged = (await fs.readFile(path.join(dataDirectory, "usage.jsonl"), "utf8")).trim();
+    const row = JSON.parse(logged);
+    assert.equal(row.sessionId, "session");
+    assert.deepEqual(row.observed, usage.observed);
+    assert.equal(row.sdkReportedCostUsd, 0.12);
+
+    assert.equal(collaborated.length, 1);
+    const posted = collaborated[0] as { token: string; request: { action: string; content: { type: string; body: string } } };
+    assert.equal(posted.token, "task-token");
+    assert.equal(posted.request.action, "activity");
+    assert.match(posted.request.content.body, /Turn cost: sonnet/);
+  } finally {
+    await fs.rm(dataDirectory, { recursive: true, force: true });
+  }
 });
 
 test("pushes a live signal into whichever capsule request is currently in flight for that task", async () => {

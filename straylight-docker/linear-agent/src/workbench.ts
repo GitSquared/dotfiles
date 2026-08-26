@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { CapsuleClient } from "./capsule-client.js";
-import type { CapsuleAgentProgressHandler, CapsuleAgentResult } from "./capsule-client.js";
+import type { CapsuleAgentProgressHandler, CapsuleAgentResult, CapsuleAgentUsage } from "./capsule-client.js";
 import { AdaptiveSlots } from "./capacity.js";
 import type { WorkbenchConfig } from "./config.js";
 import { DockerEngine, type ContainerEngine, type DockerContainerSpec } from "./docker-engine.js";
@@ -70,6 +70,22 @@ function sessionNetworkName(sessionId: string): string {
 
 function serviceName(sessionId: string, service: DevelopmentService): string {
   return `linear-agent-${service}-${sessionKey(sessionId).slice(0, 12)}-${crypto.randomBytes(3).toString("hex")}`;
+}
+
+const USAGE_LOG_FILE = "usage.jsonl";
+
+// One compact line for the Agent Session timeline, mirroring the same durable
+// JSONL row - the log file is the source of truth (never lost; regeneration
+// isn't needed), this is just the human-visible echo of one row from it.
+export function formatUsageReceipt(usage: CapsuleAgentUsage, elapsedMs: number): string {
+  const tokens = `${usage.inputTokens.toLocaleString()} in / ${usage.outputTokens.toLocaleString()} out tokens`;
+  const cache = usage.cacheReadInputTokens > 0 ? ` (+${usage.cacheReadInputTokens.toLocaleString()} cache-read)` : "";
+  const cost = usage.sdkReportedCostUsd !== undefined
+    ? ` - ~$${usage.sdkReportedCostUsd.toFixed(2)} SDK-estimated (subscription-notional, not billed spend)`
+    : "";
+  const minutes = Math.round(elapsedMs / 6_000) / 10;
+  const calls = `${usage.toolCallCount} tool call${usage.toolCallCount === 1 ? "" : "s"}`;
+  return `Turn cost: ${usage.model} - ${tokens}${cache}${cost} - ${minutes}m - ${calls}.`;
 }
 
 function stoppedResult(startedAt: number): PiResult {
@@ -418,12 +434,16 @@ export class WorkbenchHarness {
         ...(request.model ? { model: request.model } : {}),
         ...(request.timeBudgetMs !== undefined ? { timeBudgetMs: request.timeBudgetMs } : {}),
       }, signal, onProgress);
+      const elapsedMs = Date.now() - startedAt;
       console.info("Claude workbench run finished", {
         sessionId: active.sessionId,
-        elapsedMs: Date.now() - startedAt,
+        elapsedMs,
         status: result.status,
         ...(result.status === "ok" ? { disposition: result.disposition.status } : {}),
       });
+      if (result.status === "ok" && result.usage) {
+        await this.recordUsage(token, active.sessionId, result.usage, elapsedMs);
+      }
       return result;
     } catch (error) {
       console.error("Claude workbench run failed", {
@@ -435,6 +455,39 @@ export class WorkbenchHarness {
       throw error;
     } finally {
       if (active.capsuleRequestId === requestId) active.capsuleRequestId = undefined;
+    }
+  }
+
+  // Two independent, best-effort sinks - neither blocks the run or each other.
+  // The JSONL row (written to this long-lived process's own volume-mounted
+  // data directory, not the ephemeral per-task container) is the durable
+  // source of truth; the Linear activity is just its human-visible echo.
+  private async recordUsage(
+    token: string, // yadm-secret-scan: ignore
+    sessionId: string,
+    usage: CapsuleAgentUsage,
+    elapsedMs: number,
+  ): Promise<void> {
+    try {
+      await fs.mkdir(this.config.dataDirectory, { recursive: true });
+      const line = { ts: new Date().toISOString(), sessionId, elapsedMs, ...usage };
+      await fs.appendFile(path.join(this.config.dataDirectory, USAGE_LOG_FILE), `${JSON.stringify(line)}\n`);
+    } catch (error) {
+      console.error("failed to record usage telemetry locally", {
+        sessionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+    try {
+      await this.collaborateLinear(token, {
+        action: "activity",
+        content: { type: "response", body: formatUsageReceipt(usage, elapsedMs) },
+      });
+    } catch (error) {
+      console.error("failed to post the cost receipt activity", {
+        sessionId,
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
