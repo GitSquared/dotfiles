@@ -332,6 +332,52 @@ test("posts a completed action and thought narration durably, while an in-progre
   }
 });
 
+test("publishes the model's own response narration durably, distinct from thought and action", async () => {
+  // Regression for the capsule stream throwing "The Claude agent capsule returned
+  // an invalid stream event." (GAB-20): the capsule started emitting type:
+  // "response" for the model's own composed words (60734ae), but this harness's
+  // progress -> activity mapping only ever recognized "thought" and "action".
+  const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-response-progress-"));
+  try {
+    const progressConfig = { ...config(workdir), progressDebounceMs: 1, progressHeartbeatMs: 300_000 };
+    const capsule = {
+      async runBrokeredAgent(
+        _request: unknown,
+        _signal?: AbortSignal,
+        onProgress?: (progress:
+          | { type: "thought"; body: string }
+          | { type: "response"; body: string }
+          | { type: "action"; action: string; parameter: string; result?: string }) => void,
+      ) {
+        onProgress?.({ type: "response", body: "Found the crash: a missing progress case." });
+        await Bun.sleep(3);
+        return {
+          status: "ok" as const,
+          answer: "Ready for review.",
+          sessionId: "claude-response-progress-session",
+          awaitingInput: true,
+          durationMs: 3,
+          disposition: { status: "awaiting_qa" as const, reason: "Checked and ready for approval." },
+        };
+      },
+      async followUpBrokered() { throw new Error("unused"); },
+    };
+    const events: Array<{ ephemeral: boolean; content: { type: string; body?: string } }> = [];
+    const harness = new ClaudeHarness(progressConfig, capsule);
+    await harness.run({
+      action: "created",
+      agentSession: { id: "linear-response-progress-session", issueId: "issue-1" },
+      agentActivity: { content: { body: "Diagnose the crash." } },
+    }, async (event) => { events.push(event as typeof events[number]); });
+
+    const response = events.find((event) => event.content.type === "response" && event.content.body === "Found the crash: a missing progress case.");
+    assert.ok(response, "expected a durable response activity for the model's own narration");
+    assert.equal(response?.ephemeral, false);
+  } finally {
+    await fs.rm(workdir, { recursive: true, force: true });
+  }
+});
+
 test("runs shell commands in the task workspace and strips broker credentials", async () => {
   const workdir = await fs.mkdtemp(path.join(os.tmpdir(), "straylight-claude-shell-"));
   const previous = process.env.PI_RUNNER_TOKEN;

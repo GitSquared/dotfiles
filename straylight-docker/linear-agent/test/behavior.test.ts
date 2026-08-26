@@ -18,6 +18,13 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /Keep the change targeted/);
   assert.match(prompt, /needs no separate authorization - do not stop to ask first/);
   assert.match(prompt, /Pushing to a shared or default branch, merging, deploying, messaging third parties/);
+  // GAB-20 regression: a Slack message and a GitHub PR review went out in GAB-19
+  // without operator approval - the policy now names those surfaces explicitly
+  // and carves out an exception only for talking to another automated system.
+  assert.match(prompt, /Never send one of these without the engineer's explicit approval first/);
+  assert.match(prompt, /a Slack message or reply, a GitHub PR review or a comment on a pull request or issue/);
+  assert.match(prompt, /never leaving a review, an approval, or a comment on it or on anyone else's/);
+  assert.match(prompt, /does not apply to another automated system - a bot account or another agent/);
   assert.match(prompt, /container and everything on its disk are destroyed once this turn ends/);
   assert.match(prompt, /blocking Steering attention item/);
   assert.match(prompt, /finish_work/);

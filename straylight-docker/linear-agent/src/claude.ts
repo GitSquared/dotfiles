@@ -89,8 +89,14 @@ export class ClaudeHarness {
         const ephemeral = progress.type === "action" && !completedAction;
         reporter.report({
           type: "activity",
-          content: progress.type === "thought"
-            ? { type: "thought", body: finalText(progress.body) }
+          // Three shapes flow through here, not two: "response" (the model's own
+          // composed words - durable, unconditionally, same as "thought") joined
+          // "thought" and "action" once the capsule started distinguishing real
+          // narration from chain-of-thought - fold it into the action-only branch
+          // below and every response event reaches for a nonexistent .action/
+          // .parameter, not just a mislabeled one.
+          content: progress.type === "thought" || progress.type === "response"
+            ? { type: progress.type, body: finalText(progress.body) }
             : {
                 type: "action",
                 action: progressText(progress.action),
