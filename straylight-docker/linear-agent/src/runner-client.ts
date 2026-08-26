@@ -3,12 +3,27 @@ import { parseRunnerEvent, type PiResult, type RunnerEvent, type SessionRequest 
 
 export type RunnerEventHandler = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 
+export type PullRequestReview = {
+  id: number;
+  author: string;
+  state: string;
+  submittedAt: string;
+  body: string;
+};
+
 export interface AgentRunner {
   run(payload: AgentTaskPayload, onEvent: RunnerEventHandler): Promise<PiResult>;
   followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean>;
   abort(sessionId: string): Promise<boolean>;
   repositories(): Promise<RepositoryCandidate[]>;
   health(): Promise<Record<string, unknown>>;
+  // Slice 23: PR/CI/review watching. Optional - only the real PiRunnerClient (talking to
+  // the runner container, the one process with the `gh` binary and its OAuth token mounted)
+  // implements these; every call site guards with `?.` so a test double missing them is
+  // simply a no-op, not a crash.
+  watchPullRequestChecks?(sessionId: string, prUrl: string): Promise<{ accepted: boolean }>;
+  abortPullRequestWatch?(sessionId: string): Promise<void>;
+  checkPullRequestReviews?(prUrl: string): Promise<{ reviews: PullRequestReview[] }>;
 }
 
 // Bounds the short, synchronous control calls (health checks, follow-up/abort commands,
@@ -89,6 +104,40 @@ export class PiRunnerClient implements AgentRunner {
     const payload = await response.json() as Record<string, unknown>;
     if (!response.ok) throw new Error(`Agent runner is unhealthy: HTTP ${response.status}`);
     return payload;
+  }
+
+  async watchPullRequestChecks(sessionId: string, prUrl: string): Promise<{ accepted: boolean }> {
+    const response = await fetch(`${this.baseUrl}/pull-requests/watch`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ sessionId, prUrl }),
+      signal: AbortSignal.timeout(this.controlTimeoutMs),
+    });
+    if (!response.ok) throw new Error(`Agent runner rejected the pull request watch: HTTP ${response.status}`);
+    const payload = await response.json() as { accepted?: boolean };
+    return { accepted: payload.accepted === true };
+  }
+
+  async abortPullRequestWatch(sessionId: string): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/pull-requests/abort`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ sessionId }),
+      signal: AbortSignal.timeout(this.controlTimeoutMs),
+    });
+    if (!response.ok) throw new Error(`Agent runner failed to abort the pull request watch: HTTP ${response.status}`);
+  }
+
+  async checkPullRequestReviews(prUrl: string): Promise<{ reviews: PullRequestReview[] }> {
+    const response = await fetch(`${this.baseUrl}/pull-requests/reviews`, {
+      method: "POST",
+      headers: this.headers(),
+      body: JSON.stringify({ prUrl }),
+      signal: AbortSignal.timeout(this.controlTimeoutMs),
+    });
+    if (!response.ok) throw new Error(`Agent runner review check failed: HTTP ${response.status}`);
+    const payload = await response.json() as { reviews?: PullRequestReview[] };
+    return { reviews: Array.isArray(payload.reviews) ? payload.reviews : [] };
   }
 
   private async command(path: string, body: SessionRequest): Promise<boolean> {

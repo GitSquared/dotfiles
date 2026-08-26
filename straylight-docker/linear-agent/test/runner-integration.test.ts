@@ -328,3 +328,67 @@ test("emits transport heartbeats while a runner turn is otherwise silent", async
     await server.stop(true);
   }
 });
+
+test("relays pull request watch/abort/reviews calls to the runner harness", async () => {
+  const watchCalls: Array<{ sessionId: string; prUrl: string }> = [];
+  const abortCalls: string[] = [];
+  const reviewCalls: string[] = [];
+  const harness = {
+    async run() { return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 }; },
+    async followUp() { return false; },
+    async abort() { return false; },
+    async watchPullRequestChecks(sessionId: string, prUrl: string) {
+      watchCalls.push({ sessionId, prUrl });
+      return { accepted: true };
+    },
+    async abortPullRequestWatch(sessionId: string) { abortCalls.push(sessionId); },
+    async checkPullRequestReviews(prUrl: string) {
+      reviewCalls.push(prUrl);
+      return { reviews: [{ id: 1, author: "gaby", state: "APPROVED", submittedAt: "2026-08-26T10:00:00Z", body: "LGTM" }] };
+    },
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, "runner-test-token"), // yadm-secret-scan: ignore
+  });
+  try {
+    const client = new PiRunnerClient(server.url.origin, "runner-test-token"); // yadm-secret-scan: ignore
+    const watched = await client.watchPullRequestChecks("session-1", "https://github.com/GitSquared/nemo/pull/42");
+    assert.deepEqual(watched, { accepted: true });
+    assert.deepEqual(watchCalls, [{ sessionId: "session-1", prUrl: "https://github.com/GitSquared/nemo/pull/42" }]);
+
+    await client.abortPullRequestWatch("session-1");
+    assert.deepEqual(abortCalls, ["session-1"]);
+
+    const { reviews } = await client.checkPullRequestReviews("https://github.com/GitSquared/nemo/pull/42");
+    assert.deepEqual(reviewCalls, ["https://github.com/GitSquared/nemo/pull/42"]);
+    assert.deepEqual(reviews, [{ id: 1, author: "gaby", state: "APPROVED", submittedAt: "2026-08-26T10:00:00Z", body: "LGTM" }]);
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("rejects pull request watch/abort/reviews calls without the shared runner token", async () => {
+  const harness = {
+    async run() { return { ok: true, timedOut: false, awaitingInput: false, summary: "Done.", elapsedMs: 1 }; },
+    async followUp() { return false; },
+    async abort() { return false; },
+    async watchPullRequestChecks() { return { accepted: true }; },
+  };
+  const server = Bun.serve({
+    hostname: "127.0.0.1",
+    port: 0,
+    fetch: createRunnerServer(harness, "runner-test-token"), // yadm-secret-scan: ignore
+  });
+  try {
+    const response = await fetch(new URL("/pull-requests/watch", server.url), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionId: "session-1", prUrl: "https://github.com/GitSquared/nemo/pull/42" }),
+    });
+    assert.equal(response.status, 401);
+  } finally {
+    await server.stop(true);
+  }
+});

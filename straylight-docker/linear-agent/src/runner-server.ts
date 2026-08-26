@@ -1,4 +1,5 @@
 import { encodeRunnerEvent, type PiResult, type RunRequest, type RunnerEvent, type SessionRequest } from "./runner-protocol.js";
+import type { PullRequestReview } from "./runner-client.js";
 import {
   encodeCapsuleAgentStreamEvent,
   type CapsuleAgentProgressHandler,
@@ -44,6 +45,9 @@ type RunnerHarness = {
   health?(): Promise<Record<string, unknown>>;
   runClaude?(token: string, request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
   pushAgentInput?(token: string, request: { content: string; shouldQuery?: boolean }): Promise<{ accepted: boolean; reason?: string }>; // yadm-secret-scan: ignore
+  watchPullRequestChecks?(sessionId: string, prUrl: string): Promise<{ accepted: boolean }>;
+  abortPullRequestWatch?(sessionId: string): Promise<void>;
+  checkPullRequestReviews?(prUrl: string): Promise<{ reviews: PullRequestReview[] }>;
   shell?(request: { command: string; timeoutMs?: number }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   applyPatch?(request: { patch: string; directory?: string }, signal?: AbortSignal): Promise<{ ok: boolean; exitCode: number; stdout: string; stderr: string }>;
   managePlan?(request: PlanRequest, signal?: AbortSignal): Promise<{ ok: true; plan: PlanDetails; mirrored?: boolean; message: string }>;
@@ -264,6 +268,27 @@ export function createRunnerServer(
       const input = await body<SessionRequest>(request);
       const accepted = input.sessionId ? await pi.abort(input.sessionId) : false;
       return json(200, { ok: true, accepted });
+    }
+
+    if (method === "POST" && pathname === "/pull-requests/watch") {
+      const input = await body<{ sessionId?: string; prUrl?: string }>(request);
+      if (!pi.watchPullRequestChecks || !input.sessionId || !input.prUrl) {
+        return json(400, { ok: false, error: "invalid_request" });
+      }
+      return json(200, { ok: true, ...await pi.watchPullRequestChecks(input.sessionId, input.prUrl) });
+    }
+
+    if (method === "POST" && pathname === "/pull-requests/abort") {
+      const input = await body<{ sessionId?: string }>(request);
+      if (!pi.abortPullRequestWatch || !input.sessionId) return json(400, { ok: false, error: "invalid_request" });
+      await pi.abortPullRequestWatch(input.sessionId);
+      return json(200, { ok: true });
+    }
+
+    if (method === "POST" && pathname === "/pull-requests/reviews") {
+      const input = await body<{ prUrl?: string }>(request);
+      if (!pi.checkPullRequestReviews || !input.prUrl) return json(400, { ok: false, error: "invalid_request" });
+      return json(200, { ok: true, ...await pi.checkPullRequestReviews(input.prUrl) });
     }
 
     return json(404, { ok: false, error: "not_found" });

@@ -41,6 +41,217 @@ test("keeps a dormant session's Claude conversation across a restart, but not on
   }
 });
 
+test("keeps a session whose only remaining state is a tracked pull request, and round-trips it", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-pull-request-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([
+      {
+        sessionId: "session-pr-only",
+        running: false,
+        awaitingInput: false,
+        generation: 1,
+        issueId: "issue-1",
+        pullRequest: { url: "https://github.com/GitSquared/nemo/pull/7", owner: "GitSquared", repo: "nemo", number: 7 },
+        updatedAt: Date.now(),
+      },
+    ]);
+    const restored = await store.load();
+
+    assert.deepEqual(restored.map((record) => record.sessionId), ["session-pr-only"], "a PR-only session must survive save()'s liveness filter, the same as one with a conversation to keep");
+    assert.deepEqual(restored[0]?.pullRequest, { url: "https://github.com/GitSquared/nemo/pull/7", owner: "GitSquared", repo: "nemo", number: 7 });
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("re-registers a pull request watch with the runner after a controller restart", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-pull-request-recovery-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([
+      {
+        sessionId: "session-pr-only",
+        running: false,
+        awaitingInput: false,
+        generation: 1,
+        issueId: "issue-1",
+        pullRequest: { url: "https://github.com/GitSquared/nemo/pull/7", owner: "GitSquared", repo: "nemo", number: 7 },
+        updatedAt: Date.now(),
+      },
+    ]);
+    const linear = {
+      async agentSessionSnapshot() {
+        return { id: "session-pr-only", status: "active", issue: { id: "issue-1", team: { id: "team-1" } }, activities: { nodes: [] } };
+      },
+    } as unknown as LinearClient;
+    const watchCalls: Array<{ sessionId: string; prUrl: string }> = [];
+    const runner = {
+      async watchPullRequestChecks(sessionId: string, prUrl: string) {
+        watchCalls.push({ sessionId, prUrl });
+        return { accepted: true };
+      },
+    } as unknown as AgentRunner;
+    const controller = new AgentController(linear, runner, directory);
+
+    await controller.initialize();
+
+    assert.deepEqual(watchCalls, [{ sessionId: "session-pr-only", prUrl: "https://github.com/GitSquared/nemo/pull/7" }]);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a finished CI check report never clobbers an open QA/Steering attention", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-pr-attention-checks-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([{
+      sessionId: "session-attention",
+      running: false,
+      awaitingInput: true,
+      generation: 1,
+      issueId: "issue-1",
+      teamId: "team-1",
+      pullRequest: { url: "https://github.com/GitSquared/nemo/pull/7", owner: "GitSquared", repo: "nemo", number: 7 },
+      attention: [{ kind: "qa", priority: "medium", previousStateId: "state-in-progress", requestedAt: Date.now() - 1_000 }],
+      updatedAt: Date.now(),
+    }]);
+    const linear = {
+      async agentSessionSnapshot() {
+        return {
+          id: "session-attention",
+          status: "awaitingInput",
+          appUser: { id: "agent-1" },
+          issue: { id: "issue-1", identifier: "LIN-2", title: "Review me", team: { id: "team-1" } },
+          activities: {
+            nodes: [{ id: "activity-1", createdAt: new Date().toISOString(), ephemeral: false, content: { type: "elicitation", body: "Review" } }],
+          },
+        };
+      },
+      async setIssueState() { throw new Error("must not restore issue state - no human replied"); },
+      async createActivity() { throw new Error("must not post an activity - a finished check report is not a reply"); },
+    } as unknown as LinearClient;
+    let runs = 0;
+    const runner = {
+      async health() { return { mode: "test" }; },
+      async watchPullRequestChecks() { return { accepted: true }; },
+      async run() { runs += 1; return { ok: true, timedOut: false, awaitingInput: false, summary: "Wrong", elapsedMs: 1 }; },
+    } as unknown as AgentRunner;
+    const controller = new AgentController(linear, runner, directory);
+    await controller.initialize();
+
+    await controller.reportPullRequestChecks("session-attention", "https://github.com/GitSquared/nemo/pull/7", {
+      conclusion: "failure",
+      body: "CI checks: 1 fail.",
+    });
+
+    assert.equal(runs, 0, "a check report arriving while QA is open must not resume the run - only the human's own reply may");
+    const health = await controller.health() as { controller: { attentionQueue: { total: number; qa: number } } };
+    assert.equal(health.controller.attentionQueue.total, 1, "the open QA attention must survive untouched");
+    assert.equal(health.controller.attentionQueue.qa, 1);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("a review poll never clobbers an open QA/Steering attention, and does not mark the review consumed", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-pr-attention-reviews-"));
+  try {
+    const store = new ControllerStateStore(directory);
+    await store.save([{
+      sessionId: "session-attention",
+      running: false,
+      awaitingInput: true,
+      generation: 1,
+      issueId: "issue-1",
+      teamId: "team-1",
+      pullRequest: { url: "https://github.com/GitSquared/nemo/pull/7", owner: "GitSquared", repo: "nemo", number: 7 },
+      attention: [{ kind: "qa", priority: "medium", previousStateId: "state-in-progress", requestedAt: Date.now() - 1_000 }],
+      updatedAt: Date.now(),
+    }]);
+    const linear = {
+      async agentSessionSnapshot() {
+        return {
+          id: "session-attention",
+          status: "awaitingInput",
+          appUser: { id: "agent-1" },
+          issue: { id: "issue-1", identifier: "LIN-2", title: "Review me", team: { id: "team-1" } },
+          activities: {
+            nodes: [{ id: "activity-1", createdAt: new Date().toISOString(), ephemeral: false, content: { type: "elicitation", body: "Review" } }],
+          },
+        };
+      },
+      async setIssueState() { throw new Error("must not restore issue state - no human replied"); },
+      async createActivity() { throw new Error("must not post an activity - a review poll finding is not a reply"); },
+    } as unknown as LinearClient;
+    let runs = 0;
+    const runner = {
+      async health() { return { mode: "test" }; },
+      async watchPullRequestChecks() { return { accepted: true }; },
+      async checkPullRequestReviews() {
+        return { reviews: [{ id: 1, author: "gaby", state: "APPROVED", submittedAt: new Date(Date.now() + 60_000).toISOString(), body: "LGTM" }] };
+      },
+      async run() { runs += 1; return { ok: true, timedOut: false, awaitingInput: false, summary: "Wrong", elapsedMs: 1 }; },
+    } as unknown as AgentRunner;
+    const controller = new AgentController(linear, runner, directory);
+    await controller.initialize();
+
+    await controller.pollPullRequestReviews();
+
+    assert.equal(runs, 0, "a review arriving while QA is open must not resume the run - only the human's own reply may");
+    const health = await controller.health() as { controller: { attentionQueue: { total: number; qa: number } } };
+    assert.equal(health.controller.attentionQueue.total, 1, "the open QA attention must survive untouched");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("re-arms a pull request's checks watch every time it is captured, not just the first time", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async addExternalUrl() {},
+  } as unknown as LinearClient;
+  const watchCalls: string[] = [];
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async watchPullRequestChecks(_sessionId: string, prUrl: string) { watchCalls.push(prUrl); return { accepted: true }; },
+    async run() {
+      return {
+        ok: true,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Opened https://github.com/GitSquared/nemo/pull/7 - ready for review.",
+        elapsedMs: 1_000,
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // Simulate the agent pushing a fix in a follow-up turn on the same PR: a second run
+  // completing must re-arm the watch, not skip it because this exact URL was already seen -
+  // the first watch already exited (that's why a fresh CI run needs a fresh watch).
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "Fixed the failing check, please re-check." } },
+    agentSession: { id: "session-1", issueId: "issue-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(watchCalls, [
+    "https://github.com/GitSquared/nemo/pull/7",
+    "https://github.com/GitSquared/nemo/pull/7",
+  ]);
+});
+
 test("recovers an interrupted Agent Session from durable state and Linear activity", async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-controller-"));
   try {

@@ -17,8 +17,8 @@ import {
   type LinearUploadRequest,
 } from "./linear-actions.js";
 import type { PiResult, RunRequest, RunnerEvent } from "./runner-protocol.js";
-import { PiRunnerClient } from "./runner-client.js";
-import { runCommand } from "./runtime.js";
+import { PiRunnerClient, type PullRequestReview } from "./runner-client.js";
+import { captureCommand, runCommand } from "./runtime.js";
 import { redact } from "./redaction.js";
 import type { DevelopmentService, ServiceRequest, ServiceResult } from "./service-client.js";
 import type { LinearInputFile, RepositoryCandidate } from "./types.js";
@@ -26,6 +26,48 @@ import type { LinearInputFile, RepositoryCandidate } from "./types.js";
 const TASK_LABEL = "dev.straylight.linear-agent.task=true";
 const SERVICE_LABEL = "dev.straylight.linear-agent.service=true";
 const SESSION_NETWORK_LABEL = "dev.straylight.linear-agent.session-network=true";
+// A safety cap on how long a single `gh pr checks --watch` child may run, not a reflection
+// of typical CI duration - well past any real CI suite, short of leaving an orphaned process
+// running forever if gh itself ever hangs instead of exiting on its own.
+const PR_WATCH_TIMEOUT_MS = 2 * 60 * 60 * 1_000;
+const REVIEW_CHECK_TIMEOUT_MS = 15_000;
+
+export function parsePullRequestUrl(url: string): { owner: string; repo: string; number: number } | undefined {
+  const match = url.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)/);
+  return match ? { owner: match[1]!, repo: match[2]!, number: Number(match[3]) } : undefined;
+}
+
+// gh's --watch mode with --json is expected to print the final check-run snapshot once,
+// not repaint live like its interactive TUI mode - unverified against a real run, so this
+// defensively parses from the last top-level array it finds in stdout rather than assuming
+// there is exactly one JSON document, in case --watch does print more than once.
+export function summarizePullRequestChecks(stdout: string, exitCode: number): { body: string; conclusion: "success" | "failure" | "error" } {
+  const trimmed = stdout.trim();
+  const lastArrayStart = trimmed.lastIndexOf("\n[");
+  const jsonText = lastArrayStart >= 0 ? trimmed.slice(lastArrayStart + 1) : trimmed;
+  let entries: Array<{ bucket?: string; name?: string; workflow?: string }> = [];
+  try {
+    const parsed = JSON.parse(jsonText || "[]") as unknown;
+    if (Array.isArray(parsed)) entries = parsed;
+  } catch {
+    entries = [];
+  }
+  if (!entries.length) {
+    return exitCode === 0
+      ? { conclusion: "success", body: "All CI checks passed." }
+      : { conclusion: "error", body: `Could not read this pull request's CI check results (gh exited ${exitCode}).` };
+  }
+  const counts = entries.reduce<Record<string, number>>((acc, entry) => {
+    const bucket = entry.bucket ?? "unknown";
+    acc[bucket] = (acc[bucket] ?? 0) + 1;
+    return acc;
+  }, {});
+  const failed = entries.filter((entry) => entry.bucket === "fail");
+  const summary = Object.entries(counts).map(([bucket, count]) => `${count} ${bucket}`).join(", ");
+  if (!failed.length) return { conclusion: "success", body: `CI checks: ${summary}.` };
+  const failedNames = failed.map((entry) => entry.name ?? entry.workflow ?? "an unnamed check").join(", ");
+  return { conclusion: "failure", body: `CI checks: ${summary}. Failed: ${failedNames}.` };
+}
 
 type Sender = (event: Exclude<RunnerEvent, { type: "result" }>) => Promise<void>;
 type ActiveTask = {
@@ -165,6 +207,9 @@ export class WorkbenchHarness {
   private readonly cancelled = new Set<string>();
   private readonly waiters = new Map<string, Waiter>();
   private readonly repositoryRefreshes = new Map<string, Promise<void>>();
+  // Slice 23: at most one live gh pr checks --watch child per session - a fresh watch
+  // (a PR republished mid-watch) replaces rather than races the old one.
+  private readonly prWatches = new Map<string, { controller: AbortController; intentionalAbort: boolean }>();
   private readonly order: string[] = [];
   private lastTaskFailure: Record<string, unknown> | undefined;
   private repositoryRefreshCount = 0;
@@ -176,6 +221,10 @@ export class WorkbenchHarness {
     private readonly config: WorkbenchConfig,
     engine?: ContainerEngine,
     capsule?: Pick<CapsuleClient, "runAgent" | "pushInput">,
+    // Overridable so tests can fake `gh`'s output without spawning a real process or needing
+    // real GitHub credentials - same DI shape as `engine`/`capsule` above.
+    private readonly ghCommand: (args: string[], options: { signal?: AbortSignal; timeout?: number }) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+      = (args, options) => captureCommand("gh", args, options),
   ) {
     this.engine = engine ?? new DockerEngine(config.dockerSocket, config.dockerRequestTimeoutMs);
     this.capsule = capsule ?? new CapsuleClient(config.capsuleUrl, config.capsuleControlToken);
@@ -535,6 +584,124 @@ export class WorkbenchHarness {
     return result;
   }
 
+  // Slice 23: this container is the one place in the system with the `gh` binary and its
+  // OAuth token mounted (GH_CONFIG_DIR, tool-profile/gh - same credential the ephemeral task
+  // containers use) - the controller has neither, so it asks this process to do the actual
+  // GitHub work and report back, the same shape as every other controller-initiated RPC here
+  // (followUp/abort/repositories). --watch is gh's own client pacing itself for the whole
+  // wait, not a poll loop this codebase authors and maintains (Gaby: "Lets them do any kind
+  // of optimizations they want without us getting in the way and hammering traffic
+  // needlessly").
+  async watchPullRequestChecks(sessionId: string, prUrl: string): Promise<{ accepted: boolean }> {
+    this.prWatches.get(sessionId)?.controller.abort();
+    const entry = { controller: new AbortController(), intentionalAbort: false };
+    this.prWatches.set(sessionId, entry);
+    void this.runPullRequestWatch(sessionId, prUrl, entry);
+    return { accepted: true };
+  }
+
+  async abortPullRequestWatch(sessionId: string): Promise<void> {
+    const entry = this.prWatches.get(sessionId);
+    if (!entry) return;
+    entry.intentionalAbort = true;
+    entry.controller.abort();
+  }
+
+  // Unpaginated - GitHub's default page size (30) is far past what a solo pilot's PRs
+  // realistically accumulate; a PR with more reviews than that would only surface the first
+  // page. Worth revisiting with `gh api --paginate` if this ever actually bites.
+  async checkPullRequestReviews(prUrl: string): Promise<{ reviews: PullRequestReview[] }> {
+    const parsed = parsePullRequestUrl(prUrl);
+    if (!parsed) return { reviews: [] };
+    const result = await this.ghCommand(["api", `repos/${parsed.owner}/${parsed.repo}/pulls/${parsed.number}/reviews`], {
+      timeout: REVIEW_CHECK_TIMEOUT_MS,
+    });
+    if (result.exitCode !== 0) {
+      console.error("failed to fetch pull request reviews", { prUrl, stderr: result.stderr.trim().slice(0, 500) });
+      return { reviews: [] };
+    }
+    try {
+      const parsedReviews = JSON.parse(result.stdout) as Array<{
+        id?: number;
+        user?: { login?: string };
+        state?: string;
+        submitted_at?: string;
+        body?: string;
+      }>;
+      if (!Array.isArray(parsedReviews)) return { reviews: [] };
+      return {
+        reviews: parsedReviews
+          .filter((review) => typeof review.id === "number" && typeof review.submitted_at === "string")
+          .map((review) => ({
+            id: review.id!,
+            author: review.user?.login ?? "unknown",
+            state: review.state ?? "COMMENTED",
+            submittedAt: review.submitted_at!,
+            body: typeof review.body === "string" ? review.body : "",
+          })),
+      };
+    } catch (error) {
+      console.error("failed to parse pull request reviews", { prUrl, message: error instanceof Error ? error.message : String(error) });
+      return { reviews: [] };
+    }
+  }
+
+  private async runPullRequestWatch(
+    sessionId: string,
+    prUrl: string,
+    entry: { controller: AbortController; intentionalAbort: boolean },
+  ): Promise<void> {
+    let result: { exitCode: number; stdout: string; stderr: string };
+    try {
+      result = await this.ghCommand(
+        ["pr", "checks", prUrl, "--watch", "--fail-fast", "--json", "bucket,name,link,workflow,state"],
+        { signal: entry.controller.signal, timeout: PR_WATCH_TIMEOUT_MS },
+      );
+    } catch (error) {
+      const stillCurrent = this.prWatches.get(sessionId) === entry;
+      if (stillCurrent) this.prWatches.delete(sessionId);
+      if (stillCurrent && !entry.intentionalAbort) {
+        console.error("pull request check watch failed", {
+          sessionId,
+          prUrl,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        await this.reportPullRequestChecks(sessionId, prUrl, {
+          conclusion: "error",
+          body: `Could not watch this pull request's CI checks: ${error instanceof Error ? error.message : String(error)}`,
+        });
+      }
+      return;
+    }
+    const stillCurrent = this.prWatches.get(sessionId) === entry;
+    if (stillCurrent) this.prWatches.delete(sessionId);
+    // An intentional abort (session ended, or a fresh watch replaced this one) means nobody
+    // is waiting on this result any more - stay silent rather than reporting a stale outcome.
+    if (!stillCurrent || entry.intentionalAbort) return;
+    await this.reportPullRequestChecks(sessionId, prUrl, summarizePullRequestChecks(result.stdout, result.exitCode));
+  }
+
+  private async reportPullRequestChecks(
+    sessionId: string,
+    prUrl: string,
+    result: { body: string; conclusion: "success" | "failure" | "error" },
+  ): Promise<void> {
+    try {
+      const response = await fetch(`${this.config.controllerUrl}/internal/pull-request-checks`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${this.config.authToken}`, "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, prUrl, ...result }),
+      });
+      if (!response.ok) throw new Error(`controller rejected the pull request check report (HTTP ${response.status})`);
+    } catch (error) {
+      console.error("failed to report pull request check results", {
+        sessionId,
+        prUrl,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   async manageService(token: string, request: ServiceRequest, signal?: AbortSignal): Promise<ServiceResult> { // yadm-secret-scan: ignore
     const active = this.taskForToken(token);
     if (!active?.running || active.aborted) throw new Error("Unauthorized task service request");
@@ -752,6 +919,11 @@ export class WorkbenchHarness {
 
   async shutdown(): Promise<void> {
     this.capacity.stop();
+    for (const entry of this.prWatches.values()) {
+      entry.intentionalAbort = true;
+      entry.controller.abort();
+    }
+    this.prWatches.clear();
     for (const [sessionId, waiter] of this.waiters) {
       waiter.resolve(false);
       this.waiters.delete(sessionId);

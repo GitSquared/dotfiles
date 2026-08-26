@@ -18,8 +18,8 @@ import type {
   LinearUploadRequest,
 } from "./linear-actions.js";
 import { claudeFollowUpPrompt } from "./prompts.js";
-import { finalText } from "./redaction.js";
-import type { AgentRunner } from "./runner-client.js";
+import { finalText, progressText } from "./redaction.js";
+import type { AgentRunner, PullRequestReview } from "./runner-client.js";
 import type { PiResult } from "./runner-protocol.js";
 import type {
   AgentPlanStep,
@@ -44,6 +44,7 @@ type SessionState = {
   attention: ActiveAttention[];
   openAsks: OpenAsk[];
   claudeConversationId: string | undefined;
+  pullRequest: { url: string; owner: string; repo: string; number: number; lastKnownReviewAt: string | undefined } | undefined;
   updatedAt: number;
 };
 
@@ -59,6 +60,13 @@ const DURABLE_ACTIVITY_RETRY_BASE_MS = 250;
 // (seven_day) - a safety cap on the scheduled auto-resume delay, not a
 // reflection of any specific plan's actual limit.
 const MAX_AUTO_RESUME_DELAY_MS = 8 * 24 * 60 * 60 * 1_000;
+
+// A GitHub review body is untrusted external text, same category as the repository files and
+// web pages prompts.ts already tells the model never to treat as instructions - bounded the
+// same way as any other untrusted text folded into a dispatched message, not forwarded verbatim.
+function boundedReviewBody(body: string): string {
+  return body.trim() ? progressText(body) : "(no comment body)";
+}
 
 function elapsed(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1_000));
@@ -118,6 +126,7 @@ export class AgentController {
   private plansEnabled = true;
   private durableActivityFailures = 0;
   private lastDurableActivityFailure: { sessionId: string; at: string; attempts: number; message: string } | undefined;
+  private pullRequestReviewTimer: ReturnType<typeof setInterval> | undefined;
 
   constructor(
     private readonly linear: LinearClient,
@@ -127,6 +136,11 @@ export class AgentController {
     // Overridable so tests can skip the real delay - same shape as putPreparedLinearUpload's
     // injectable sleep in src/linear.ts.
     private readonly sleep: (milliseconds: number) => Promise<void> = (milliseconds) => Bun.sleep(milliseconds),
+    // Slice 23: how often the single global loop polls reviews for every tracked PR (no gh
+    // CLI watch primitive exists for reviews, unlike checks). 0 disables polling entirely -
+    // tests that never register a PR never pay for it regardless, since the timer is started
+    // lazily on first registration, not here.
+    private readonly reviewPollIntervalMs: number = 90_000,
   ) {
     this.stateStore = stateDirectory ? new ControllerStateStore(stateDirectory) : undefined;
   }
@@ -151,6 +165,7 @@ export class AgentController {
         attention: record.attention ?? [],
         openAsks: record.openAsks ?? [],
         claudeConversationId: record.claudeConversationId,
+        pullRequest: record.pullRequest ? { ...record.pullRequest, lastKnownReviewAt: record.pullRequest.lastKnownReviewAt } : undefined,
         updatedAt: record.updatedAt,
       };
       this.states.set(record.sessionId, state);
@@ -171,6 +186,11 @@ export class AgentController {
           state.awaitingInput = false;
           state.pending = undefined;
           state.active = undefined;
+          // Only a genuinely terminal Linear status stops the watch - a session that merely
+          // posted its latest response/error and went quiet can still be woken by a later
+          // CI/review dispatch through handle()'s own cold-resume path, the same as any other
+          // dormant session.
+          if (isTerminalSessionStatus(status)) state.pullRequest = undefined;
           skipped += 1;
         } else if (status === "awaitinginput" || latest?.content.type === "elicitation") {
           state.awaitingInput = true;
@@ -210,6 +230,19 @@ export class AgentController {
             message: activityError instanceof Error ? activityError.message : String(activityError),
           });
         }));
+      }
+      // The runner's own watch state (an in-memory gh pr checks --watch child) does not
+      // survive a runner restart, independent of whether the controller itself restarted -
+      // re-arm it here so a surviving tracked PR is never silently orphaned by the other
+      // process bouncing.
+      if (state.pullRequest) {
+        this.ensurePullRequestReviewPolling();
+        this.runner.watchPullRequestChecks?.(record.sessionId, state.pullRequest.url).catch((error: unknown) => {
+          console.warn("failed to re-register a pull request watch after recovery", {
+            sessionId: record.sessionId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
       this.touch(state);
     }
@@ -290,6 +323,15 @@ export class AgentController {
         ...(state.attention.length ? { attention: state.attention } : {}),
         ...(state.openAsks.length ? { openAsks: state.openAsks } : {}),
         ...(state.claudeConversationId ? { claudeConversationId: state.claudeConversationId } : {}),
+        ...(state.pullRequest ? {
+          pullRequest: {
+            url: state.pullRequest.url,
+            owner: state.pullRequest.owner,
+            repo: state.pullRequest.repo,
+            number: state.pullRequest.number,
+            ...(state.pullRequest.lastKnownReviewAt ? { lastKnownReviewAt: state.pullRequest.lastKnownReviewAt } : {}),
+          },
+        } : {}),
         updatedAt: state.updatedAt,
       }))) ?? Promise.resolve());
     return this.persistence;
@@ -471,6 +513,7 @@ export class AgentController {
     }
     if (!state.issueId) throw new Error("Linear issue attachments require an issue-backed Agent Session");
     const attachment = await this.linkAttachment(sessionId, state.issueId, request.publication);
+    if (attachment.richness === "github_pr") this.registerPullRequestWatch(sessionId, state, attachment.url);
     await this.linear.addExternalUrl(sessionId, { label: attachment.title, url: attachment.url });
     return { ok: true, action: request.action, data: attachment };
   }
@@ -566,6 +609,7 @@ export class AgentController {
       attention: [],
       openAsks: [],
       claudeConversationId: undefined,
+      pullRequest: undefined,
       updatedAt: Date.now(),
     };
     state.issueId = session.issueId ?? session.issue?.id ?? state.issueId;
@@ -652,6 +696,8 @@ export class AgentController {
       state.startedAt = undefined;
       state.pending = undefined;
       state.active = undefined;
+      const hadPullRequest = Boolean(state.pullRequest);
+      state.pullRequest = undefined;
       this.touch(state);
       await this.persist();
       const aborted = await this.runner.abort(sessionId).catch((error: unknown) => {
@@ -661,6 +707,14 @@ export class AgentController {
         });
         return false;
       });
+      if (hadPullRequest) {
+        await this.runner.abortPullRequestWatch?.(sessionId).catch((error: unknown) => {
+          console.warn("failed to abort a pull request watch for a stopped session", {
+            sessionId,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }
       await this.dismissAttention(sessionId, state.issueId, attention, "The parent Straylight run was stopped.", true);
       state.attention = [];
       this.touch(state);
@@ -1244,6 +1298,10 @@ export class AgentController {
     }));
     if (result.disposition?.status === "blocked_external") this.scheduleAutoResumeIfMarked(sessionId, result.disposition.nextAction);
     const pullRequest = githubPullRequestUrl(result.summary);
+    if (pullRequest) {
+      const state = this.states.get(sessionId);
+      if (state) this.registerPullRequestWatch(sessionId, state, pullRequest);
+    }
     return pullRequest
       ? activity.then(() => this.linear.addExternalUrl(sessionId, { label: "Pull request", url: pullRequest }).catch((error: unknown) => {
         console.warn("failed to attach pull request to Agent Session", {
@@ -1251,6 +1309,141 @@ export class AgentController {
         });
       }))
       : activity;
+  }
+
+  // Slice 23: fires from either capture site (a rich linkGitHubPullRequestAttachment publish,
+  // or this scrape of the final summary) on EVERY turn that mentions the PR, not just the
+  // first - the runner's own watchPullRequestChecks call started a fresh gh --watch child
+  // for a first-time PR replaces any prior one for this session, so calling it again on a
+  // later push (red CI -> fix -> push -> a fresh CI run) is exactly the re-arm the loop
+  // needs; treating a same-URL call as a no-op here would leave that later run unwatched
+  // forever. `lastKnownReviewAt` is preserved across a same-URL re-registration (so already-
+  // seen reviews don't resurface) but seeded fresh - from wall-clock, not "no baseline" - for
+  // a genuinely new PR, so the very first review poll doesn't dump the PR's entire pre-
+  // existing review history as if it just happened.
+  private registerPullRequestWatch(sessionId: string, state: SessionState, url: string): void {
+    const parsed = parsePullRequestUrl(url);
+    if (!parsed) return;
+    const samePullRequest = state.pullRequest?.url === url;
+    state.pullRequest = {
+      url,
+      ...parsed,
+      lastKnownReviewAt: samePullRequest ? state.pullRequest?.lastKnownReviewAt : new Date().toISOString(),
+    };
+    this.touch(state);
+    void this.persist();
+    this.ensurePullRequestReviewPolling();
+    this.runner.watchPullRequestChecks?.(sessionId, url).catch((error: unknown) => {
+      console.warn("failed to start watching a pull request's CI checks", {
+        sessionId,
+        url,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  // Slice 23: the CI-checks half is watched by the runner's own long-lived `gh pr checks
+  // --watch` child (see reportPullRequestChecks below, fed by the runner's callback) - gh
+  // paces that itself. Reviews have no equivalent CLI primitive, so this is the one place
+  // this codebase picks its own cadence: a single global interval walking every tracked PR,
+  // not a per-PR timer - matching Gaby's own framing ("a centralized record with a single
+  // watcher") and keeping total load auditable in one place. Lazily started on the first
+  // registered PR, never in the constructor, so a controller instance that never sees a PR
+  // (most of this test suite) never spins up a live interval at all.
+  private ensurePullRequestReviewPolling(): void {
+    if (this.pullRequestReviewTimer || this.reviewPollIntervalMs <= 0) return;
+    this.pullRequestReviewTimer = setInterval(() => {
+      this.pollPullRequestReviews().catch((error: unknown) => {
+        console.error("pull request review poll failed", { message: error instanceof Error ? error.message : String(error) });
+      });
+    }, this.reviewPollIntervalMs);
+    this.pullRequestReviewTimer.unref?.();
+  }
+
+  async pollPullRequestReviews(): Promise<void> {
+    for (const [sessionId, state] of this.states) {
+      if (!state.pullRequest || !this.runner.checkPullRequestReviews) continue;
+      const pullRequest = state.pullRequest;
+      let reviews: PullRequestReview[];
+      try {
+        ({ reviews } = await this.runner.checkPullRequestReviews(pullRequest.url));
+      } catch (error) {
+        console.warn("failed to poll pull request reviews", {
+          sessionId,
+          url: pullRequest.url,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
+      const fresh = reviews
+        .filter((review) => !pullRequest.lastKnownReviewAt || review.submittedAt > pullRequest.lastKnownReviewAt)
+        .sort((left, right) => left.submittedAt.localeCompare(right.submittedAt));
+      if (!fresh.length) continue;
+      const latest = fresh.at(-1)!;
+      // Re-read from the live map rather than trusting the closed-over `state`/`pullRequest`
+      // reference: this loop awaits per PR, so a concurrent change (session ended, a fresh
+      // PR registered) could have moved on since this iteration started.
+      const current = this.states.get(sessionId);
+      if (!current?.pullRequest || current.pullRequest.url !== pullRequest.url) continue;
+      // A blocking Steering/QA elicitation is Linear's own live "waiting for reply" card -
+      // dispatchExternalUpdate's own prompted-webhook path would otherwise be indistinguishable
+      // from a real human reply and silently clear it (see reportPullRequestChecks below for
+      // the same guard). Deliberately skip marking this review "seen" too: leaving
+      // lastKnownReviewAt untouched means the next poll, once attention clears, finds it fresh
+      // again rather than losing it.
+      if (current.attention.length) continue;
+      current.pullRequest = { ...current.pullRequest, lastKnownReviewAt: latest.submittedAt };
+      this.touch(current);
+      void this.persist();
+      const body = fresh.length === 1
+        ? `New review from ${fresh[0]!.author} (${fresh[0]!.state.toLowerCase()}) on your pull request ${pullRequest.url}: ${boundedReviewBody(fresh[0]!.body)}`
+        : `${fresh.length} new reviews on your pull request ${pullRequest.url} - most recent from ${latest.author} (${latest.state.toLowerCase()}): ${boundedReviewBody(latest.body)}`;
+      await this.dispatchExternalUpdate(sessionId, body);
+    }
+  }
+
+  // Slice 23: the runner's callback once its gh pr checks --watch child for this session's
+  // PR exits (POST /internal/pull-request-checks, see src/server.ts). Re-verifies the
+  // registry entry still matches before dispatching - a fresh PR or a closed-out session
+  // between the watch starting and finishing means this result is no longer wanted.
+  async reportPullRequestChecks(
+    sessionId: string,
+    prUrl: string,
+    result: { body: string; conclusion: "success" | "failure" | "error" },
+  ): Promise<void> {
+    const state = this.states.get(sessionId);
+    if (!state?.pullRequest || state.pullRequest.url !== prUrl) return;
+    // Same guard and same reasoning as pollPullRequestReviews above: a blocking Steering/QA
+    // wait must not be silently cleared by a check result arriving mid-wait. Unlike a review,
+    // there is nothing to re-poll later here - the watch already exited - so this result is
+    // simply dropped rather than queued; the underlying GitHub state isn't going anywhere, and
+    // the next push (which re-arms the watch via registerPullRequestWatch) or the human's own
+    // reply picks the thread back up.
+    if (state.attention.length) return;
+    const prefix = result.conclusion === "success" ? "CI checks passed" : result.conclusion === "failure" ? "CI checks failed" : "Could not watch CI checks";
+    await this.dispatchExternalUpdate(sessionId, `${prefix} on your pull request ${prUrl}: ${result.body}`);
+  }
+
+  // Slice 23's shared dispatch: a synthesized `prompted` webhook, exactly like Slice 24's
+  // runScheduledResume - handle() itself already knows how to route this correctly whether
+  // the session is actively mid-turn (a live-inject via followUp - exactly what a fresh CI/
+  // review update should do, unlike an auto-resume nudge there is no "already running, skip
+  // it" case here) or dormant (a cold resume via start()). Also guarded on attention here as
+  // defense in depth - both current callers already check it before calling in, but handle()'s
+  // prompted-with-open-attention branch treats ANY prompted payload as if it were the human's
+  // own reply (clearing the wait, restoring issue state, resuming without a real reply), so a
+  // future caller that forgets this check would silently clobber a live Steering/QA card.
+  private async dispatchExternalUpdate(sessionId: string, body: string): Promise<void> {
+    const state = this.states.get(sessionId);
+    if (!state || state.attention.length) return;
+    await this.handle({
+      action: "prompted",
+      agentSession: {
+        id: sessionId,
+        ...(state.issueId ? { issueId: state.issueId, issue: { id: state.issueId, ...(state.teamId ? { teamId: state.teamId } : {}) } } : {}),
+      },
+      agentActivity: { content: { body } },
+    });
   }
 
   // Not persisted: an in-memory setTimeout that resumes a blocked_external
@@ -1379,6 +1572,8 @@ export class AgentController {
       state.startedAt = undefined;
       state.pending = undefined;
       state.active = undefined;
+      const hadPullRequest = Boolean(state.pullRequest);
+      state.pullRequest = undefined;
       this.touch(state);
       const cancellation = Promise.all([
         this.runner.abort(sessionId).then(() => undefined).catch((error: unknown) => {
@@ -1388,6 +1583,15 @@ export class AgentController {
             message: error instanceof Error ? error.message : String(error),
           });
         }),
+        hadPullRequest
+          ? (this.runner.abortPullRequestWatch?.(sessionId) ?? Promise.resolve()).catch((error: unknown) => {
+            console.warn("failed to abort a pull request watch for an invalidated session", {
+              sessionId,
+              reason,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          })
+          : Promise.resolve(),
         this.dismissAttention(sessionId, state.issueId, attention, reason, restoreIssueState),
       ])
         .then(() => { state.attention = []; this.touch(state); });
@@ -1479,4 +1683,9 @@ export class AgentController {
 
 export function githubPullRequestUrl(value: string): string | undefined {
   return value.match(/https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d+/)?.[0];
+}
+
+export function parsePullRequestUrl(url: string): { owner: string; repo: string; number: number } | undefined {
+  const match = url.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/pull\/(\d+)/);
+  return match ? { owner: match[1]!, repo: match[2]!, number: Number(match[3]) } : undefined;
 }

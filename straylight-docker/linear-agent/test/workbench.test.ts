@@ -5,7 +5,15 @@ import path from "node:path";
 import { test } from "bun:test";
 import type { WorkbenchConfig } from "../src/config.js";
 import { decodeDockerStream, type ContainerEngine } from "../src/docker-engine.js";
-import { formatUsageReceipt, parseRepositoryRemote, repositoryCloneUrl, taskContainerSpec, WorkbenchHarness } from "../src/workbench.js";
+import {
+  formatUsageReceipt,
+  parsePullRequestUrl,
+  parseRepositoryRemote,
+  repositoryCloneUrl,
+  summarizePullRequestChecks,
+  taskContainerSpec,
+  WorkbenchHarness,
+} from "../src/workbench.js";
 
 function config(): WorkbenchConfig {
   return {
@@ -563,4 +571,120 @@ test("starts the prebuilt browser image without a registry pull or runtime npx i
   assert.deepEqual(created?.Cmd.slice(0, 2), ["node", "/opt/straylight-playwright/node_modules/playwright/cli.js"]);
   assert.equal(created?.Cmd.includes("npx"), false);
   assert.equal(Object.keys(created?.HostConfig.Tmpfs ?? {}).includes("/run/playwright"), false);
+});
+
+test("parses a GitHub pull request URL into owner/repo/number", () => {
+  assert.deepEqual(parsePullRequestUrl("https://github.com/GitSquared/nemo/pull/42"), {
+    owner: "GitSquared",
+    repo: "nemo",
+    number: 42,
+  });
+  assert.equal(parsePullRequestUrl("https://github.com/GitSquared/nemo/issues/42"), undefined);
+  assert.equal(parsePullRequestUrl("not a url"), undefined);
+});
+
+test("summarizes gh pr checks --json output, distinguishing pass from fail", () => {
+  const passing = JSON.stringify([
+    { bucket: "pass", name: "build", workflow: "CI" },
+    { bucket: "pass", name: "lint", workflow: "CI" },
+  ]);
+  assert.deepEqual(summarizePullRequestChecks(passing, 0), { conclusion: "success", body: "CI checks: 2 pass." });
+
+  const failing = JSON.stringify([
+    { bucket: "pass", name: "build", workflow: "CI" },
+    { bucket: "fail", name: "typecheck", workflow: "CI" },
+  ]);
+  assert.deepEqual(summarizePullRequestChecks(failing, 1), {
+    conclusion: "failure",
+    body: "CI checks: 1 pass, 1 fail. Failed: typecheck.",
+  });
+
+  assert.deepEqual(summarizePullRequestChecks("", 0), { conclusion: "success", body: "All CI checks passed." });
+  assert.deepEqual(summarizePullRequestChecks("not json", 1), {
+    conclusion: "error",
+    body: "Could not read this pull request's CI check results (gh exited 1).",
+  });
+});
+
+test("watches a pull request's checks and reports the result back to the controller", async () => {
+  const ghCalls: string[][] = [];
+  const ghCommand = async (args: string[]) => {
+    ghCalls.push(args);
+    return { exitCode: 1, stdout: JSON.stringify([{ bucket: "fail", name: "typecheck", workflow: "CI" }]), stderr: "" };
+  };
+  const harness = new WorkbenchHarness(config(), undefined, undefined, ghCommand);
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; body: unknown }> = [];
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    calls.push({ url, body: JSON.parse((init?.body as string) ?? "{}") });
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  }) as unknown as typeof fetch;
+
+  try {
+    const accepted = await harness.watchPullRequestChecks("session-1", "https://github.com/GitSquared/nemo/pull/42");
+    assert.equal(accepted.accepted, true);
+    // watchPullRequestChecks returns once the child is launched, not once it finishes -
+    // wait for the fake gh command (and the fetch it triggers) to actually settle.
+    for (let attempt = 0; attempt < 50 && calls.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+
+    assert.deepEqual(ghCalls, [["pr", "checks", "https://github.com/GitSquared/nemo/pull/42", "--watch", "--fail-fast", "--json", "bucket,name,link,workflow,state"]]);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]?.url, "http://linear-agent-controller:8787/internal/pull-request-checks");
+    const body = calls[0]?.body as { sessionId: string; prUrl: string; conclusion: string; body: string };
+    assert.equal(body.sessionId, "session-1");
+    assert.equal(body.prUrl, "https://github.com/GitSquared/nemo/pull/42");
+    assert.equal(body.conclusion, "failure");
+    assert.match(body.body, /Failed: typecheck/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an aborted pull request watch never reports a stale result", async () => {
+  let released: (() => void) | undefined;
+  const ghCommand = async (_args: string[], options: { signal?: AbortSignal }) => {
+    // Simulate a long-running watch: only resolve once the harness aborts it, exactly the
+    // way a real gh child would be killed by the same AbortSignal.
+    await new Promise<void>((resolve) => {
+      released = resolve;
+      options.signal?.addEventListener("abort", () => resolve());
+    });
+    throw new Error("aborted");
+  };
+  const harness = new WorkbenchHarness(config(), undefined, undefined, ghCommand);
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => { fetchCalls += 1; return new Response(JSON.stringify({ ok: true }), { status: 200 }); }) as unknown as typeof fetch;
+
+  try {
+    await harness.watchPullRequestChecks("session-1", "https://github.com/GitSquared/nemo/pull/42");
+    await harness.abortPullRequestWatch("session-1");
+    released?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    assert.equal(fetchCalls, 0, "an intentionally aborted watch must not report anything back");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("fetches and normalizes a pull request's reviews", async () => {
+  const ghCommand = async (args: string[]) => {
+    assert.deepEqual(args, ["api", "repos/GitSquared/nemo/pulls/42/reviews"]);
+    return {
+      exitCode: 0,
+      stdout: JSON.stringify([
+        { id: 1, user: { login: "gaby" }, state: "APPROVED", submitted_at: "2026-08-26T10:00:00Z", body: "Looks good." },
+        { id: 2, state: "COMMENTED" }, // missing submitted_at - must be dropped, not crash
+      ]),
+      stderr: "",
+    };
+  };
+  const harness = new WorkbenchHarness(config(), undefined, undefined, ghCommand);
+
+  const { reviews } = await harness.checkPullRequestReviews("https://github.com/GitSquared/nemo/pull/42");
+
+  assert.deepEqual(reviews, [
+    { id: 1, author: "gaby", state: "APPROVED", submittedAt: "2026-08-26T10:00:00Z", body: "Looks good." },
+  ]);
 });

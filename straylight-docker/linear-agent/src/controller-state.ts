@@ -17,6 +17,7 @@ export type ControllerSessionRecord = {
   attention?: ActiveAttention[];
   openAsks?: OpenAsk[];
   claudeConversationId?: string;
+  pullRequest?: { url: string; owner: string; repo: string; number: number; lastKnownReviewAt?: string };
   updatedAt: number;
 };
 
@@ -57,6 +58,13 @@ export class ControllerStateStore {
         typeof ask.commentId === "string" && typeof ask.question === "string" && typeof ask.askedAt === "number"
       ))))
       && (record.claudeConversationId === undefined || typeof record.claudeConversationId === "string")
+      && (record.pullRequest === undefined || (
+        typeof record.pullRequest.url === "string"
+        && typeof record.pullRequest.owner === "string"
+        && typeof record.pullRequest.repo === "string"
+        && typeof record.pullRequest.number === "number"
+        && (record.pullRequest.lastKnownReviewAt === undefined || typeof record.pullRequest.lastKnownReviewAt === "string")
+      ))
       && typeof record.updatedAt === "number"
     ));
   }
@@ -68,6 +76,7 @@ export class ControllerStateStore {
         .filter((record) => (
           record.running || record.awaitingInput || Boolean(record.pending) || Boolean(record.active)
           || Boolean(record.attention?.length) || Boolean(record.openAsks?.length) || Boolean(record.claudeConversationId)
+          || Boolean(record.pullRequest)
         ))
         .sort((left, right) => right.updatedAt - left.updatedAt)
         .slice(0, MAX_STORED_SESSIONS);

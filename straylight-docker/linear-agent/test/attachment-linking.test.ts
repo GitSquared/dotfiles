@@ -17,11 +17,12 @@ function baseLinear(overrides: Partial<LinearClient>): LinearClient {
   } as unknown as LinearClient;
 }
 
-async function primedController(linear: LinearClient): Promise<AgentController> {
+async function primedController(linear: LinearClient, runnerOverrides: Partial<AgentRunner> = {}): Promise<AgentController> {
   const runner = {
     async repositories() { return []; },
     async health() { return { mode: "test" }; },
     async run() { return new Promise(() => {}); },
+    ...runnerOverrides,
   } as unknown as AgentRunner;
   const controller = new AgentController(linear, runner);
   await controller.handle({
@@ -55,6 +56,47 @@ test("prefers the rich GitHub pull request attachment for a PR link with no subt
   assert.equal(urlCalls.length, 0);
   assert.equal(basicCalls.length, 0);
   assert.deepEqual(result.data, { id: "attachment-1", title: "Fix the thing", url: "https://github.com/acme/widgets/pull/42", richness: "github_pr" });
+});
+
+test("registers a pull request watch once a rich GitHub attachment is published", async () => {
+  const linear = baseLinear({
+    async linkGitHubPullRequestAttachment(_issueId: string, url: string, title?: string) {
+      return { id: "attachment-1", title: title ?? "Pull request", url };
+    },
+  });
+  const watchCalls: Array<{ sessionId: string; prUrl: string }> = [];
+  const controller = await primedController(linear, {
+    async watchPullRequestChecks(sessionId: string, prUrl: string) {
+      watchCalls.push({ sessionId, prUrl });
+      return { accepted: true };
+    },
+  });
+
+  await controller.collaborateLinear("session-1", {
+    action: "publish",
+    publication: { kind: "attachment", title: "Fix the thing", url: "https://github.com/acme/widgets/pull/42" },
+  });
+
+  assert.deepEqual(watchCalls, [{ sessionId: "session-1", prUrl: "https://github.com/acme/widgets/pull/42" }]);
+});
+
+test("does not register a pull request watch for a rich URL attachment that isn't a GitHub PR", async () => {
+  const linear = baseLinear({
+    async linkUrlAttachment(_issueId: string, url: string, title?: string) {
+      return { id: "attachment-2", title: title ?? "Link", url };
+    },
+  });
+  let watchCalls = 0;
+  const controller = await primedController(linear, {
+    async watchPullRequestChecks() { watchCalls += 1; return { accepted: true }; },
+  });
+
+  await controller.collaborateLinear("session-1", {
+    action: "publish",
+    publication: { kind: "attachment", title: "Preview", url: "https://example.com/preview" },
+  });
+
+  assert.equal(watchCalls, 0);
 });
 
 test("uses the rich URL attachment for a non-PR link with no subtitle or body", async () => {

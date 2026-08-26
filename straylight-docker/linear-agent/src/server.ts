@@ -144,6 +144,25 @@ export function createServer(
       }
     }
 
+    if (method === "POST" && url.pathname === "/internal/pull-request-checks") {
+      if (!authorizedRunner(config.runnerToken, request)) return json(401, { ok: false, message: "Unauthorized pull request check report" });
+      const raw = await body(request);
+      let input: { sessionId?: unknown; prUrl?: unknown; body?: unknown; conclusion?: unknown };
+      try { input = JSON.parse(raw.toString("utf8")) as typeof input; }
+      catch { return json(400, { ok: false, message: "Invalid pull request check report JSON" }); }
+      if (
+        typeof input.sessionId !== "string" || typeof input.prUrl !== "string" || typeof input.body !== "string"
+        || !["success", "failure", "error"].includes(input.conclusion as string)
+      ) {
+        return json(400, { ok: false, message: "Invalid pull request check report" });
+      }
+      await controller.reportPullRequestChecks(input.sessionId, input.prUrl, {
+        body: input.body,
+        conclusion: input.conclusion as "success" | "failure" | "error",
+      });
+      return json(200, { ok: true });
+    }
+
     if (method === "POST" && url.pathname === "/internal/linear-upload") {
       if (!authorizedRunner(config.runnerToken, request)) return json(401, { ok: false, message: "Unauthorized Linear upload broker" });
       const raw = await body(request, MAX_LINEAR_UPLOAD_BODY_BYTES);

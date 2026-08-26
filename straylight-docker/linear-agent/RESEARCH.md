@@ -3448,3 +3448,75 @@ status pings stay `thought`, on a "who's speaking" line rather than a
 rendered UI - that gap doesn't close until the next real test run, and
 is named as such rather than assumed fixed just because the type
 changed.
+
+## Building Slice 23: a plan drafted twice, corrected a third time mid-implementation - 2026-08-26
+
+Gaby asked to implement the PR/CI/review watcher plan written up
+earlier the same day. Before writing any code, re-read the actual
+`handle()` dispatch logic instead of trusting the plan's own prose
+("try `pushAgentInput`, fall back to `followUp`") - and found that
+description was simply wrong. `pushAgentInput` is not reachable from
+the controller at all; `followUp` (already used by `handle()`'s own
+`prompted`-while-running branch) is the whole mechanism, and `handle()`
+itself already routes live-inject-vs-cold-resume without any separate
+branch needed. Slice 24's `runScheduledResume` had already proven this
+exact pattern - synthesize a `prompted` payload, call `handle()`,
+done. Worth naming as the same kind of stale-prose-treated-as-fact
+mistake Slice 25 later wrote up formally: a plan's own words are not
+ground truth just because they were written earlier the same day.
+
+**A second, more consequential wrong assumption surfaced next: the
+controller doesn't have `gh`.** The original plan said "the controller
+polls" without ever checking whether the controller container could
+actually run `gh`. `docker exec linear-agent-controller which gh`
+returned nothing; `docker exec linear-agent-runner which gh` returned
+`/usr/bin/gh`, with `GH_CONFIG_DIR=/tool-profile/gh` set at the
+compose level specifically for that container
+(`docker-compose.yml:302`). Caught this by checking live before
+writing the registry/watch-loop code around a container that couldn't
+actually run either - would have been a much more expensive mistake to
+unwind after half the implementation assumed the wrong process.
+Re-architected on the spot: the controller (already holding the Linear
+API token and all session-lifecycle state) keeps owning the registry
+and every dispatch decision; the runner (already holding `gh` and its
+credentials) just executes commands on request and reports back - the
+same RPC shape as its existing `followUp`/`abort`/`repositories`
+methods, requiring zero Dockerfile or compose changes.
+
+**Then a subtler trap: quietly reversing Gaby's own suggestion because
+it was cheaper to build.** Gaby had specifically asked for GitHub's own
+`gh pr checks --watch` to own the polling cadence, not a
+harness-authored loop. Partway into implementation, the plan drifted
+toward "the controller's own timer polls a plain `gh pr checks --json`
+snapshot every 60-90s" - simpler code, no long-lived child process to
+track. Caught mid-build, not after: an advisor call flagged that this
+reasoning was confirmation bias dressed as architecture ("cheaper to
+build" had quietly become "honors the spirit"), and that the actual
+tell was writing down, in advance, "I will mention this trade-off
+honestly when reporting back" - reporting a reversal after building it
+is not the same as raising it before doing so. Checked rather than
+assumed whether the alternative Gaby actually asked for was even
+buildable: `captureCommand` (`src/runtime.ts`) has no inherent process-
+duration cap, only an optional caller-supplied `timeout` - a long-lived
+`gh pr checks --watch` child is a buffered-output and cleanup question,
+not an architectural blocker. Asked instead of deciding unilaterally;
+Gaby picked the runner-held watch, his original idea, once it was
+confirmed buildable.
+
+**Three real bugs an advisor review caught after implementation looked
+complete and all tests passed, none of which those tests exposed - see
+Slice 23 in ROADMAP.md for the full technical account of each fix:**
+a CI/review dispatch would have silently cleared an open QA/Steering
+attention (since `handle()`'s `prompted`-with-attention branch can't
+distinguish a real human reply from any other prompted payload); a PR
+was only ever watched once, because a same-URL re-registration was
+treated as a no-op instead of the re-arm a pushed fix actually needs;
+and the first review poll would have dumped a PR's entire pre-existing
+review history as if it just happened, because "no baseline yet" and
+"everything is new" were the same condition. None of these were
+caught by 200 passing tests - each requires a scenario (open attention
+plus a tracked PR, a second push to the same PR, a PR with review
+history predating the watch) that the first pass of tests, written
+alongside the code they were verifying, simply didn't think to
+construct. Regression tests for exactly these three scenarios were
+added before calling this done, not after.

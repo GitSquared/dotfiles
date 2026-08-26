@@ -1250,10 +1250,9 @@ literal `"sonnet"` for now. Reviving cost-aware model selection would
 make this receipt immediately more useful, but is a separate,
 larger piece of work.
 
-## Slice 23 — centralized PR/CI/review watcher (proposed)
+## Slice 23 — centralized PR/CI/review watcher
 
-Status: proposed, 2026-08-26 (revised same day). Not started - this
-section is the plan, not an implementation log.
+Status: done, 2026-08-26.
 
 Origin: Slice 21 made agents responsible for pushing their own branch
 and not requesting QA on red/pending CI, but the "wait for green"
@@ -1310,88 +1309,135 @@ still needs an actual interval poll against
 last-seen state.
 
 **Centralization, stated explicitly since it was the load-bearing part
-of Gaby's ask:** every watcher process - the `gh pr checks --watch`
-child and the review-poll loop alike - is owned by
-`linear-agent-controller`, the one process in this system that is
-already long-lived for its entire lifetime (it already runs Slice 24's
-auto-resume timers the same way). A per-task container never runs any
-of this; it is dead the moment its turn ends, which is exactly why
-Gaby's worry ("each and every agent stay alive and do their own
-polling") was correct to raise and is fully avoided by this design.
+of Gaby's ask:** every watcher lives in one long-lived process, never
+in a per-task container - those are ephemeral and gone the moment
+their own turn ends, exactly why Gaby's worry ("each and every agent
+stay alive and do their own polling") was correct to raise. It just
+isn't the controller doing the watching, which the plan initially
+assumed without checking - see below.
 
-Net effect versus the original webhook plan: **zero new credentials,
-zero scope changes, zero public-ingress changes.** The existing `gh`
-OAuth token's `repo` scope already covers reading checks and reviews -
-confirmed the same way the earlier (now-moot) scope check was done,
-`gh auth status` inside the real task image. The one real gap that
-survives the redesign unchanged, because it was never about
-transport:
+**A wrong assumption caught before it shaped the build: the controller
+doesn't have `gh`.** `docker exec linear-agent-controller which gh`
+came back empty; `docker exec linear-agent-runner which gh` returned
+`/usr/bin/gh` with `GH_CONFIG_DIR=/tool-profile/gh` already set at the
+compose level (`docker-compose.yml:302`, same credential the ephemeral
+task containers use). Only the runner (`WorkbenchHarness`,
+`linear-agent-runner`) can actually run `gh` - the controller only
+talks to it over HTTP. Split accordingly: the **controller** owns the
+PR registry, session/attention state, and all dispatch decisions (it
+already has the Linear API token and every other piece of session
+lifecycle); the **runner** just executes `gh` commands on request and
+reports back, the same shape as its existing `followUp`/`abort`/
+`repositories` RPCs. This is a smaller change to the plan than it
+sounds - it re-centralizes on a *different* already-long-lived process
+than assumed, not a new one, and needs zero Dockerfile/compose changes
+since the runner already has everything it needs.
 
-- **No PR-URL to sessionId index exists.** A published PR URL is
-  currently forwarded to Linear and discarded
-  (`linkGitHubPullRequestAttachment`/`addExternalUrl`,
-  `src/controller.ts:469-470`; the scrape path,
-  `githubPullRequestUrl`, `src/controller.ts:1241-1243,1406`).
-  `ControllerSessionRecord` (`src/controller-state.ts:6-21`) has no PR
-  field today - needs a new persisted `sessionId ↔ owner/repo#number`
-  entry, captured at those exact two call sites, durable the same way
-  the rest of session state already is (survives a controller
-  restart).
+Net effect versus the original webhook plan still held: **zero new
+credentials, zero scope changes, zero public-ingress changes.** The
+existing `gh` login's `repo` scope already covers reading checks and
+reviews.
 
-Shape of the new pieces, once that gap is closed:
+What actually shipped:
 
-- A small PR registry module (persisted alongside existing controller
-  state) storing `{sessionId, prUrl, lastKnownCiStatus, lastKnownReviewState}`.
-  Entries expire when their session reaches a terminal state - mirror
-  `cancelMatching`'s existing session-lifecycle cleanup so a
-  completed session's PR has nothing left watching it.
-- **One global poll loop** (not a per-PR timer, despite Slice 24's
-  auto-resume precedent for the latter) - a single interval walks the
-  registry each tick, (re)spawning a `gh pr checks --watch` child for
-  any tracked PR that doesn't already have one running, and polling
-  reviews for all of them. Chosen over per-PR timers specifically
-  because it matches Gaby's own framing ("a centralized... record with
-  a single watcher") and keeps total process/API load auditable in one
-  place rather than scattered across independent timers - the adaptive
-  cadence a per-PR timer would buy isn't worth the complexity at this
-  pilot's scale.
-- Dispatch itself reuses Slice 19/21's existing chain: try a live
-  push (`pushAgentInput`) if the session is actively mid-turn, fall
-  back to a cold `followUp`-driven resume otherwise. `followUp`
-  currently has two callers - the `prompted` Linear webhook path
-  inside `handle()` (`src/controller.ts:678`) and Slice 24's
-  `runScheduledResume` - this becomes its third.
+- **The registry.** `ControllerSessionRecord`/`SessionState` gained a
+  `pullRequest: {url, owner, repo, number, lastKnownReviewAt}` field
+  (`src/controller-state.ts`, `src/controller.ts`), captured at both
+  existing PR-URL sites - the rich `linkGitHubPullRequestAttachment`
+  publish path (gated on `richness === "github_pr"`) and the
+  `githubPullRequestUrl` scrape of the final run summary in `finish()`.
+  Persisted the same way every other live session field is; `save()`'s
+  liveness filter (which previously dropped a session with nothing
+  else keeping it alive) gained `Boolean(record.pullRequest)` so a
+  dormant session whose only remaining state is "waiting on CI" isn't
+  silently garbage-collected on the next restart.
+- **CI checks: a runner-held `gh pr checks --watch` child, exactly
+  Gaby's own suggestion.** `WorkbenchHarness.watchPullRequestChecks`
+  spawns `gh pr checks <url> --watch --fail-fast --json
+  bucket,name,link,workflow,state` via the existing `captureCommand`
+  utility (`src/runtime.ts`, already used for `git` in the same file -
+  no new subprocess plumbing), tracked per-session so a second watch
+  for the same session aborts and replaces the first rather than
+  racing it. GitHub's own client owns the refresh cadence for the
+  whole wait; this codebase never picks one for checks. Once the child
+  exits, the runner posts the result to a new controller-side internal
+  route, `POST /internal/pull-request-checks`
+  (`src/server.ts`/`AgentController.reportPullRequestChecks`) -
+  same bearer-token pattern as every other `/internal/*` route,
+  network-isolated rather than publicly reachable.
+- **Reviews: the one place this codebase picks its own cadence, since
+  no CLI primitive exists for it.** A single global interval on the
+  controller (`ensurePullRequestReviewPolling`/`pollPullRequestReviews`,
+  lazily started on the first registered PR so a controller that never
+  sees one - most of the test suite - never runs a live interval at
+  all) walks every tracked PR each tick and asks the runner's
+  `checkPullRequestReviews` (a plain `gh api .../reviews` call) for the
+  current list. Chosen over a per-PR timer (Slice 24's auto-resume
+  precedent for the latter) specifically to match Gaby's own framing -
+  "a centralized record with a single watcher" - and keep total load
+  auditable in one place.
+- **Dispatch reuses `handle()` directly, not a hand-rolled live-vs-cold
+  branch.** Both `reportPullRequestChecks` and `pollPullRequestReviews`
+  synthesize a `prompted`-shaped webhook and call `this.handle(...)` -
+  the exact pattern Slice 24's `runScheduledResume` already
+  established. `handle()` itself already knows whether to live-inject
+  (`followUp`, if the session is mid-turn) or cold-resume
+  (`start()`, if dormant); there was never a separate branch to author
+  here, and an earlier draft of this plan that assumed a
+  `pushAgentInput` call from the controller was wrong - the controller
+  has no such method, and never needed one.
 
-Open questions, named rather than pre-decided:
+Three real bugs an advisor review caught before this shipped, none of
+which the first pass of tests exposed:
 
-- **Review-poll interval.** No CLI primitive to defer to here, so this
-  needs an actual number - something in the 60-120s range is plenty
-  for human review latency at a one-engineer pilot's scale and stays
-  far under GitHub's 5000 req/hour authenticated limit even with
-  several PRs tracked at once. Not tuned yet.
-- **`gh pr checks --watch` child-process lifecycle.** Long-lived
-  spawned processes need to be tracked and cleaned up when a PR
-  registry entry expires (an orphaned watch process for a closed-out
-  session is pure waste) and re-spawned if the controller itself
-  restarts - state Slice 24's own `unref()`'d-timer, not-persisted
-  tradeoff already accepted for auto-resume, worth reusing rather than
-  solving more thoroughly here.
-- **Check-name filtering.** Lean toward dispatching on any status
-  change and trusting the agent's own judgment (the same "wait for
-  green, name a known-flaky failure otherwise" instruction from Slice
-  21) rather than hardcoding which checks matter - a filter list will
-  rot the moment a repo adds or renames a job.
-- **Debouncing a multi-job rollup.** A single PR's check suite
-  completing can fire many `check_run` events near-simultaneously.
-  Worth debouncing into one summarized dispatch (matching Slice 20's
-  160ms/750ms narration debounce) rather than flooding the session
-  with one push per job - or accepting the noise for a first cut,
-  matching Slice 22's "no aggregator" scope discipline. Not decided;
-  revisit once real event volume is observed.
-- **Review content.** `gh api .../reviews` carries the reviewer's
-  actual comment body - worth summarizing/bounding it the same way
-  prompt-construction already bounds untrusted external text elsewhere
-  in this codebase, not forwarding it verbatim.
+1. **Would have clobbered an open QA/Steering attention.** `handle()`'s
+   `prompted`-with-open-`attention` branch treats *any* prompted
+   payload as if it were the human's own reply - clearing the wait,
+   restoring issue state, resuming the run. A CI report or review
+   landing while QA is open (the *normal* case under Slice 21's
+   push-then-request-QA order, not an edge case) would have done
+   exactly that with no human involved. Fixed by checking
+   `state.attention.length` before dispatching in both
+   `reportPullRequestChecks` and `pollPullRequestReviews` - and, for
+   reviews specifically, before marking anything "seen," so a review
+   arriving mid-wait is retried on a later poll once attention clears
+   rather than lost. `dispatchExternalUpdate` carries the same guard
+   again as defense in depth.
+2. **A PR was only ever watched once.** `registerPullRequestWatch`'s
+   original dedupe (`if (state.pullRequest?.url === url) return`)
+   treated a same-URL re-registration as a no-op - but the runner's
+   watch is one-shot and already exited by the time a fix gets pushed,
+   so "red CI → push a fix → new CI run" left that new run silently
+   unwatched. The runner's own `watchPullRequestChecks` already
+   replaces (aborts + restarts) any existing watch for a session, so
+   the fix was to remove the controller-side dedupe entirely and
+   always re-arm - the existing capture call sites, which already fire
+   on every turn that touches the PR, become the re-arm points for
+   free.
+3. **The first review poll would have dumped a PR's entire pre-existing
+   review history as "new."** `lastKnownReviewAt` started as
+   `undefined`, and the filter (`!lastKnownReviewAt || submittedAt >
+   lastKnownReviewAt`) treats "no baseline" as "everything is fresh."
+   Fixed by seeding it from wall-clock at registration time instead of
+   leaving it unset - a review submitted before the agent even pushed
+   is never treated as new. (Not paginated - `gh api .../reviews`
+   returns only GitHub's default first page; unlikely to matter at
+   this pilot's realistic review volume, revisit with `gh api
+   --paginate` if it ever does.)
+
+Open questions still not pre-decided:
+
+- **Check-name filtering.** Still dispatching on any status change and
+  trusting the agent's own judgment (Slice 21's "wait for green, name
+  a known-flaky failure otherwise") rather than hardcoding which
+  checks matter.
+- **Debouncing a multi-job rollup.** `--fail-fast` mitigates this some
+  (the watch exits on the first failure rather than waiting out every
+  job), but a large all-green suite still reports as one summarized
+  post per PR, not per job - not revisited further since the volume
+  question this was meant to address hasn't been observed live yet.
+- **Review content.** Bounded via `progressText` (the same untrusted-
+  external-text treatment used elsewhere), not forwarded verbatim.
 
 ## Slice 24 — honest failure and auto-resume on a mid-turn usage limit
 

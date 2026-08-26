@@ -348,3 +348,224 @@ test("skips a scheduled auto-resume when the Agent Session has reached a termina
 
   assert.equal(runCalls, 1, "a session Linear now reports as terminal must not be silently un-cancelled by an auto-resume");
 });
+
+test("registers a pull request watch when the final run summary mentions one, even without an explicit publish", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async addExternalUrl() {},
+  } as unknown as LinearClient;
+  const watchCalls: Array<{ sessionId: string; prUrl: string }> = [];
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async run() {
+      return {
+        ok: true,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Opened https://github.com/GitSquared/nemo/pull/7 - ready for review.",
+        elapsedMs: 1_000,
+      };
+    },
+    async watchPullRequestChecks(sessionId: string, prUrl: string) {
+      watchCalls.push({ sessionId, prUrl });
+      return { accepted: true };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(watchCalls, [{ sessionId: "session-1", prUrl: "https://github.com/GitSquared/nemo/pull/7" }]);
+});
+
+test("dispatches a finished CI check report into its owning session", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async addExternalUrl() {},
+  } as unknown as LinearClient;
+  let runCalls = 0;
+  let secondCallPayload: { action?: string; agentActivity?: { content?: { body?: string } } } | undefined;
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async watchPullRequestChecks() { return { accepted: true }; },
+    async run(payload: { action?: string; agentActivity?: { content?: { body?: string } } }) {
+      runCalls += 1;
+      if (runCalls === 1) {
+        return {
+          ok: true,
+          timedOut: false,
+          awaitingInput: false,
+          summary: "Opened https://github.com/GitSquared/nemo/pull/7 - ready for review.",
+          elapsedMs: 1_000,
+        };
+      }
+      secondCallPayload = payload;
+      return new Promise(() => {});
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(runCalls, 1);
+
+  await controller.reportPullRequestChecks("session-1", "https://github.com/GitSquared/nemo/pull/7", {
+    conclusion: "failure",
+    body: "CI checks: 2 pass, 1 fail. Failed: typecheck.",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(runCalls, 2, "a finished CI check report must dispatch into the session it belongs to");
+  assert.equal(secondCallPayload?.action, "prompted");
+  assert.match(secondCallPayload?.agentActivity?.content?.body ?? "", /CI checks failed.*typecheck/s);
+});
+
+test("ignores a CI check report for a session that has since moved on to a different pull request", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async addExternalUrl() {},
+  } as unknown as LinearClient;
+  let runCalls = 0;
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async watchPullRequestChecks() { return { accepted: true }; },
+    async run() {
+      runCalls += 1;
+      return {
+        ok: true,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Opened https://github.com/GitSquared/nemo/pull/7 - ready for review.",
+        elapsedMs: 1_000,
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(runCalls, 1);
+
+  // A report for a PR this session is no longer tracking - stale registry entry, or simply
+  // never registered - must be a silent no-op, not a spurious resume.
+  await controller.reportPullRequestChecks("session-1", "https://github.com/GitSquared/nemo/pull/999", {
+    conclusion: "success",
+    body: "CI checks: 3 pass.",
+  });
+  await controller.reportPullRequestChecks("session-unknown", "https://github.com/GitSquared/nemo/pull/7", {
+    conclusion: "success",
+    body: "CI checks: 3 pass.",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(runCalls, 1, "a stale or unrecognized CI check report must not resume anything");
+});
+
+test("polls tracked pull requests for new reviews and dispatches only what's new", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async addExternalUrl() {},
+  } as unknown as LinearClient;
+  let runCalls = 0;
+  let reviewCallCount = 0;
+  // Fixed, computed once - registration seeds lastKnownReviewAt from wall-clock, so this must
+  // land after that but stay constant across polls to actually simulate "the same review keeps
+  // showing up" (gh's own API has no "since" filter); recomputing it per call would make every
+  // poll look fresh regardless of the fix under test.
+  const reviewSubmittedAt = new Date(Date.now() + 60_000).toISOString();
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async watchPullRequestChecks() { return { accepted: true }; },
+    async checkPullRequestReviews() {
+      reviewCallCount += 1;
+      return { reviews: [{ id: 1, author: "gaby", state: "APPROVED", submittedAt: reviewSubmittedAt, body: "LGTM" }] };
+    },
+    async run() {
+      runCalls += 1;
+      return {
+        ok: true,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Opened https://github.com/GitSquared/nemo/pull/7 - ready for review.",
+        elapsedMs: 1_000,
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(runCalls, 1);
+
+  await controller.pollPullRequestReviews();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(runCalls, 2, "a fresh review must dispatch");
+
+  await controller.pollPullRequestReviews();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(reviewCallCount, 2);
+  assert.equal(runCalls, 2, "a review already seen on a prior poll must not dispatch again");
+});
+
+test("aborts an in-flight pull request watch when its session is cancelled", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async addExternalUrl() {},
+    async setIssueState() {},
+  } as unknown as LinearClient;
+  const abortCalls: string[] = [];
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async watchPullRequestChecks() { return { accepted: true }; },
+    async abortPullRequestWatch(sessionId: string) { abortCalls.push(sessionId); },
+    async abort() { return false; },
+    async run() {
+      return {
+        ok: true,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Opened https://github.com/GitSquared/nemo/pull/7 - ready for review.",
+        elapsedMs: 1_000,
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  await controller.handlePermissionChange({ removedTeamIds: ["team-1"] });
+
+  assert.deepEqual(abortCalls, ["session-1"]);
+});
