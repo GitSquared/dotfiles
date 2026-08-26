@@ -47,7 +47,7 @@ export type CapsuleAgentRequest = {
 export type PushInputResult = { accepted: boolean; reason?: string };
 
 export type BrokeredCapsuleAgentRequest = Pick<CapsuleAgentRequest, "prompt" | "resume" | "model" | "timeBudgetMs">;
-export type CapsuleAgentProgress = Extract<AgentActivityContent, { type: "thought" | "action" }>;
+export type CapsuleAgentProgress = Extract<AgentActivityContent, { type: "thought" | "response" | "action" }>;
 export type CapsuleAgentProgressHandler = (progress: CapsuleAgentProgress) => void | Promise<void>;
 
 export type CapsuleAgentStreamEvent =
@@ -209,7 +209,13 @@ function parseAgentStreamEvent(line: string): CapsuleAgentStreamEvent | undefine
 function validProgress(value: unknown): value is CapsuleAgentProgress {
   if (!value || typeof value !== "object") return false;
   const progress = value as Partial<CapsuleAgentProgress>;
-  if (progress.type === "thought") return typeof progress.body === "string" && progress.body.length > 0 && progress.body.length <= 8_000;
+  // "response" (the model's own composed narration) shares thought's plain body
+  // shape - only the who's-speaking label differs, decided downstream in
+  // claude.ts. Without this, every capsule stream event carrying the model's
+  // own words throws "invalid stream event" instead of surfacing them.
+  if (progress.type === "thought" || progress.type === "response") {
+    return typeof progress.body === "string" && progress.body.length > 0 && progress.body.length <= 8_000;
+  }
   return progress.type === "action"
     && typeof progress.action === "string" && progress.action.length > 0 && progress.action.length <= 1_000
     && typeof progress.parameter === "string" && progress.parameter.length > 0 && progress.parameter.length <= 8_000

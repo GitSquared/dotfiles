@@ -16,9 +16,14 @@ test("streams structured events across the controller-runner boundary", async ()
   let managedPlan: unknown;
   let runPayload: unknown;
   const harness = {
-    async runClaude(taskCredential: string, request: { prompt: string; resume?: string }, _signal?: AbortSignal, onProgress?: (progress: { type: "thought"; body: string }) => void) {
+    async runClaude(taskCredential: string, request: { prompt: string; resume?: string }, _signal?: AbortSignal, onProgress?: (progress: { type: "thought"; body: string } | { type: "response"; body: string }) => void) {
       if (taskCredential === "one-time-task-token" && request.prompt === "Implement it") {
         onProgress?.({ type: "thought", body: "Inspecting the affected module." });
+        // Regression for GAB-20: the capsule (claude-capsule/server.mjs) can emit
+        // type: "response" progress for the model's own composed narration - this
+        // exercises the real encode (runner-server.ts) -> NDJSON wire -> decode
+        // (capsule-client.ts) path the earlier "invalid stream event" crash hit.
+        onProgress?.({ type: "response", body: "Implementing the requested change." });
         return { status: "ok" as const, answer: "Ready for QA.", sessionId: request.resume ?? "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa" as const, reason: "Implemented, checked, and ready for approval." } };
       }
       return { status: "error" as const, message: "Unauthorized." };
@@ -98,7 +103,10 @@ test("streams structured events across the controller-runner boundary", async ()
       (progress) => { agentProgress.push(progress); },
     ); // yadm-secret-scan: ignore
     assert.deepEqual(agent, { status: "ok", answer: "Ready for QA.", sessionId: "claude-session", awaitingInput: true, durationMs: 9, disposition: { status: "awaiting_qa", reason: "Implemented, checked, and ready for approval." } });
-    assert.deepEqual(agentProgress, [{ type: "thought", body: "Inspecting the affected module." }]);
+    assert.deepEqual(agentProgress, [
+      { type: "thought", body: "Inspecting the affected module." },
+      { type: "response", body: "Implementing the requested change." },
+    ]);
     const shell = await fetch(`${baseUrl}/v1/shell`, {
       method: "POST",
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },

@@ -3520,3 +3520,66 @@ history predating the watch) that the first pass of tests, written
 alongside the code they were verifying, simply didn't think to
 construct. Regression tests for exactly these three scenarios were
 added before calling this done, not after.
+
+## GAB-20: the "response" narration fix never closed its own live-test gap - 2026-08-26
+
+Gaby reported this exact session ending on "The Claude agent capsule
+returned an invalid stream event." right after confirming (GAB-20's
+own thread) that Slice 25's `type: "response"` narration change had
+shipped, and named it as the same crash from GAB-19. That "still not
+verified against the live rendered UI" caveat at the end of the
+previous entry was the tell: the client side of that change was never
+actually exercised end-to-end before this session hit it live.
+
+Root cause, confirmed by reading the two sides of the wire protocol
+rather than guessing from the error string: `claude-capsule/agent-
+request.mjs` (the capsule) started emitting `{ type: "response", body
+}` progress events for the model's own composed narration
+(60734ae). `src/capsule-client.ts`'s `parseAgentStreamEvent` -
+the controller-side NDJSON decoder - was never taught the new shape.
+Its `CapsuleAgentProgress` type and `validProgress()` still only
+recognized `"thought"` and `"action"`; every `"response"` event failed
+`validProgress` and hit the `throw new Error("...invalid stream
+event.")` branch, which `readAgentStream`'s own `catch` turns into a
+whole-turn `{ status: "error" }` result - not a dropped event, a
+failed run. `src/claude.ts`'s `onProgress` callback had the same gap
+one layer up: its progress -> activity mapping was a two-way ternary
+(`thought` vs. everything-else-must-be-action) that would have read
+`.action`/`.parameter` off a `response` event and posted garbage even
+if the decoder had let it through. Confirmed both were live gaps, not
+just typing gaps, by reverting the fix and re-running: `bun test`
+reproduced the exact reported message end-to-end through the real
+encode (`runner-server.ts`/`server.mjs`) -> NDJSON wire -> decode
+(`capsule-client.ts`) path, not a synthetic unit case.
+
+Fix: extended `CapsuleAgentProgress`/`validProgress` to accept
+`"response"` with the same plain-body shape as `"thought"`, and gave
+`claude.ts`'s mapping a real three-way branch so `response` posts
+durably (`ephemeral: false`, matching the "real message" intent) as
+`type: "response"` rather than falling into the action branch. The
+capsule-side test suite (`claude-capsule/agent-request.test.mjs`) was
+already green throughout, because it only ever tested the emitting
+side - the failure lived entirely in the two files that decode what
+the capsule sends, which had no dedicated coverage before this fix.
+
+**Tests**: a new `claude.test.ts` case posts a `response` progress
+event through `ClaudeHarness.run` and asserts it lands as a durable
+`type: "response"` activity; the existing `runner-integration.test.ts`
+end-to-end stream test now also emits and asserts a `response` event
+survives the real wire encode/decode round trip, not just a mocked
+`onProgress` call. Both fail with the literal reported message when
+run against the pre-fix code (verified by stashing the fix and
+re-running), and pass against it.
+
+**The other half of GAB-20** - the earlier session posting a Slack
+message and a GitHub PR review in GAB-19 without asking - was a policy
+gap, not a code bug: `src/prompts.ts`'s Authority paragraph already
+said "messaging third parties... require the Linear request to
+explicitly authorize them," but never spelled out that a GitHub PR
+review/comment or a Slack post are instances of that, or that the
+existing "opening or updating its own PR" carve-out does not extend to
+reviewing or commenting on it (or anyone else's). Added an explicit
+sentence naming those surfaces directly, with an explicit exception for
+talking to another automated system rather than a human, matching
+Gaby's own framing ("NEVER post output publicly without explicit
+operator approval, EXCEPT when interacting with other robots").
