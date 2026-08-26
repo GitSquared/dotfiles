@@ -164,9 +164,14 @@ Acceptance:
 
 ## Slice 6 — cost-aware model policy
 
-Status: allowlist, classifier, picker, and one-tier agent-requested escalation
-are implemented locally. Deployed account/model acceptance and outcome/cost
-telemetry remain.
+Status: superseded. This slice's design (Pi allowlist/classifier/picker) was
+built against the Pi fallback runner, which Slice 17 removed entirely -
+`src/model-policy.ts`, `src/pi.ts`, `src/pi-resources.ts`, and `pi-config/`
+are gone. Model selection today is a hardcoded `"sonnet"` literal
+(`src/claude.ts`, `src/workbench.ts`); there is no allowlist, classifier, or
+escalation logic left to build outcome/cost telemetry on top of. The plan
+below is kept for reference only - re-derive a model-policy design from
+scratch against the Claude-only runtime before reviving any of it.
 
 - Store one small explicit allowlist in persistent Pi configuration. Each entry
   names provider/model, relative cost class, supported reasoning levels,
@@ -1134,6 +1139,46 @@ before abandoning it for the simple, already-documented path
 `src/prompts.ts`'s browser-testing instruction now says
 `manage_service`'s browser is a standalone mechanism independent of
 whatever visual-testing setup a repository happens to already have.
+
+## Slice 21 — push and go green before QA
+
+Status: done, 2026-08-26.
+
+Origin: Gaby asked, from the same GAB-16 run Slice 20 investigated,
+whether the agent knows its workspace is ephemeral and is expected to
+push its branch and get CI green before requesting QA - flagged as
+generic engineering hygiene, not Carbonfact-specific. Confirmed against
+the transcript rather than assumed: 253 `mcp__straylight__bash` calls,
+zero `git push`, zero `gh pr create`/`gh pr edit`. The QA request itself
+made the failure mode explicit -
+`"Review the diff on local branch agent/gab-16 (not pushed - no explicit
+go-ahead to push/open a PR yet)."` The agent was following
+`src/prompts.ts`'s and `agent-request.mjs`'s existing rule ("do not
+push... unless the Linear request explicitly authorizes it") correctly;
+the rule itself pointed at a dead end, since the container that branch
+lives on is destroyed once the turn ends.
+
+Fixed as a carve-out to the existing sentence, not a competing new one -
+appending a "push before QA" instruction on top of an unqualified
+"do not push" would have left two standing rules disagreeing at
+runtime. Both files now read: pushing the task's own feature branch and
+opening/updating its pull request is expected by default, no
+authorization needed; push-to-shared/default-branch, merge, deploy, and
+third-party messaging still require the Linear request to explicitly
+authorize them. Added a standing "this container is destroyed once the
+turn ends" statement to both system prompts (previously this fact only
+appeared on the resumed-mention path, scoped to explaining why prior-
+turn file/branch state doesn't exist - now it is a general reason to
+push before ending a turn on a code change, not just a resume-specific
+aside). `request_attention`'s QA description now also says not to
+request QA while the pushed PR's checks are still red or pending.
+
+Also corrected in the same pass: Slice 6's status line claimed a
+cost-aware model picker was "implemented locally" - false since Slice 17
+deleted `src/model-policy.ts` and the rest of the Pi allowlist/picker
+machinery. Model selection today is a hardcoded `"sonnet"` literal.
+Marked Slice 6 superseded rather than rewritten, so a future read of
+this roadmap doesn't repeat the same stale claim.
 
 ## Later hardening
 

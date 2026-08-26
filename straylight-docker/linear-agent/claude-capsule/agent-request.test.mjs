@@ -308,6 +308,8 @@ test("the request_attention tool description tells the model Signal needs no dis
   assert.match(description, /don't add a "no action needed" or "work continues" disclaimer/i);
   assert.match(description, /don't instruct the engineer to type a specific word/i);
   assert.match(description, /Mark an evidence item's image field true when its url is a screenshot/i);
+  assert.match(description, /push the branch and open or update its pull request first/i);
+  assert.match(description, /don't request QA while its checks are still red or pending/i);
 });
 
 test("the request_attention tool call rejects missingAccess on a non-blocking Signal or a QA request", async (t) => {

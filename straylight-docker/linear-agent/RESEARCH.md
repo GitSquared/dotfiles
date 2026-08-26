@@ -3046,3 +3046,59 @@ called; confirmed it actually fails against the pre-fix code (flipped
 the flag back to `true` locally, watched it fail with the exact stray
 `state-in-progress` write, then restored the fix) before trusting it as
 a real regression test rather than one that would pass regardless.
+
+## A rule that pointed at a dead end: pushing gated behind authorization it could never get - 2026-08-26
+
+Gaby asked, unprompted by any specific bug report, whether the agent
+knows its workspace is ephemeral and is expected to push and get CI
+green before requesting QA - flagged as generic engineering hygiene,
+not something specific to Carbonfact's own repos. Didn't take the
+premise on faith: grepped `src/prompts.ts` and `agent-request.mjs` first
+and found real guidance to publish a PR link "as soon as one exists,"
+but nothing tying that to the workspace being thrown away, and no rule
+about not requesting QA on red CI. Absence of a grep match isn't proof
+of a behavioral gap on its own, so checked the GAB-16 transcript still
+on disk from the previous investigation: 253
+`mcp__straylight__bash` calls across the run, zero `git push`, zero
+`gh pr create`/`gh pr edit`. The QA request itself made the failure
+mode concrete rather than theoretical - its `action` field read
+`"Review the diff on local branch agent/gab-16 (not pushed - no
+explicit go-ahead to push/open a PR yet)."` The agent wasn't
+malfunctioning; it was correctly following the existing instruction
+("do not push... unless the Linear request explicitly authorizes it")
+straight into a QA request Gaby could never actually act on once that
+container disappeared.
+
+Advisor review caught the trap before any line got written: appending
+a new "push before QA" instruction on top of the unqualified "do not
+push" rule would leave two standing instructions disagreeing, with
+whichever one the model attended to on a given run winning by luck -
+the exact inconsistency being complained about, just relocated. The fix
+had to edit the existing sentence into a carve-out, not add a competing
+one: pushing the task's own feature branch and opening/updating its own
+pull request is now expected by default and needs no authorization;
+push-to-shared-branch, merge, deploy, and third-party messaging still
+require the Linear request to explicitly say so. Mirrored into both
+`src/prompts.ts` and `agent-request.mjs`'s system prompt, matching every
+other guidance change this cycle.
+
+Also added a standing "this container and its disk are destroyed once
+the turn ends" statement to both prompts. It already existed in one
+place - `src/prompts.ts`'s resumed-mention branch - but only as an aside
+explaining why a remembered prior-turn branch/file doesn't exist
+anymore, not as a general reason to push before ending any turn on a
+code change. Reworded that branch to point at the new standing
+statement instead of repeating it. `request_attention`'s QA description
+picked up one more line: don't request QA while the pushed PR's checks
+are still red or pending.
+
+Corrected a stale claim surfaced by the same advisor pass, unrelated to
+this fix but caught while pitching the *next* piece of work (cost
+telemetry) to Gaby: ROADMAP.md's Slice 6 status line said a cost-aware
+model picker was "implemented locally." False - Slice 17 deleted
+`src/model-policy.ts` and the rest of that machinery when the Pi
+fallback runner was removed; model selection today is a hardcoded
+`"sonnet"` literal in `src/claude.ts`/`src/workbench.ts`. Marked Slice 6
+superseded in place rather than rewriting its historical plan, so it
+stops misleading whoever reads it next - including a future instance of
+this agent.

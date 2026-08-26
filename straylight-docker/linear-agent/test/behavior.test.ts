@@ -16,7 +16,9 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /NEMO-42/);
   assert.match(prompt, /Use the nemo repository/);
   assert.match(prompt, /Keep the change targeted/);
-  assert.match(prompt, /Do not push/);
+  assert.match(prompt, /needs no separate authorization - do not stop to ask first/);
+  assert.match(prompt, /Pushing to a shared or default branch, merging, deploying, messaging third parties/);
+  assert.match(prompt, /container and everything on its disk are destroyed once this turn ends/);
   assert.match(prompt, /blocking Steering attention item/);
   assert.match(prompt, /finish_work/);
   assert.match(prompt, /manage_plan/);
@@ -61,7 +63,7 @@ test("tells Claude it is resuming its own prior conversation on a routed mention
   });
   assert.match(resumed, /resumes your own prior Claude Code conversation/);
   assert.match(resumed, /Verify current state/);
-  assert.match(resumed, /fresh, empty workspace container/);
+  assert.match(resumed, /this container's disk is fresh and empty/);
   assert.match(resumed, /re-clone any repository/);
   assert.match(resumed, /local plan file is equally fresh/);
   assert.match(resumed, /start a fresh plan or list current plan state/);
