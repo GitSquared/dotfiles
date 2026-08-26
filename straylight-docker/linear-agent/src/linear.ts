@@ -35,6 +35,12 @@ const ISSUE_CREATE_FIELDS = new Set([
   "assigneeId", "cycleId", "delegateId", "description", "dueDate", "estimate", "labelIds", "parentId",
   "priority", "projectId", "projectMilestoneId", "stateId", "subscriberIds", "teamId", "templateId", "title",
 ]);
+// A fresh tracking subissue (GAB-25) starts no Agent Session and nobody is automatically
+// going to pick it up - assigning it to a human at creation time is a decision, not a
+// reflex, and belongs in a deliberate follow-up `issue`/update, not bundled into the one
+// call that manufactures the ticket. Every other ISSUE_CREATE_FIELDS field still applies;
+// only the two assignment fields are withheld specifically for subissue creation.
+const SUBISSUE_CREATE_FIELDS = new Set([...ISSUE_CREATE_FIELDS].filter((field) => field !== "assigneeId" && field !== "delegateId"));
 const ISSUE_UPDATE_FIELDS = new Set([
   "addedLabelIds", "assigneeId", "cycleId", "delegateId", "description", "dueDate", "estimate", "labelIds",
   "parentId", "priority", "projectId", "projectMilestoneId", "removedLabelIds", "stateId", "subscriberIds",
@@ -1099,7 +1105,7 @@ export class LinearClient {
         `query ManagedSubissueParent($id: String!) { issue(id: $id) { id team { id } } }`,
         { id: parentId },
       );
-      const supplied = managedFields(request.fields, ISSUE_CREATE_FIELDS, "subissue create");
+      const supplied = managedFields(request.fields, SUBISSUE_CREATE_FIELDS, "subissue create");
       const input = { ...supplied, parentId: parent.issue.id, teamId: supplied.teamId ?? parent.issue.team.id };
       const result = await this.graphql<{ issueCreate: { success: boolean; issue?: unknown } }>(
         `mutation ManagedSubissueCreate($input: IssueCreateInput!) {

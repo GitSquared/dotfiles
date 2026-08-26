@@ -1692,6 +1692,25 @@ Two new `assert.match` assertions added to `test/behavior.test.ts`'s
 existing initial-prompt test per new bullet. `bun run check` (typecheck +
 all 207 tests) passes.
 
+Follow-up, same day: Gaby asked whether this should also be mechanically
+hardened rather than left to instructions alone. Recommended a narrow,
+surgical guardrail instead of a blanket block - `manage_linear`'s
+`assigneeId` is a normal field on plain `issue` update (reassigning an
+existing issue is completely ordinary), so removing it there would cost
+real capability, not just close the hole. What's cheap and structurally
+checkable without cost: `LinearClient.manageSubissue`'s `create` branch
+(`src/linear.ts`) now validates against a dedicated `SUBISSUE_CREATE_FIELDS`
+set - `ISSUE_CREATE_FIELDS` minus `assigneeId`/`delegateId` - so creating a
+subissue always starts unassigned; a human can still be assigned afterward
+through a deliberate `issue`/update. `manage_linear`'s own tool description
+(`claude-capsule/agent-request.mjs`) now says so up front instead of only
+surfacing it as a runtime rejection. One new test in `test/linear.test.ts`
+exercises the real `manage()` path against a fake GraphQL server (rejects
+both `assigneeId` and `delegateId` on subissue create, still creates one
+without them); one new test in `claude-capsule/agent-request.test.mjs`
+checks the updated tool description. `bun run check` (208 tests) and
+`node --test claude-capsule/agent-request.test.mjs` (40 tests) both pass.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit

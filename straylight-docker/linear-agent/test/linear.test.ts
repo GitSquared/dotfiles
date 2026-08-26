@@ -132,3 +132,51 @@ test("aborts a GraphQL call that never gets a response once its timeout elapses,
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("rejects assigneeId/delegateId on subissue creation, but still creates one without them (GAB-25)", async () => {
+    const directory = await fs.mkdtemp(path.join(os.tmpdir(), "linear-client-test-"));
+    try {
+      await seedAccessToken(directory);
+      await withRealServer(
+        (request, response) => {
+          const chunks: Buffer[] = [];
+          request.on("data", (chunk: Buffer) => chunks.push(chunk));
+          request.on("end", () => {
+            const body = Buffer.concat(chunks).toString("utf8");
+            response.writeHead(200, { "content-type": "application/json" });
+            if (body.includes("ManagedSubissueParent")) {
+              response.end(JSON.stringify({ data: { issue: { id: "parent-1", team: { id: "team-1" } } } }));
+            } else {
+              response.end(JSON.stringify({
+                data: { issueCreate: { success: true, issue: { id: "sub-1", identifier: "GAB-99", title: "Follow-up" } } },
+              }));
+            }
+          });
+        },
+        async (localGraphqlUrl) => {
+          const client = new LinearClient(testControllerConfig(directory), 1_000, (_input, init) => fetch(localGraphqlUrl, init));
+          await assert.rejects(
+            () => client.manage(
+              { resource: "subissue", operation: "create", parentId: "parent-1", fields: { title: "Follow-up", assigneeId: "human-1" } },
+              { agentSessionId: "session-1", issueId: "parent-1" },
+            ),
+            /subissue create does not allow field: assigneeId/,
+          );
+          await assert.rejects(
+            () => client.manage(
+              { resource: "subissue", operation: "create", parentId: "parent-1", fields: { title: "Follow-up", delegateId: "agent-1" } },
+              { agentSessionId: "session-1", issueId: "parent-1" },
+            ),
+            /subissue create does not allow field: delegateId/,
+          );
+          const result = await client.manage(
+            { resource: "subissue", operation: "create", parentId: "parent-1", fields: { title: "Follow-up" } },
+            { agentSessionId: "session-1", issueId: "parent-1" },
+          );
+          assert.deepEqual(result.data, { id: "sub-1", identifier: "GAB-99", title: "Follow-up" });
+        },
+      );
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+});
