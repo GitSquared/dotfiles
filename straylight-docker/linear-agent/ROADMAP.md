@@ -1295,15 +1295,21 @@ polling loop. Confirmed this is additive, not new infrastructure:
 Two real gaps have to close before this can go live, neither of which
 is a code change alone:
 
-1. **No GitHub App exists.** The only GitHub credential in this
-   system today is a human-provisioned `gh` CLI OAuth token
-   (`gh auth login --hostname github.com ... --web`, `src/server.ts:191-193`,
-   stored at `GH_CONFIG_DIR=/tool-profile/gh`). A user-scoped OAuth
-   token cannot receive GitHub App installation webhooks - creating
-   and installing a GitHub App (with `checks:read`/`pull_requests:read`
-   webhook subscriptions, a webhook secret) is a manual, one-time step
-   only Gaby can do, outside this repo, before any of the code below
-   can be tested against real GitHub events.
+1. **No webhook-registration scope exists yet - checked live, not
+   assumed.** `gh auth status` inside the actual task image
+   (`linear-agent-runner:local`, same `GH_CONFIG_DIR=/tool-profile/gh`
+   mount real tasks use) reports the existing OAuth token's scopes as
+   `gist`, `read:org`, `repo`, `workflow` - no `admin:repo_hook` /
+   `write:repo_hook`. That rules out a full GitHub App as the only
+   path: a plain **repo-level webhook** (`POST
+   /repos/{owner}/{repo}/hooks`) is the lighter alternative - no app
+   registration, no separate installation flow, just a webhook secret
+   and a scope this token doesn't have yet. The real one-time
+   prerequisite is smaller than originally written here: either
+   `gh auth refresh -h github.com -s admin:repo_hook` on the existing
+   login, or a separate token with that scope - still a manual step
+   only Gaby can do, outside this repo, but not a GitHub App
+   registration.
 2. **No PR-URL to sessionId index exists.** A published PR URL is
    currently forwarded to Linear and discarded
    (`linkGitHubPullRequestAttachment`/`addExternalUrl`,
@@ -1353,6 +1359,85 @@ Open questions, named rather than pre-decided:
   reviewer's actual comment body - worth summarizing/bounding it the
   same way prompt-construction already bounds untrusted external text
   elsewhere in this codebase, not forwarding it verbatim.
+
+## Slice 24 — honest failure and auto-resume on a mid-turn usage limit
+
+Status: done, 2026-08-26.
+
+Origin: a live GAB-16 run hit "Claude subscription limit reached...
+You've hit your individual spend limit" mid-turn and surfaced as
+`"Error from straylight: Claude ended without a structured work
+disposition. Run failed in 10m 24s."` - an opaque failure with no
+path back to the work. Gaby: "interesting things happened in the last
+test run as claude ran out of usage mid-turn. I think we should
+handle that smoothly and nicely." Scoped via `AskUserQuestion` to
+"honest failure + auto-resume" plus a prompt nudge, both accepted;
+explicitly deprioritized behind finishing the Slice 23 write-up first
+(already done by the time the question was asked, so this went ahead
+immediately after).
+
+The SDK's `rate_limit_event` (`sdk.d.ts:4406-4438`) distinguishes two
+genuinely different failure modes, and the fix treats them
+differently rather than uniformly:
+
+- **A timed window** (`five_hour`/`seven_day`/... with a `resetsAt`) -
+  nothing a human needs to act on, just time. Synthesized as a
+  `blocked_external` disposition (the existing "non-human dependency
+  with a concrete retry condition" type, reused rather than extended)
+  carrying a machine-parseable `nextAction: "auto-resume-at:<ISO>"`
+  marker - no network call, no Steering ask.
+- **`errorCode: "credits_required"`** - a human must actually do
+  something (add credits/change plan). This one does post a real
+  blocking Steering elicitation, same as any other human-owned
+  blocker.
+
+`synthesizeRateLimitDisposition` (`claude-capsule/agent-request.mjs`)
+makes this call from a `lastRejectedRateLimit` flag captured while
+streaming SDK messages - **sticky once set, never cleared by a later
+event**. The SDK streams these continuously as usage climbs (90%,
+91%, ..., "reached"), so an initial version that just mirrored "latest
+status" got overwritten back to non-rejected by a trailing
+`allowed_warning` arriving after the real rejection, silently
+reproducing the exact opaque failure this was meant to fix - caught by
+review before it shipped, not by the test suite (which only exercised
+the isolated function, one event at a time).
+
+Auto-resume: `scheduleAutoResumeIfMarked`/`runScheduledResume`
+(`src/controller.ts`), hooked into `finish()` right where the existing
+`blocked_external` disposition already lands. An `unref()`'d
+`setTimeout` (clamped to `MAX_AUTO_RESUME_DELAY_MS`, a day past the
+longest real window) fires a synthesized `prompted`-shaped webhook
+payload through the existing `handle()` path - `followUp`'s only
+other caller. Deliberately not persisted across controller restarts;
+a rarely-restarted single-host pilot loses a scheduled resume on
+restart the same way any other `blocked_external` session already
+sits dormant until a human notices - documented as an accepted
+tradeoff, not a hidden gap. Before firing, re-checks the session isn't
+already running/attention-open, then re-verifies against Linear's own
+live status via `agentSessionSnapshot` - a human may have closed the
+issue, or a fresh mention may have already restarted it. That check
+**fails closed**: if the snapshot call itself errors, the resume is
+skipped rather than proceeding blind, since a wrong auto-resume starts
+a container and burns usage while a missed one only costs a manual
+mention.
+
+Prompt nudge (both `agent-request.mjs` and `src/prompts.ts`): tells
+the model that once a usage-limit warning's utilization keeps climbing
+toward 100%, wrapping up and requesting attention now beats a hard cutoff
+mid-tool-call - explicitly framed as the graceful path, with the fact
+that the harness handles a hard cutoff too so momentum isn't the only
+reason to stop early.
+
+Credits-required's Steering post goes through the same
+`request_attention`-style relay the model's own tool call uses
+(`proxy(...)` to the controller's internal route, awaited before
+`runAgent` returns) - not verified against a live credits-exhausted
+run, since that requires actually exhausting billing credits to
+trigger. Reasoned from the fact that this is structurally the same
+call `request_attention` already makes today, proven live - not a new
+path. Worth a deliberate check the first time this branch actually
+fires in production, rather than continuing to assume the analogy
+holds.
 
 ## Later hardening
 

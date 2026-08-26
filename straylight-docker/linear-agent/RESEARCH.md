@@ -3269,3 +3269,78 @@ checks-only for a smaller first cut; Gaby picked checks+reviews
 instead - noted above without re-litigating it, since the review-body
 summarization question in the plan's open-questions section exists
 specifically because of that choice.
+
+## Two bugs advisor caught in the usage-limit fix that 215 green tests didn't - 2026-08-26
+
+The Slice 24 implementation (honest failure + auto-resume on a
+mid-turn Claude usage limit) had all its own tests passing - 4 new
+capsule tests, 2 new controller tests, 1 new prompt assertion, 215
+total green - before an advisor review, requested before declaring it
+done per this session's established discipline, found two real bugs
+in the code itself. Worth recording exactly why the tests didn't
+catch them: both tests exercised the new logic in isolation, one event
+or one call at a time, and both bugs are about *sequences* of events
+that a single-event test can't see.
+
+**Bug 1: the rejection flag wasn't sticky.** The first cut tracked
+"latest rate-limit status" - set on rejection, cleared back to
+`undefined` on any later non-rejected event. Reasonable-sounding, but
+wrong against how the SDK actually streams these: continuously, as
+usage climbs (90%, 91%, 92%, ..., "reached"). If a trailing
+`allowed_warning` or status refresh arrives after the real rejection -
+plausible during a turn's wind-down - the flag would flip back to
+"not rejected," `synthesizeRateLimitDisposition` would return false,
+and the harness would throw the exact same opaque
+`"Claude ended without a structured work disposition"` error this fix
+existed to eliminate. The tests didn't catch it because each test fed
+the function one event, never a rejection followed by something else.
+Fixed by making the flag sticky: set on rejection, never cleared - a
+turn that hit a rejection hit one, regardless of what streams after.
+
+**Bug 2: `runScheduledResume`'s staleness check failed open.** The
+original `catch` block around the pre-resume `agentSessionSnapshot`
+check logged a warning and fell through to resume anyway ("proceeding
+anyway") when the live-status check itself errored. Advisor's framing
+made the asymmetry obvious: a resume that doesn't fire costs a manual
+mention later; a resume that *shouldn't* have fired starts a container
+and burns usage on a session that may have already been closed.
+Changed the catch to `return` (skip the resume) instead - failing
+closed, matching the fact that this check exists specifically to avoid
+un-cancelling work a human already moved past.
+
+Also strengthened rather than dismissed: the auto-resume test asserted
+`runCalls === 2`, which is also satisfied by a retry, a `pending`
+re-run, or any other code path that happens to call `run()` twice - it
+would stay green even if the scheduler were deleted outright. Now
+captures the second call's actual payload and asserts
+`action === "prompted"` and the activity body matches the injected
+resume text, so the test is tied to the mechanism, not just its call
+count.
+
+One claim from this fix's design was corrected the same way the PR
+watcher's "GitHub App required" claim was corrected above - checked
+live instead of trusted from memory. The credits-required branch posts
+a real Steering elicitation through the same internal relay
+`request_attention`'s own tool handler uses; this is *reasoned* to be
+safe by construction (the call is awaited before `runAgent` returns,
+so the controller's own `state.attention` mutation happens-before
+`execute()` ever touches that same state) rather than empirically
+verified against a live credits-exhausted run, since triggering that
+requires actually exhausting billing credits. Documented as an
+assumption to watch, not silently treated as proven.
+
+Separately, corrected the Slice 23 write-up's "a GitHub App is
+required" claim by actually checking rather than continuing to assert
+it from the original research pass: ran `gh auth status` inside the
+real task image (`linear-agent-runner:local`, same
+`GH_CONFIG_DIR=/tool-profile/gh` mount live tasks use, via a one-off
+`docker run` so the token's scopes could be read without ever printing
+the token itself) and got `gist`, `read:org`, `repo`, `workflow` - no
+`admin:repo_hook`/`write:repo_hook`. That means a full GitHub App
+registration was never the *only* option: a plain repo-level webhook
+(`POST /repos/{owner}/{repo}/hooks`) would also work, and needs only a
+scope refresh on the existing `gh` login (`gh auth refresh -h
+github.com -s admin:repo_hook`) rather than a whole new app
+installation flow. Still a manual, human-only step before Slice 23's
+code can be tested against real events - just a smaller one than what
+got written down the first time.

@@ -422,6 +422,61 @@ export function assertTerminalSummary(context, summary) {
   }
 }
 
+// Hitting the Claude subscription usage limit mid-turn means every further
+// model call fails - the model gets no chance to call request_attention or
+// finish_work itself, since that requires a model call too. This synthesizes
+// the disposition the model would have set, on its behalf, distinguishing
+// the two ways a rejection actually happens (SDKRateLimitInfo,
+// @anthropic-ai/claude-agent-sdk's sdk.d.ts): a plain time-boxed rate window
+// (five_hour/seven_day/...), which is transient and carries its own reset
+// time, versus errorCode "credits_required" - not time-based at all, only
+// resolved by a human raising the limit or adding a payment method. Returns
+// true if it handled the ending, false if there was no rate-limit rejection
+// to react to (the caller should fall back to its normal disposition-less
+// handling in that case - this is not the only way a turn can end without
+// one, see the queued-follow-up race noted at controller.ts's finish()).
+export async function synthesizeRateLimitDisposition(context, rateLimitInfo, signal) {
+  if (!rateLimitInfo) return false;
+  if (rateLimitInfo.errorCode === "credits_required") {
+    // Calls the same underlying relay request_attention's tool handler uses,
+    // directly - there is no live SDK tool-call context left to route
+    // through once the model has run out of usage to call a tool with.
+    await proxy(context.workbenchUrl, context.taskToken, "/v1/linear-session", {
+      action: "attention",
+      request: {
+        kind: "steering",
+        delivery: "queue",
+        title: "Out of Claude usage credits",
+        action: "This run stopped because the Claude account is out of usage credits mid-turn - nothing more could be generated. Raise the limit or add a payment method, then reply here to resume.",
+        evidence: [{ label: "Manage usage & credits", url: "https://claude.ai/admin-settings/usage" }],
+      },
+    }, signal, MAX_TOOL_RESULT);
+    context.awaitingInput = true;
+    context.attentionKind = "steering";
+    context.disposition = {
+      status: "awaiting_steering",
+      reason: "Out of Claude usage credits mid-turn.",
+      nextAction: "Raise the usage/spend limit or add a payment method, then reply to resume.",
+    };
+    return true;
+  }
+  // A plain time-boxed window - transient, and the SDK reports exactly when
+  // it clears. blocked_external already means "an external, non-agent
+  // blocker with a concrete retry condition"; this just is one. nextAction
+  // carries a machine-parseable `auto-resume-at:<ISO>` marker so the
+  // controller can schedule the actual resume (see finish(), controller.ts).
+  const resetsAt = typeof rateLimitInfo.resetsAt === "number" ? new Date(rateLimitInfo.resetsAt).toISOString() : undefined;
+  context.awaitingInput = false;
+  context.disposition = {
+    status: "blocked_external",
+    reason: `Hit the Claude subscription usage limit (${rateLimitInfo.rateLimitType || "unknown window"}) mid-turn.`,
+    nextAction: resetsAt
+      ? `auto-resume-at:${resetsAt}`
+      : "Resume manually once the usage limit resets (no reset time was reported).",
+  };
+  return true;
+}
+
 export function resolveAccessRepair(missingAccess, context) {
   if (!missingAccess) return undefined;
   const url = missingAccess.workspace === "capsule" ? context.capsuleAuthUrl : context.toolAuthUrl;
@@ -726,6 +781,14 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
   let lastSdkEvent;
   let sdkSessionId;
   let resolvedModel;
+  // The last rejected rate-limit signal seen this turn, if any. A rejection
+  // means every subsequent model call fails, so the model gets no chance to
+  // call request_attention/finish_work itself - the turn just ends without a
+  // disposition. Tracked here so that specific, external cause can be told
+  // apart from every other way a disposition-less ending happens (e.g. the
+  // queued-follow-up race documented at the `finish()`-adjacent comment in
+  // src/controller.ts, GAB-15) before reacting to it.
+  let lastRejectedRateLimit;
   let modelTurns = 0;
   let toolCallCount = 0;
   const seenAssistantMessages = new Set();
@@ -785,6 +848,7 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
           "Every turn must end in a structured lifecycle state. After blocking Steering or QA, stop and wait. A Signal is nonblocking, so continue until another lifecycle transition is reached - a Signal alone never ends a turn.",
           "Don't trust a prior summary, memory note, or comment claiming work is already done, approved, or unchanged - verify the current state (does the referenced artifact still exist, is the issue's status what you'd expect) before concluding there is nothing to do. If re-delegated and truly nothing changed, that is not a reason to stop without a transition: request QA again with the still-valid evidence (or fresh evidence if the old artifact is gone), don't just report it and end the turn.",
           runtimeBudgetInstruction(input.timeBudgetMs),
+          "If a Claude subscription usage-limit warning appears and its utilization keeps climbing toward 100%, treat it like the inactivity budget above: wrap up cleanly, push what you have, and request Steering or QA now rather than pushing further and risking a hard cutoff mid-tool-call. Once the limit is actually hit, this harness detects it and hands off on your behalf - but wrapping up before it hits keeps the rest of this turn's momentum instead of losing it.",
         ],
         hooks: {
           Stop: [{ hooks: [async (hookInput) => stopDispositionGuard(context, hookInput)] }],
@@ -800,6 +864,14 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
       lastSdkEvent = message.subtype ? `${message.type}:${message.subtype}` : message.type;
       sdkSessionId = message.session_id || sdkSessionId;
       if (message.type === "system" && message.subtype === "init" && message.model) resolvedModel = message.model;
+      // Sticky, never cleared by a later event: the SDK streams a steady flow of
+      // these (90%, 91%, ... "reached") as usage climbs, and a trailing
+      // allowed_warning/status refresh arriving after the actual rejection must
+      // not erase the fact that a rejection already happened this turn - it did,
+      // and every model call after it failed, regardless of what the SDK reports next.
+      if (message.type === "rate_limit_event" && message.rate_limit_info?.status === "rejected") {
+        lastRejectedRateLimit = message.rate_limit_info;
+      }
       if (sdkEventCount === 1) {
         console.info("Claude Agent SDK stream opened", {
           sessionId: sdkSessionId,
@@ -889,17 +961,28 @@ export async function runAgent(input, signal, reportProgress = async () => {}, o
     signal.removeEventListener("abort", abort);
   }
   if (!result) throw new Error("Claude Agent SDK ended without a result");
-  if (result.subtype !== "success") return {
-    status: "error",
-    message: result.errors?.join("; ") || `Claude ended with ${result.subtype}`,
-    ...(result.session_id ? { sessionId: result.session_id } : {}),
-    ...(typeof result.duration_ms === "number" ? { durationMs: result.duration_ms } : {}),
-  };
-  if (!context.disposition) throw new Error("Claude ended without a structured work disposition");
-  assertTerminalSummary(context, result.result || "");
+  let rateLimitHandled = false;
+  if (result.subtype !== "success") {
+    rateLimitHandled = await synthesizeRateLimitDisposition(context, lastRejectedRateLimit, signal);
+    if (!rateLimitHandled) return {
+      status: "error",
+      message: result.errors?.join("; ") || `Claude ended with ${result.subtype}`,
+      ...(result.session_id ? { sessionId: result.session_id } : {}),
+      ...(typeof result.duration_ms === "number" ? { durationMs: result.duration_ms } : {}),
+    };
+  }
+  if (!context.disposition) {
+    rateLimitHandled = await synthesizeRateLimitDisposition(context, lastRejectedRateLimit, signal);
+    if (!rateLimitHandled) throw new Error("Claude ended without a structured work disposition");
+  }
+  // A synthesized disposition isn't the model declaring an informal handoff -
+  // it's this harness declaring one on the model's behalf - so the check that
+  // catches the model trying to hand off outside the attention state machine
+  // doesn't apply here.
+  if (!rateLimitHandled) assertTerminalSummary(context, result.result || "");
   return {
     status: "ok",
-    answer: result.result,
+    answer: result.result || context.disposition.reason,
     sessionId: result.session_id,
     awaitingInput: context.awaitingInput,
     disposition: context.disposition,

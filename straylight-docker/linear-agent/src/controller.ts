@@ -55,6 +55,10 @@ type NotificationDisposition = "agentSessionOwned" | "contextOnly" | "acknowledg
 // attempt count and backoff shape as putPreparedLinearUpload's asset retry in src/linear.ts.
 const DURABLE_ACTIVITY_MAX_ATTEMPTS = 3;
 const DURABLE_ACTIVITY_RETRY_BASE_MS = 250;
+// A day past the longest real Claude subscription rate-limit window
+// (seven_day) - a safety cap on the scheduled auto-resume delay, not a
+// reflection of any specific plan's actual limit.
+const MAX_AUTO_RESUME_DELAY_MS = 8 * 24 * 60 * 60 * 1_000;
 
 function elapsed(ms: number): string {
   const seconds = Math.max(0, Math.round(ms / 1_000));
@@ -1238,6 +1242,7 @@ export class AgentController {
       type: result.ok || result.disposition?.status === "deferred" ? "response" : "error",
       body: finalText(`${result.summary}${footer}`),
     }));
+    if (result.disposition?.status === "blocked_external") this.scheduleAutoResumeIfMarked(sessionId, result.disposition.nextAction);
     const pullRequest = githubPullRequestUrl(result.summary);
     return pullRequest
       ? activity.then(() => this.linear.addExternalUrl(sessionId, { label: "Pull request", url: pullRequest }).catch((error: unknown) => {
@@ -1246,6 +1251,75 @@ export class AgentController {
         });
       }))
       : activity;
+  }
+
+  // Not persisted: an in-memory setTimeout that resumes a blocked_external
+  // session once the capsule's own reported reset time passes (see
+  // synthesizeRateLimitDisposition, claude-capsule/agent-request.mjs). If
+  // the controller restarts before it fires, the scheduled resume is
+  // silently lost and the session just sits dormant until a human notices
+  // and mentions it again - the same as any other blocked_external session
+  // today, not a new failure mode. Acceptable for a rarely-restarted
+  // single-host pilot; a persisted, re-armed-on-startup version is a larger
+  // piece of work for if this actually bites.
+  private scheduleAutoResumeIfMarked(sessionId: string, nextAction: string | undefined): void {
+    const match = /^auto-resume-at:(.+)$/.exec(nextAction ?? "");
+    const resumeAtText = match?.[1];
+    if (!resumeAtText) return;
+    const resumeAt = new Date(resumeAtText).getTime();
+    if (!Number.isFinite(resumeAt)) return;
+    const delayMs = Math.min(Math.max(resumeAt - Date.now(), 0), MAX_AUTO_RESUME_DELAY_MS);
+    const timer = setTimeout(() => {
+      this.runScheduledResume(sessionId).catch((error: unknown) => {
+        console.error("scheduled auto-resume failed", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }, delayMs);
+    timer.unref();
+  }
+
+  private async runScheduledResume(sessionId: string): Promise<void> {
+    const state = this.states.get(sessionId);
+    // The session may have moved on since this was scheduled - a human
+    // manually intervened, a fresh mention already restarted it, or the
+    // issue reached a terminal status. Re-check rather than firing blindly:
+    // this mirrors handle()'s own opportunistic staleness recheck, which
+    // only runs when an open attention exists - a blocked_external session
+    // never has one, so it needs its own check here.
+    if (!state || state.running || state.attention.length) return;
+    if (state.issueId) {
+      try {
+        const snapshot = await this.linear.agentSessionSnapshot(sessionId);
+        if (isTerminalSessionStatus(snapshot.status)) {
+          console.info("skipping scheduled auto-resume; Agent Session is no longer live", { sessionId, status: snapshot.status });
+          return;
+        }
+      } catch (error) {
+        // Fail closed: a resume starts a container and burns usage, so an
+        // unverifiable status is treated the same as "don't know it's safe."
+        // A missed auto-resume just costs a manual mention; a wrong one
+        // restarts work on a session that may have already moved on.
+        console.warn("could not verify an Agent Session is still live before an auto-resume; skipping it", {
+          sessionId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+    }
+    await this.handle({
+      action: "prompted",
+      agentSession: {
+        id: sessionId,
+        ...(state.issueId
+          ? { issueId: state.issueId, issue: { id: state.issueId, ...(state.teamId ? { teamId: state.teamId } : {}) } }
+          : {}),
+      },
+      agentActivity: {
+        content: { body: "The Claude usage limit that paused this run has now reset - resume and continue the work." },
+      },
+    });
   }
 
   private async prepareLinearInputs(sessionId: string, payload: AgentSessionWebhook): Promise<LinearInputFile[]> {

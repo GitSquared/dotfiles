@@ -251,3 +251,100 @@ test("handles a pull-request mention with no linked issue gracefully", async () 
   const health = await controller.health() as { controller: { notifications: { counts: Record<string, number> } } };
   assert.equal(health.controller.notifications.counts.unknown, 1);
 });
+
+test("auto-resumes a blocked_external session once its reported reset time has passed", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async agentSessionSnapshot() { return { id: "session-1", status: "active", appUser: { id: "agent-1" } }; },
+  } as unknown as LinearClient;
+  let runCalls = 0;
+  let secondCallPayload: { action?: string; agentActivity?: { content?: { body?: string } } } | undefined;
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async run(payload: { action?: string; agentActivity?: { content?: { body?: string } } }) {
+      runCalls += 1;
+      if (runCalls === 1) {
+        return {
+          ok: false,
+          timedOut: false,
+          awaitingInput: false,
+          summary: "Hit the Claude subscription usage limit mid-turn.",
+          elapsedMs: 1_000,
+          disposition: {
+            status: "blocked_external" as const,
+            reason: "Hit the Claude subscription usage limit (five_hour) mid-turn.",
+            // Already due - the scheduled delay clamps to 0, so this fires on the next tick.
+            nextAction: `auto-resume-at:${new Date(Date.now() - 1_000).toISOString()}`,
+          },
+        };
+      }
+      secondCallPayload = payload;
+      return new Promise(() => {}); // the resumed run just needs to be observed starting, not finish
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  // handle() only kicks the run off (start() fire-and-forgets execute()), and the due
+  // auto-resume-at marker clamps its own scheduled delay to 0 - both hops can settle well
+  // within one short wait, so there's no reliable "exactly one run so far" midpoint to assert.
+  await new Promise((resolve) => setTimeout(resolve, 40));
+
+  assert.equal(runCalls, 2, "a blocked_external session with a due auto-resume-at marker must be resumed automatically");
+  // Assert on the actual resume payload, not just the call count - a call count alone
+  // would also pass for a retry or a `pending` re-run unrelated to the scheduler.
+  assert.equal(secondCallPayload?.action, "prompted");
+  assert.match(
+    secondCallPayload?.agentActivity?.content?.body ?? "",
+    /usage limit that paused this run has now reset/,
+  );
+});
+
+test("skips a scheduled auto-resume when the Agent Session has reached a terminal status in the meantime", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    // A human closed this out (or Linear otherwise moved it to a terminal status) while the
+    // auto-resume was still scheduled - the resume must not un-cancel it.
+    async agentSessionSnapshot() { return { id: "session-1", status: "complete", appUser: { id: "agent-1" } }; },
+  } as unknown as LinearClient;
+  let runCalls = 0;
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async run() {
+      runCalls += 1;
+      return {
+        ok: false,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Hit the Claude subscription usage limit mid-turn.",
+        elapsedMs: 1_000,
+        disposition: {
+          status: "blocked_external" as const,
+          reason: "Hit the Claude subscription usage limit (five_hour) mid-turn.",
+          nextAction: `auto-resume-at:${new Date(Date.now() - 1_000).toISOString()}`,
+        },
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(runCalls, 1);
+
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(runCalls, 1, "a session Linear now reports as terminal must not be silently un-cancelled by an auto-resume");
+});

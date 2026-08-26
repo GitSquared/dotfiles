@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assertAgentMayAct, assertTerminalSummary, createInjector, createInputQueue, createProgressProjector, createStraylightTools, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard } from "./agent-request.mjs";
+import { assertAgentMayAct, assertTerminalSummary, createInjector, createInputQueue, createProgressProjector, createStraylightTools, recordWorkDisposition, resolveAccessRepair, runtimeBudgetInstruction, stopDispositionGuard, synthesizeRateLimitDisposition } from "./agent-request.mjs";
 
 test("communicates an inactivity budget without imposing a turn ceiling", () => {
   const instruction = runtimeBudgetInstruction(3_600_000);
@@ -264,6 +264,74 @@ test("refuses to resolve access repair when the workbench has no configured auth
     () => resolveAccessRepair({ workspace: "tools", providerName: "GitHub" }, {}),
     /No tools auth URL is configured/,
   );
+});
+
+test("synthesizeRateLimitDisposition does nothing when no rate limit was rejected", async (t) => {
+  const fetchCalls = [];
+  t.mock.method(globalThis, "fetch", async (...args) => { fetchCalls.push(args); throw new Error("must not be called"); });
+  const context = { workbenchUrl: "https://workbench.example.test", taskToken: "task-token" };
+
+  assert.equal(await synthesizeRateLimitDisposition(context, undefined, undefined), false);
+
+  assert.equal(fetchCalls.length, 0);
+  assert.equal(context.disposition, undefined);
+});
+
+test("synthesizeRateLimitDisposition escalates a credits-exhausted account to a real blocking Steering elicitation", async (t) => {
+  let capturedUrl;
+  let capturedBody;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(options.body);
+    return { ok: true, text: async () => JSON.stringify({ ok: true }) };
+  });
+  const context = { workbenchUrl: "https://workbench.example.test", taskToken: "task-token" };
+
+  const handled = await synthesizeRateLimitDisposition(
+    context,
+    { status: "rejected", errorCode: "credits_required" },
+    undefined,
+  );
+
+  assert.equal(handled, true);
+  assert.equal(capturedUrl, "https://workbench.example.test/v1/linear-session");
+  assert.equal(capturedBody.request.kind, "steering");
+  assert.match(capturedBody.request.action, /out of usage credits/i);
+  assert.equal(context.awaitingInput, true);
+  assert.equal(context.attentionKind, "steering");
+  assert.equal(context.disposition.status, "awaiting_steering");
+});
+
+test("synthesizeRateLimitDisposition marks a timed rate window blocked_external with a machine-parseable auto-resume marker, no network call", async (t) => {
+  const fetchCalls = [];
+  t.mock.method(globalThis, "fetch", async (...args) => { fetchCalls.push(args); throw new Error("must not be called for a plain rate window"); });
+  const context = { workbenchUrl: "https://workbench.example.test", taskToken: "task-token" };
+  const resetsAt = Date.UTC(2026, 7, 26, 18, 0, 0);
+
+  const handled = await synthesizeRateLimitDisposition(
+    context,
+    { status: "rejected", rateLimitType: "five_hour", resetsAt },
+    undefined,
+  );
+
+  assert.equal(handled, true);
+  assert.equal(fetchCalls.length, 0);
+  assert.equal(context.awaitingInput, false);
+  assert.equal(context.disposition.status, "blocked_external");
+  assert.match(context.disposition.reason, /five_hour/);
+  assert.equal(context.disposition.nextAction, `auto-resume-at:${new Date(resetsAt).toISOString()}`);
+});
+
+test("synthesizeRateLimitDisposition falls back to a manual-resume message when the SDK reported no reset time", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("must not be called"); });
+  const context = { workbenchUrl: "https://workbench.example.test", taskToken: "task-token" };
+
+  const handled = await synthesizeRateLimitDisposition(context, { status: "rejected", rateLimitType: "overage" }, undefined);
+
+  assert.equal(handled, true);
+  assert.equal(context.disposition.status, "blocked_external");
+  assert.doesNotMatch(context.disposition.nextAction, /auto-resume-at:/);
+  assert.match(context.disposition.nextAction, /resume manually/i);
 });
 
 // The tests below exercise the real request_attention tool call, not just the
