@@ -1710,7 +1710,53 @@ both `assigneeId` and `delegateId` on subissue create, still creates one
 without them); one new test in `claude-capsule/agent-request.test.mjs`
 checks the updated tool description. `bun run check` (208 tests) and
 `node --test claude-capsule/agent-request.test.mjs` (40 tests) both pass.
+## Slice 28 — defer attention resolution until the discussion actually settles (GAB-26/GAB-24)
 
+Status: done, 2026-08-26.
+
+Origin: Gaby, GAB-26, live off the back of a real Slice 26/GAB-22 run (GAB-25) - "I answered
+a QA post with a question. The question got acknowledged ✅ by the harness immediately -
+good! immediate feedback is nice! - but it auto-resolved the thread, moved the issue back to
+In Progress state, and restarted a fresh agent without answering my comment." A follow-up
+message on the same session pointed at the identical pattern in GAB-24: "the agent had to
+post a new top-level task comment instead of being able to answer my question in-thread."
+
+Slice 26 made *every* reply to a tracked Steering/QA comment - not just the QA-approval
+fast path - immediately restore the issue's pre-attention state and resolve the thread, on
+the assumption that a reply is always "the decision, now acted on." That's true for a real
+answer, but not for a reply that's itself a question or a request to weigh options first -
+the controller has no way to tell those apart from the text alone, and guessing "decision"
+closed the thread and dropped the issue out of its attention status before the human's
+actual question was ever answered.
+
+**Change shipped:** the QA-approval fast path (`isQaApproval`) is untouched - it's still an
+unambiguous, structured, immediate signal. Every other reply to an open Steering/QA
+attention now only reacts with a checkmark (real receipt acknowledgement) and stashes a new
+`SessionState.pendingAttentionResolution` (`previousStateId` + the discussion's root
+`commentId`) instead of restoring issue status and resolving the thread on the spot. That
+bookkeeping is only acted on - `AgentController.settlePendingAttentionResolution` - once the
+resumed turn the reply feeds into genuinely concludes *without* raising a fresh blocking
+attention of its own: `execute()`'s normal completion path, `start()`'s crash-catch handler,
+and the stop/session-invalidation paths (`isStopRequest`, `cancelMatching`) when no
+currently-open attention is already handling it via the existing `dismissAttention`. Chained
+across however many rounds a discussion runs - only the *oldest* `previousStateId` is kept
+(re-querying the issue's current state on a continuation round would just capture the
+attention state itself), and every continuation's tracked comment is posted as a genuine
+Linear reply (`LinearClient.replyToIssueComment`, a new `commentCreate` with `parentId`)
+threaded under the discussion's own root comment (GAB-24) instead of a disconnected new
+top-level one, so there is exactly one thread to eventually resolve, not one per round.
+
+Persisted (`ControllerSessionRecord.pendingAttentionResolution`) so a still-open discussion
+survives a controller restart the same way an open attention already does.
+
+Five tests updated in `test/ask-tier.test.ts` and `test/controller-recovery.test.ts` to
+assert the deferred behavior instead of the old immediate one, plus two new end-to-end
+tests: a full multi-round discussion (question, threaded follow-up attention reusing the
+root comment and original previousStateId, second reply, then a clean conclusion that
+settles everything at once) and a stop request landing in the gap between a deferred reply
+and its resumed turn concluding (issue status still gets restored, but the thread stays
+unresolved, matching cancellation's existing convention). `bun run check` (typecheck + all
+209 tests) passes.
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit
