@@ -1638,6 +1638,79 @@ shared `baseLinear` helper gained a `resolveComment` stub so every fake
 `LinearClient` stays complete. `bun run check` (typecheck + all 201 tests)
 passes.
 
+## Slice 27 — subissue tracking hygiene and no re-litigating resolved threads (GAB-25)
+
+Status: done, 2026-08-26.
+
+Origin: Gaby, GAB-25 - "Investigate weird behaviour around pending decisions
+and sub-issues," two symptoms observed on GAB-21's own session:
+
+1. GAB-21 spawned a follow-up subissue, GAB-23, that ended up assigned to
+   Gaby (the human) rather than left unassigned or picked up by an Agent
+   Session. GAB-23 never received a single comment after creation and sat
+   at "In Progress" while the work it described (reading Linear project/
+   team context at boot, plus the repository-hoisting follow-up) actually
+   shipped later under a *different* PR (#4, e86b33e) whose commit message
+   only said "Refs GAB-23" - not a closing keyword - so the ticket never
+   closed and kept claiming to track work that had already landed.
+2. When reaching later QA milestones in the same conversation, the agent
+   re-stated an already-resolved Steering thread's question/context in
+   full, twice, instead of pointing back to it in passing.
+
+Investigation (no repro logs were needed - the evidence was in Linear and
+in this repo's own history): GAB-23's description doesn't match
+`renderDeferredItem`'s template ("## Deferred follow-up:" / "**What**" /
+"**Why this isn't the current task's job**" / "**What re-surfaces it**"),
+so it wasn't created through `defer_followup`'s justification-gated path -
+it was a direct `manage_linear` `subissue`/`create` call, which passes
+through whatever `fields` (including `assigneeId`) the model supplies with
+no default (`LinearClient.manageSubissue`, `src/linear.ts`). Nothing in the
+prompt said a freshly created tracking subissue starts with no Agent
+Session attached and nobody automatically working it, nor that assigning
+it to a human is a real decision rather than a reflex. Separately, for
+symptom 2: `renderOpenAsksSection`'s "Still waiting on:" list (the one
+deterministic, code-owned surface for a QA request restating prior
+questions) already only lists genuinely unresolved `state.openAsks` -
+confirmed correct, not the source. Since the Claude Agent SDK conversation
+is resumed in place (`resume` in `src/claude.ts`) rather than reconstructed
+per turn, symptom 2 is Claude's own drafting choice mid-conversation with
+nothing to tell it not to - there's no code-level dedup to add for content
+the model itself composes.
+
+**Change shipped:** two new bullets in `claudeInitialPrompt`
+(`src/prompts.ts`), next to the existing `defer_followup` and
+Steering/QA-reply guidance they extend: (1) a tracking subissue - through
+`defer_followup` or a direct `manage_linear` subissue create - is inert
+the moment it's created, so leave it unassigned unless a human genuinely
+needs to decide something on it, and close the loop yourself if its work
+lands under a different session rather than trusting a bare "Refs GAB-N"
+mention to do it; (2) once a Steering/QA reply has resolved a thread,
+mention it once in passing with a link on any later checkpoint or QA
+request instead of restating the original question, options, or reasoning.
+
+Two new `assert.match` assertions added to `test/behavior.test.ts`'s
+existing initial-prompt test per new bullet. `bun run check` (typecheck +
+all 207 tests) passes.
+
+Follow-up, same day: Gaby asked whether this should also be mechanically
+hardened rather than left to instructions alone. Recommended a narrow,
+surgical guardrail instead of a blanket block - `manage_linear`'s
+`assigneeId` is a normal field on plain `issue` update (reassigning an
+existing issue is completely ordinary), so removing it there would cost
+real capability, not just close the hole. What's cheap and structurally
+checkable without cost: `LinearClient.manageSubissue`'s `create` branch
+(`src/linear.ts`) now validates against a dedicated `SUBISSUE_CREATE_FIELDS`
+set - `ISSUE_CREATE_FIELDS` minus `assigneeId`/`delegateId` - so creating a
+subissue always starts unassigned; a human can still be assigned afterward
+through a deliberate `issue`/update. `manage_linear`'s own tool description
+(`claude-capsule/agent-request.mjs`) now says so up front instead of only
+surfacing it as a runtime rejection. One new test in `test/linear.test.ts`
+exercises the real `manage()` path against a fake GraphQL server (rejects
+both `assigneeId` and `delegateId` on subissue create, still creates one
+without them); one new test in `claude-capsule/agent-request.test.mjs`
+checks the updated tool description. `bun run check` (208 tests) and
+`node --test claude-capsule/agent-request.test.mjs` (40 tests) both pass.
+
 ## Later hardening
 
 - Stream safe Claude Agent SDK partial text, tool progress, retry/rate-limit

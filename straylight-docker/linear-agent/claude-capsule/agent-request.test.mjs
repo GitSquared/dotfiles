@@ -425,6 +425,13 @@ test("the request_attention tool description tells the model Signal needs no dis
   assert.match(description, /don't request QA while its checks are still red or pending/i);
 });
 
+test("the manage_linear tool description tells the model subissue creation never accepts an assignee (GAB-25)", () => {
+  const { instance } = createStraylightTools(accessRepairWorkbenchContext());
+  const description = instance._registeredTools.manage_linear.description;
+  assert.match(description, /Creating a subissue never accepts assigneeId or delegateId/);
+  assert.match(description, /it always starts unassigned/);
+});
+
 test("the request_attention tool call rejects missingAccess on a non-blocking Signal or a QA request", async (t) => {
   const context = accessRepairWorkbenchContext();
   const fetchCalls = [];
