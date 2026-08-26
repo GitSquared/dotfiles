@@ -43,6 +43,14 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /usage-limit warning appears and its utilization keeps climbing toward 100%/);
   assert.match(prompt, /not you giving up on the task/);
   assert.match(prompt, /resumes you automatically on this exact same work/);
+  // GAB-25 regression: GAB-21 spawned a follow-up subissue (GAB-23) that got assigned to
+  // the human and then sat untouched while its work landed elsewhere under a different PR -
+  // the prompt now names both failure modes explicitly.
+  assert.match(prompt, /only an inert Linear ticket the moment it's created/);
+  assert.match(prompt, /Leave it unassigned by default/);
+  assert.match(prompt, /a bare 'Refs GAB-N' mention in a commit message does not close it/);
+  assert.match(prompt, /treat that question as closed going forward/);
+  assert.match(prompt, /mention it once in passing with a link back to that comment/);
 });
 
 test("uses the activity body for follow-ups", () => {
