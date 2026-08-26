@@ -13,6 +13,7 @@ test("streams structured events across the controller-runner boundary", async ()
   let sharedArtifact: unknown;
   let viewedImage: unknown;
   let appliedPatch: unknown;
+  let hoisted: unknown;
   let managedPlan: unknown;
   let runPayload: unknown;
   const harness = {
@@ -61,6 +62,11 @@ test("streams structured events across the controller-runner boundary", async ()
       return taskCredential === "one-time-task-token"
         ? { ok: true, service: request.service, status: "starting" as const, connection: { host: "postgres", port: 5432 } }
         : { ok: false, service: request.service, status: "failed" as const, message: "Unauthorized task service request" };
+    },
+    async hoistRepository(taskCredential: string, request: { hostname: string; repositoryFullName: string; name?: string }) {
+      if (taskCredential !== "one-time-task-token") throw new Error("Unauthorized repository hoist request");
+      hoisted = request;
+      return { ok: true as const, path: `/repositories/${request.name ?? request.repositoryFullName.split("/").pop()}`, hostname: request.hostname, repositoryFullName: request.repositoryFullName, alreadyCached: false };
     },
     async uploadLinearFile(taskCredential: string, request: { filename: string; contentType: string; dataBase64: string }) {
       uploaded = { token: taskCredential, ...request };
@@ -168,6 +174,25 @@ test("streams structured events across the controller-runner boundary", async ()
     const service = await new ServiceClient(baseUrl, "one-time-task-token").manage({ action: "start", service: "postgres" }); // yadm-secret-scan: ignore
     assert.equal(service.status, "starting");
     assert.deepEqual(service.connection, { host: "postgres", port: 5432 });
+    const hoist = await fetch(`${baseUrl}/v1/repository-hoist`, {
+      method: "POST",
+      headers: { authorization: "Bearer one-time-task-token", "content-type": "application/json" },
+      body: JSON.stringify({ hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" }),
+    });
+    assert.deepEqual(await hoist.json(), {
+      ok: true,
+      path: "/repositories/dotfiles",
+      hostname: "github.com",
+      repositoryFullName: "GitSquared/dotfiles",
+      alreadyCached: false,
+    });
+    assert.deepEqual(hoisted, { hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" });
+    const unauthorizedHoist = await fetch(`${baseUrl}/v1/repository-hoist`, {
+      method: "POST",
+      headers: { authorization: "Bearer some-other-token", "content-type": "application/json" },
+      body: JSON.stringify({ hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" }),
+    });
+    assert.equal(unauthorizedHoist.status, 401);
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z5xkAAAAASUVORK5CYII=", "base64");
     const assetUrl = await new LinearToolClient(baseUrl, "one-time-task-token").upload("duck.png", "image/png", png); // yadm-secret-scan: ignore
     assert.equal(assetUrl, "https://uploads.linear.app/workspace/duck-png");

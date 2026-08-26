@@ -21,7 +21,7 @@ import { PiRunnerClient, type PullRequestReview } from "./runner-client.js";
 import { captureCommand, runCommand } from "./runtime.js";
 import { redact } from "./redaction.js";
 import type { DevelopmentService, ServiceRequest, ServiceResult } from "./service-client.js";
-import type { LinearInputFile, RepositoryCandidate } from "./types.js";
+import type { LinearInputFile, RepositoryCandidate, RepositoryHoistRequest, RepositoryHoistResult } from "./types.js";
 
 const TASK_LABEL = "dev.straylight.linear-agent.task=true";
 const SERVICE_LABEL = "dev.straylight.linear-agent.service=true";
@@ -725,6 +725,74 @@ export class WorkbenchHarness {
     };
   }
 
+  /**
+   * Copies a repository the running agent has already found (typically cloned
+   * directly into its own /workspace because it wasn't in the pre-provisioned
+   * cache) into the shared, host-level /repositories cache, so future task
+   * sessions get it as a fast pre-mounted candidate instead of a cold clone.
+   *
+   * Entirely opt-in and at the calling agent's discretion - nothing here
+   * triggers automatically. Reuses the same ambient git/gh credentials
+   * (GIT_CONFIG_GLOBAL/GH_CONFIG_DIR, pointed at the writable /tool-profile
+   * mount) that repositoryCloneUrl-based refreshes already use for every
+   * other cached entry, so this grants no access beyond what any task in
+   * this workbench already has. GAB-23.
+   */
+  async hoistRepository(
+    token: string,
+    request: RepositoryHoistRequest,
+    signal?: AbortSignal,
+  ): Promise<RepositoryHoistResult> {
+    const active = this.taskForToken(token);
+    if (!active?.running || active.aborted) throw new Error("Unauthorized repository hoist request");
+    if (signal?.aborted) throw new Error("Repository hoist was cancelled");
+
+    const { candidate, name } = normalizeRepositoryHoistRequest(request);
+    const targetPath = path.join(this.config.repositoryDirectory, name);
+    const existingRemote = await runCommand(
+      "git",
+      ["-C", targetPath, "config", "--get", "remote.origin.url"],
+      { timeout: 5_000, maxBuffer: 1_000_000 },
+    ).then(({ stdout }) => stdout.trim()).catch(() => undefined);
+
+    if (existingRemote !== undefined) {
+      const existing = parseRepositoryRemote(existingRemote);
+      const matches = existing?.hostname === candidate.hostname
+        && existing.repositoryFullName.replace(/\.git$/, "") === candidate.repositoryFullName;
+      if (!matches) {
+        throw new Error(`/repositories/${name} already caches a different repository${existing ? ` (${existing.hostname}/${existing.repositoryFullName})` : ""}`);
+      }
+      await this.refreshRepository({ candidate, repositoryPath: targetPath });
+      return { ok: true, path: `/repositories/${name}`, hostname: candidate.hostname, repositoryFullName: candidate.repositoryFullName, alreadyCached: true };
+    }
+
+    const cloneUrl = repositoryCloneUrl(candidate);
+    try {
+      await runCommand("git", ["clone", "--quiet", cloneUrl, targetPath], {
+        timeout: 180_000,
+        maxBuffer: 1_000_000,
+        ...(signal ? { signal } : {}),
+      });
+    } catch (error) {
+      this.repositoryRefreshFailureCount += 1;
+      const message = redact(error instanceof Error ? error.message : String(error)).slice(0, 1_000);
+      this.lastRepositoryRefresh = {
+        at: new Date().toISOString(),
+        repository: `${candidate.hostname}/${candidate.repositoryFullName}`,
+        ok: false,
+        message,
+      };
+      throw error;
+    }
+    this.repositoryRefreshCount += 1;
+    this.lastRepositoryRefresh = {
+      at: new Date().toISOString(),
+      repository: `${candidate.hostname}/${candidate.repositoryFullName}`,
+      ok: true,
+    };
+    return { ok: true, path: `/repositories/${name}`, hostname: candidate.hostname, repositoryFullName: candidate.repositoryFullName, alreadyCached: false };
+  }
+
   async manageLinear(token: string, request: LinearManageRequest, signal?: AbortSignal): Promise<LinearManageResult> { // yadm-secret-scan: ignore
     const active = this.taskForToken(token);
     if (!active?.running || active.aborted) throw new Error("Unauthorized task Linear request");
@@ -1242,4 +1310,26 @@ export function repositoryCloneUrl(repository: RepositoryCandidate): string {
   const fullName = repository.repositoryFullName.replace(/^\/+|\.git$/g, "");
   if (!hostname || !fullName.includes("/")) throw new Error("Repository candidate is incomplete");
   return `https://${hostname}/${fullName}.git`;
+}
+
+const HOSTNAME_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const REPOSITORY_FULL_NAME_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const CACHE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function normalizeRepositoryHoistRequest(
+  request: RepositoryHoistRequest,
+): { candidate: RepositoryCandidate; name: string } {
+  const hostname = request.hostname.trim().toLowerCase();
+  if (!HOSTNAME_PATTERN.test(hostname)) {
+    throw new Error("Repository hoist requires a bare hostname (e.g. github.com), not a URL");
+  }
+  const repositoryFullName = request.repositoryFullName.trim().replace(/^\/+/, "").replace(/\/+$/, "").replace(/\.git$/, "");
+  if (!REPOSITORY_FULL_NAME_PATTERN.test(repositoryFullName) || repositoryFullName.includes("..")) {
+    throw new Error("Repository hoist requires an \"owner/repo\" full name");
+  }
+  const name = (request.name?.trim() || repositoryFullName.split("/").pop()!).trim();
+  if (!CACHE_NAME_PATTERN.test(name) || name === "." || name === ".." || name.includes("..")) {
+    throw new Error("Repository hoist cache name must be a plain directory name");
+  }
+  return { candidate: { hostname, repositoryFullName }, name };
 }

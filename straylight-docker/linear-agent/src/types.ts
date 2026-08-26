@@ -131,6 +131,21 @@ export type RepositoryCandidate = {
 
 export type RepositorySuggestion = RepositoryCandidate & { confidence?: number };
 
+export type RepositoryHoistRequest = {
+  hostname: string;
+  repositoryFullName: string;
+  name?: string;
+};
+
+export type RepositoryHoistResult = {
+  ok: true;
+  path: string;
+  hostname: string;
+  repositoryFullName: string;
+  /** True when this hostname/repositoryFullName was already cached under this name and just got refreshed. */
+  alreadyCached: boolean;
+};
+
 export type LinearProjectContext = {
   id: string;
   name: string;

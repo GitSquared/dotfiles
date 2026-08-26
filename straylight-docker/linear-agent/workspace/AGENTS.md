@@ -17,6 +17,13 @@ mounted at all.
   This keeps `origin` pointed at the real host while avoiding repeated history
   downloads. If an existing workspace still has an `/repositories/...` origin,
   reset it to the canonical HTTPS URL before fetching.
+- If the target repository is otherwise clear (from the issue, Linear
+  guidance, or project context) but simply isn't in the pre-provisioned cache,
+  clone it directly via its canonical HTTPS URL rather than stopping to ask
+  just because it's uncached. Once cloned, consider `hoist_repository` to copy
+  it into the shared `/repositories` cache for future sessions - entirely your
+  discretion, worthwhile when this is clearly the right, durable repository
+  for recurring work here, not for a one-off or exploratory clone.
 
 ## Isolate implementation work
 

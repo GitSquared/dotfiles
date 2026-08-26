@@ -60,6 +60,7 @@ function progressAction(name) {
     case "manage_linear": return "Linear";
     case "linear_activity": return "Publishing Linear activity";
     case "manage_service": return "Managing task service";
+    case "hoist_repository": return "Hoisting repository into shared cache";
     default: {
       const clean = boundedProgress(name).replace(/^mcp__straylight__/, "").replace(/[_-]+/g, " ");
       return clean ? `Running ${clean}` : "Running tool";
@@ -140,6 +141,11 @@ function progressParameter(name, input) {
       break;
     case "manage_service":
       parameter = [values.action, values.service].filter(Boolean).join(" ");
+      break;
+    case "hoist_repository":
+      parameter = values.hostname && values.repositoryFullName
+        ? `${values.hostname}/${values.repositoryFullName}${values.name ? ` as ${values.name}` : ""}`
+        : undefined;
       break;
     default:
       parameter = values.path ?? values.command ?? values.query ?? values.url ?? values.name;
@@ -679,6 +685,16 @@ export function createStraylightTools(context) {
         tail: z.number().int().min(1).max(1_000).optional(),
       },
       async (request, extra) => text(await forward("/v1/services", request, extra?.signal)),
+    ),
+    tool(
+      "hoist_repository",
+      "Copy a repository you've already found (typically cloned directly into /workspace because it wasn't in the pre-provisioned cache) into the shared /repositories cache, so future task sessions on this workbench get it as a fast pre-mounted candidate instead of a cold clone. Entirely optional and at your discretion - nothing hoists automatically, and there's no obligation to call this. Only hoist a repository you're confident is the right, durable one for recurring work here (not a one-off or exploratory clone), since the cache is shared by every future task on this workbench. name optionally overrides the cache directory name (defaults to the repository name); if a different repository is already cached under that name, this fails rather than overwriting it.",
+      {
+        hostname: z.string().min(1).max(255).describe("Bare hostname, e.g. \"github.com\" - not a URL."),
+        repositoryFullName: z.string().min(1).max(400).describe("e.g. \"owner/repo\"."),
+        name: z.string().min(1).max(200).optional(),
+      },
+      async (request, extra) => text(await forward("/v1/repository-hoist", request, extra?.signal)),
     ),
   ];
   return createSdkMcpServer({

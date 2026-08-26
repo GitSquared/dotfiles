@@ -103,6 +103,21 @@ test("logs a completed tool call as a durable action carrying its real result", 
   ]);
 });
 
+test("folds a repository hoist request into a durable, readable action", async () => {
+  const events = [];
+  const project = createProgressProjector(async (event) => events.push(event));
+  await project({
+    type: "stream_event",
+    event: { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "tool-1", name: "mcp__straylight__hoist_repository", input: {} } },
+  });
+  await project({ type: "stream_event", event: { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"hostname":"github.com","repositoryFullName":"GitSquared/dotfiles"}' } } });
+  await project({ type: "stream_event", event: { type: "content_block_stop", index: 1 } });
+
+  assert.deepEqual(events, [
+    { type: "action", action: "Hoisting repository into shared cache", parameter: "github.com/GitSquared/dotfiles" },
+  ]);
+});
+
 test("marks a failed tool call's durable action so it reads differently from a success", async () => {
   const events = [];
   const project = createProgressProjector(async (event) => events.push(event));
@@ -482,6 +497,44 @@ test("the linear_activity tool call forwards a non-blocking ask request verbatim
 
   assert.deepEqual(capturedBody, { action: "ask", question: "Should this endpoint be paginated?" });
   assert.deepEqual(result, { content: [{ type: "text", text: JSON.stringify({ ok: true, action: "ask", data: { commentId: "ask-1" } }, null, 2) }] });
+});
+
+function hoistRepositoryHandler(context) {
+  const { instance } = createStraylightTools(context);
+  return instance._registeredTools.hoist_repository.handler;
+}
+
+test("the hoist_repository tool description frames it as optional and at the agent's discretion", () => {
+  const { instance } = createStraylightTools(accessRepairWorkbenchContext());
+  const description = instance._registeredTools.hoist_repository.description;
+  assert.match(description, /entirely optional and at your discretion/i);
+  assert.match(description, /nothing hoists automatically/i);
+});
+
+test("the hoist_repository tool call forwards the request to the workbench's repository-hoist endpoint", async (t) => {
+  const context = accessRepairWorkbenchContext();
+  let capturedUrl;
+  let capturedBody;
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    capturedUrl = url;
+    capturedBody = JSON.parse(options.body);
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ ok: true, path: "/repositories/dotfiles", hostname: "github.com", repositoryFullName: "GitSquared/dotfiles", alreadyCached: false }),
+    };
+  });
+  const handler = hoistRepositoryHandler(context);
+
+  const result = await handler({ hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" }, {});
+
+  assert.equal(capturedUrl, "https://workbench.example.test/v1/repository-hoist");
+  assert.deepEqual(capturedBody, { hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" });
+  assert.deepEqual(result, {
+    content: [{
+      type: "text",
+      text: JSON.stringify({ ok: true, path: "/repositories/dotfiles", hostname: "github.com", repositoryFullName: "GitSquared/dotfiles", alreadyCached: false }, null, 2),
+    }],
+  });
 });
 
 // Slice 19 (streaming input): runAgent's query() prompt is now a long-lived
