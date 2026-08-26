@@ -12,6 +12,7 @@ function baseLinear(overrides: Partial<LinearClient>): LinearClient {
     async createActivity() {},
     async addExternalUrl() {},
     async reactToComment() {},
+    async resolveComment() {},
     ...overrides,
   } as unknown as LinearClient;
 }
@@ -68,9 +69,11 @@ test("posts a tracked comment for a non-blocking ask, without registering as a b
 
 test("resumes the agent when a reply lands on a tracked ask thread, and clears it", async () => {
   const reactions: Array<{ commentId: string; emoji: string }> = [];
+  const resolvedComments: string[] = [];
   const linear = baseLinear({
     async createIssueComment(_issueId: string, body: string) { return { id: "ask-comment-1", body }; },
     async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
   });
   let finishFirstRun!: (value: { ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }) => void;
   const firstRun = new Promise<{ ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }>((resolve) => {
@@ -113,6 +116,7 @@ test("resumes the agent when a reply lands on a tracked ask thread, and clears i
 
   assert.equal(runs, 2, "the reply must start a fresh turn, not be dropped");
   assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
+  assert.deepEqual(resolvedComments, ["ask-comment-1"], "the answered ask's own tracked thread must be resolved (GAB-22)");
   const health = await controller.health() as { controller: { notifications: { counts: Record<string, number> } } };
   assert.equal(health.controller.notifications.counts.agentSessionOwned, 1);
   assert.equal(health.controller.notifications.counts.contextOnly ?? 0, 0);
@@ -367,6 +371,7 @@ test("posts a real, tracked comment alongside a blocking QA elicitation, and app
   const comments: Array<{ issueId: string; body: string }> = [];
   const reactions: Array<{ commentId: string; emoji: string }> = [];
   const completedIssues: string[] = [];
+  const resolvedComments: string[] = [];
   const linear = baseLinear({
     async createIssueComment(issueId: string, body: string) {
       comments.push({ issueId, body });
@@ -377,6 +382,7 @@ test("posts a real, tracked comment alongside a blocking QA elicitation, and app
     async setIssueState() {},
     async completeIssue(issueId: string) { completedIssues.push(issueId); },
     async reactToComment(commentId: string, emoji: string) { reactions.push({ commentId, emoji }); },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
   });
   const runner = {
     async repositories() { return []; },
@@ -417,6 +423,7 @@ test("posts a real, tracked comment alongside a blocking QA elicitation, and app
 
   assert.deepEqual(completedIssues, ["issue-1"], "a reply to the tracked attention comment must resolve QA exactly like a native elicitation reply");
   assert.deepEqual(reactions, [{ commentId: "reply-1", emoji: "white_check_mark" }]);
+  assert.deepEqual(resolvedComments, ["attention-comment-1"], "the answered QA thread must be resolved once approved (GAB-22)");
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(health.controller.attentionQueue.total, 0);
 });
@@ -424,12 +431,14 @@ test("posts a real, tracked comment alongside a blocking QA elicitation, and app
 test("a non-approval reply to the tracked attention comment restores issue status and resumes, without completing the issue", async () => {
   const stateFlips: Array<{ issueId: string; stateId: string }> = [];
   const completedIssues: string[] = [];
+  const resolvedComments: string[] = [];
   const linear = baseLinear({
     async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
     async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
     async resolveAttentionStateId() { return "state-blocked"; },
     async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
     async completeIssue(issueId: string) { completedIssues.push(issueId); },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
   });
   const runner = {
     async repositories() { return []; },
@@ -471,6 +480,7 @@ test("a non-approval reply to the tracked attention comment restores issue statu
     { issueId: "issue-1", stateId: "state-blocked" },
     { issueId: "issue-1", stateId: "state-in-progress" },
   ]);
+  assert.deepEqual(resolvedComments, ["attention-comment-1"], "the Steering thread was still answered/acted on, even though QA wasn't approved (GAB-22)");
   const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
   assert.equal(health.controller.attentionQueue.total, 0);
 });

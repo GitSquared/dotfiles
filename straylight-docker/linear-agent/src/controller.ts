@@ -664,9 +664,10 @@ export class AgentController {
       }
       const answer = payload.agentActivity?.content?.body?.trim() ?? "";
       const replyCommentId = session.comment?.id;
+      const attentionCommentId = attention.commentId;
       state.attention = [];
       if (attention.kind === "qa" && isQaApproval(answer) && state.issueId) {
-        await this.approveQa(sessionId, state, state.issueId, replyCommentId);
+        await this.approveQa(sessionId, state, state.issueId, replyCommentId, attentionCommentId);
         return;
       }
       if (state.issueId) {
@@ -678,6 +679,10 @@ export class AgentController {
         });
       }
       if (replyCommentId) await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
+      // The decision this thread existed to get has now landed and been acted on - resolve it
+      // the same way a human would via the comment's "..." menu, instead of leaving every
+      // answered Steering/QA thread open forever (GAB-22).
+      if (attentionCommentId) await this.linear.resolveComment(attentionCommentId).catch(() => undefined);
       await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
         type: "thought",
         body: "Reply received; resuming the run.",
@@ -847,6 +852,9 @@ export class AgentController {
       this.states.set(sessionId, state);
       await this.persist();
       await this.linear.reactToComment(replyCommentId, "white_check_mark").catch(() => undefined);
+      // The open question this thread existed to get answered now has been - resolve it the
+      // same way a human would via the comment's "..." menu (GAB-22).
+      await this.linear.resolveComment(parentId).catch(() => undefined);
       try {
         await this.handle({
           action: "prompted",
@@ -1637,7 +1645,13 @@ export class AgentController {
    * are responsible for having already cleared `state.attention` and for confirming the
    * attention being resolved was actually a QA (not a Steering) request.
    */
-  private async approveQa(sessionId: string, state: SessionState, issueId: string, ackCommentId?: string): Promise<void> {
+  private async approveQa(
+    sessionId: string,
+    state: SessionState,
+    issueId: string,
+    ackCommentId?: string,
+    attentionCommentId?: string,
+  ): Promise<void> {
     await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
       type: "response",
       body: "QA approved. The delegated work is complete.",
@@ -1649,6 +1663,8 @@ export class AgentController {
       });
     });
     if (ackCommentId) await this.linear.reactToComment(ackCommentId, "white_check_mark").catch(() => undefined);
+    // Approval is the clearest possible "decision made, no longer relevant" signal (GAB-22).
+    if (attentionCommentId) await this.linear.resolveComment(attentionCommentId).catch(() => undefined);
     state.awaitingInput = false;
     this.touch(state);
     this.states.set(sessionId, state);
@@ -1675,8 +1691,9 @@ export class AgentController {
       // elicitation-level) signal - log it distinctly from the generic acknowledgement line
       // above so a wrongly-completed issue can actually be traced back to the reaction that did it.
       console.info("Linear checkmark reaction approved an open QA attention", { sessionId, issueId, actorId });
+      const attentionCommentId = state.attention[0]?.commentId;
       state.attention = [];
-      await this.approveQa(sessionId, state, issueId);
+      await this.approveQa(sessionId, state, issueId, undefined, attentionCommentId);
     }
   }
 }
