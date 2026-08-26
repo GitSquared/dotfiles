@@ -13,7 +13,7 @@ import type {
   LinearUploadRequest,
 } from "./linear-actions.js";
 import type { ServiceRequest, ServiceResult } from "./service-client.js";
-import type { LinearInputFile, RepositoryCandidate } from "./types.js";
+import type { LinearInputFile, RepositoryCandidate, RepositoryHoistRequest, RepositoryHoistResult } from "./types.js";
 import type { PlanDetails, PlanRequest } from "./plan.js";
 import { finalText } from "./redaction.js";
 
@@ -42,6 +42,7 @@ type RunnerHarness = {
   followUp(sessionId: string, prompt: string, inputs?: LinearInputFile[]): Promise<boolean>;
   abort(sessionId: string): Promise<boolean>;
   repositories?(): Promise<RepositoryCandidate[]>;
+  hoistRepository?(token: string, request: RepositoryHoistRequest, signal?: AbortSignal): Promise<RepositoryHoistResult>;
   health?(): Promise<Record<string, unknown>>;
   runClaude?(token: string, request: { prompt: string; resume?: string; model?: string; timeBudgetMs?: number }, signal?: AbortSignal, onProgress?: CapsuleAgentProgressHandler): Promise<CapsuleAgentResult>; // yadm-secret-scan: ignore
   pushAgentInput?(token: string, request: { content: string; shouldQuery?: boolean }): Promise<{ accepted: boolean; reason?: string }>; // yadm-secret-scan: ignore
@@ -137,6 +138,29 @@ export function createRunnerServer(
       server?.timeout(request, 0);
       try {
         return json(200, await pi.manageService(bearer(request), input, request.signal));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });
+      }
+    }
+
+    if (method === "POST" && pathname === "/v1/repository-hoist") {
+      const input = await body<Partial<RepositoryHoistRequest>>(request);
+      if (
+        !pi.hoistRepository
+        || typeof input.hostname !== "string" || !input.hostname.trim() || input.hostname.length > 255
+        || typeof input.repositoryFullName !== "string" || !input.repositoryFullName.trim() || input.repositoryFullName.length > 400
+        || (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.length > 200))
+      ) {
+        return json(400, { ok: false, error: "invalid_repository_hoist_request" });
+      }
+      server?.timeout(request, 0);
+      try {
+        return json(200, await pi.hoistRepository(bearer(request), {
+          hostname: input.hostname,
+          repositoryFullName: input.repositoryFullName,
+          ...(input.name ? { name: input.name } : {}),
+        }, request.signal));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         return json(message.startsWith("Unauthorized") ? 401 : 502, { ok: false, message });

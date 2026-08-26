@@ -16,6 +16,8 @@ import type {
   AgentSessionWebhook,
   LinearCommentContext,
   LinearDocumentReview,
+  LinearProjectContext,
+  LinearTeamContext,
   RepositoryCandidate,
   RepositorySuggestion,
 } from "./types.js";
@@ -356,6 +358,35 @@ export class LinearClient {
       },
     );
     return data.issueRepositorySuggestions.suggestions;
+  }
+
+  /**
+   * Best-effort context gathered once at session boot (alongside repository
+   * discovery) so the agent starts with the issue's project notes and team
+   * name/description already in its initial prompt instead of having to
+   * discover and fetch them itself mid-turn (GAB-23: the project's `content`
+   * field is exactly where a non-obvious repository pointer can live, as it
+   * did for GAB-21).
+   */
+  async issueWorkspaceContext(issueId: string): Promise<{ project?: LinearProjectContext; team?: LinearTeamContext }> {
+    const data = await this.graphql<{
+      issue: {
+        project?: LinearProjectContext | null;
+        team?: LinearTeamContext | null;
+      };
+    }>(
+      `query IssueWorkspaceContext($issueId: String!) {
+        issue(id: $issueId) {
+          project { id name url content }
+          team { id name description }
+        }
+      }`,
+      { issueId },
+    );
+    return {
+      ...(data.issue.project ? { project: data.issue.project } : {}),
+      ...(data.issue.team ? { team: data.issue.team } : {}),
+    };
   }
 
   async revokeInstallation(): Promise<void> {

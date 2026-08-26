@@ -32,6 +32,7 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /persistent notes under/);
   assert.match(prompt, /browser-rendered UI/);
   assert.match(prompt, /standalone tool, independent of whatever visual-regression or screenshot test setup/);
+  assert.match(prompt, /hoist_repository can copy it into the shared cache/);
   assert.doesNotMatch(prompt, /worktree\/branch/);
   assert.match(prompt, /include "NEMO-42" in its name/);
   assert.match(prompt, /an altitude filter/);
@@ -172,6 +173,31 @@ test("includes ranked workbench repositories without choosing for the agent", ()
   assert.match(prompt, /0\.92/);
   assert.match(prompt, /https:\/\/github\.com\/GitSquared\/nemo\.git/);
   assert.match(prompt, /manage_linear/);
+});
+
+test("includes Linear project and team context gathered at session boot", () => {
+  const prompt = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-23", title: "Improve repository discovery" } },
+    projectContext: {
+      id: "project-1",
+      name: "Linear coding harness",
+      url: "https://linear.app/gaby-s/project/linear-coding-harness",
+      content: "Code lives in GitSquared/dotfiles, straylight branch.",
+    },
+    teamContext: { id: "team-1", name: "Gaby", description: "Straylight's own team." },
+  });
+  assert.match(prompt, /- Project: Linear coding harness \(https:\/\/linear\.app\/gaby-s\/project\/linear-coding-harness\)/);
+  assert.match(prompt, /Code lives in GitSquared\/dotfiles, straylight branch/);
+  assert.match(prompt, /- Team: Gaby/);
+  assert.match(prompt, /Straylight's own team/);
+});
+
+test("omits project and team context lines when boot-time lookup found nothing", () => {
+  const prompt = claudeInitialPrompt({
+    agentSession: { id: "session", issue: { identifier: "GAB-5", title: "No project attached" } },
+  });
+  assert.doesNotMatch(prompt, /- Project:/);
+  assert.doesNotMatch(prompt, /- Team:/);
 });
 
 test("redacts common credentials and sensitive URL parameters", () => {

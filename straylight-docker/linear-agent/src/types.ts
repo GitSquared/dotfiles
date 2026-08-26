@@ -131,6 +131,34 @@ export type RepositoryCandidate = {
 
 export type RepositorySuggestion = RepositoryCandidate & { confidence?: number };
 
+export type RepositoryHoistRequest = {
+  hostname: string;
+  repositoryFullName: string;
+  name?: string;
+};
+
+export type RepositoryHoistResult = {
+  ok: true;
+  path: string;
+  hostname: string;
+  repositoryFullName: string;
+  /** True when this hostname/repositoryFullName was already cached under this name and just got refreshed. */
+  alreadyCached: boolean;
+};
+
+export type LinearProjectContext = {
+  id: string;
+  name: string;
+  url?: string;
+  content?: string | null;
+};
+
+export type LinearTeamContext = {
+  id: string;
+  name: string;
+  description?: string | null;
+};
+
 export type LinearInputFile = {
   filename: string;
   mimeType: string;
@@ -168,6 +196,8 @@ export type AgentTaskPayload = AgentSessionWebhook & {
   linearInputs?: LinearInputFile[];
   linearSourceComment?: LinearSourceComment;
   linearDocumentReview?: LinearDocumentReview;
+  projectContext?: LinearProjectContext;
+  teamContext?: LinearTeamContext;
   workbench?: {
     repositories?: RepositoryCandidate[];
     repositorySuggestions?: RepositorySuggestion[];

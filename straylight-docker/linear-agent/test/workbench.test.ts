@@ -7,6 +7,7 @@ import type { WorkbenchConfig } from "../src/config.js";
 import { decodeDockerStream, type ContainerEngine } from "../src/docker-engine.js";
 import {
   formatUsageReceipt,
+  normalizeRepositoryHoistRequest,
   parsePullRequestUrl,
   parseRepositoryRemote,
   repositoryCloneUrl,
@@ -63,6 +64,39 @@ test("parses common Git repository remotes", () => {
   });
   assert.equal(parseRepositoryRemote("not-a-remote"), undefined);
   assert.equal(repositoryCloneUrl({ hostname: "github.com", repositoryFullName: "GitSquared/nemo" }), "https://github.com/GitSquared/nemo.git");
+});
+
+test("normalizes and validates a repository hoist request", () => {
+  assert.deepEqual(
+    normalizeRepositoryHoistRequest({ hostname: "GitHub.com", repositoryFullName: "/GitSquared/dotfiles.git/" }),
+    { candidate: { hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" }, name: "dotfiles" },
+  );
+  assert.deepEqual(
+    normalizeRepositoryHoistRequest({ hostname: "github.com", repositoryFullName: "GitSquared/dotfiles", name: "my-dotfiles" }),
+    { candidate: { hostname: "github.com", repositoryFullName: "GitSquared/dotfiles" }, name: "my-dotfiles" },
+  );
+  assert.throws(
+    () => normalizeRepositoryHoistRequest({ hostname: "https://github.com", repositoryFullName: "GitSquared/dotfiles" }),
+    /bare hostname/,
+  );
+  assert.throws(
+    () => normalizeRepositoryHoistRequest({ hostname: "github.com", repositoryFullName: "not-owner-slash-repo" }),
+    /owner\/repo/,
+  );
+  assert.throws(
+    () => normalizeRepositoryHoistRequest({ hostname: "github.com", repositoryFullName: "GitSquared/dotfiles", name: "../../etc" }),
+    /plain directory name/,
+  );
+  assert.throws(
+    () => normalizeRepositoryHoistRequest({ hostname: "github.com", repositoryFullName: "../GitSquared/dotfiles" }),
+    /owner\/repo/,
+  );
+  // ".." alone satisfies the owner/repo character class, so path traversal disguised
+  // as an "owner" needs its own explicit rejection, not just the shape regex.
+  assert.throws(
+    () => normalizeRepositoryHoistRequest({ hostname: "github.com", repositoryFullName: "../escape" }),
+    /owner\/repo/,
+  );
 });
 
 test("builds a secretless, bounded, per-session task jail", () => {
