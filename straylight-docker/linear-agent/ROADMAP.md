@@ -2168,3 +2168,78 @@ affected for this specific incident, or whether Linear's real webhook simply did
 for that first reply - the deferred-resolution bookkeeping (`pendingAttentionResolution`) can only
 prove the native branch's guard was live and wrong, not rule out a second, independent gap on the
 notification side. `bun run check` (216 pass/0 fail) and `bun run test:capsule` (40/40) both green.
+## Slice 35 — merge a fresh mention into an already-active sibling instead of double-running (GAB-32)
+
+Status: done, 2026-08-27.
+
+Origin: Gaby, GAB-32 - on SFC-1 he added an issue comment tagging
+`@straylight` with more context he wanted visible at the task level, and it
+spawned a second, fully independent Agent Session running concurrently with
+the first on the same issue. "I don't think multiple sessions per task makes
+sense."
+
+Linear creates a brand-new `AgentSession` for every fresh `@`-mention -
+there's no way to tell from its side whether a human meant "more context for
+the ongoing work" or "an unrelated new task." Slice 17 already closed the
+narrow, safe half of this gap: a mention landing on a *dormant* sibling
+resumes that sibling's own Claude Code conversation instead of starting
+blind (`findResumableConversation`). But a mention landing while the sibling
+was genuinely mid-turn, or paused on a blocking Steering/QA reply, only got
+a `guidance` note injected into the *new* session's own prompt before
+starting it anyway - the new session still ran its own independent Claude
+Code turn in parallel with the sibling's, exactly the "two agents on one
+task" failure GAB-32 reports. Real concurrent-session routing was flagged in
+RESEARCH.md/ROADMAP.md as deliberately deferred, larger work (Slice 18/19) -
+but *never starting a second run at all* for this case doesn't need that:
+it reuses two mechanisms this codebase already has for the same-session
+case.
+
+**Change shipped:** `findActiveSiblingSession` (returned a bare status
+string, used only for a guidance note) became `findActiveSibling` (returns
+the sibling's own `sessionId`/`state`). A `"created"` session that finds one
+never calls `start()` for itself - `mergeIntoActiveSibling` routes its
+content into the sibling instead:
+
+- Sibling mid-turn: a live inject via `runner.followUp`, the identical
+  mechanic the same-session `"prompted" && state.running` path already uses
+  for a same-session follow-up arriving mid-turn.
+- Sibling not running (paused on a blocking Steering/QA reply): queued onto
+  the sibling's own `state.pending`, drained by `execute()`'s existing tail
+  once that session is next free - identical to how a same-session
+  follow-up queued mid-turn already resolves today, including the GAB-15
+  guard against auto-starting straight into a fresh blocking collision.
+
+Either way the *new* session posts one closing `response` activity
+explaining the merge and pointing at the sibling, rather than being left
+open with nothing further to say (Linear's own status is "whichever
+activity landed last," so this alone is enough to conclude it). The
+sibling itself gets a `thought` noting a new mention was folded in.
+
+Known limitation carried over from the same-session queuing this reuses,
+not new here: `pending` is a single slot, not a queue, so a second landing
+before an earlier queued one drains overwrites it.
+
+Implementation notes:
+
+- `test/controller-recovery.test.ts`: the two tests that encoded the old
+  "starts a second run with a guidance note" behavior
+  (`warns a freshly mentioned session...`, the GAB-28 companion) were
+  rewritten to assert exactly one `runner.run()` call plus a `followUp`
+  call reaching the sibling. A third pre-existing test
+  (`never resumes a conversation whose session is still actively running`)
+  needed the same update - it previously expected a third independent run
+  to start (and merely checked it didn't share the sibling's conversation
+  id); now it expects no third run at all.
+
+Acceptance:
+
+1. Mention `@straylight` on an issue whose only prior session is still
+   mid-turn; confirm exactly one Claude Code run is ever active for that
+   issue at a time, the new mention's content lands in that run, and the
+   new session closes out with a plain explanatory response instead of
+   starting its own.
+2. Mention `@straylight` again while the issue's only session is paused on
+   an open Steering/QA reply; confirm the new mention is queued rather than
+   starting its own run, and that it runs only after the paused session's
+   own reply resolves and that turn concludes without opening a fresh
+   blocking attention of its own.

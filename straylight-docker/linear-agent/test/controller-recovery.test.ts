@@ -1629,11 +1629,15 @@ test("ignores a checkmark reaction when there is no open QA attention, or the op
   assert.equal(health.controller.attentionQueue.total, 1, "the Steering attention must remain open");
 });
 
-test("warns a freshly mentioned session that another session on the same issue is already active", async () => {
+test("merges a fresh mention into an already-active sibling session instead of starting a second run (GAB-32)", async () => {
+  const activities: { sessionId: string; type: string | undefined; body: string | undefined }[] = [];
+  const followUps: { sessionId: string; prompt: string }[] = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
-    async createActivity() {},
+    async createActivity(sessionId: string, content: { type?: string; body?: string }) {
+      activities.push({ sessionId, type: content.type, body: content.body });
+    },
   } as unknown as LinearClient;
   const runs: AgentTaskPayload[] = [];
   const runner = {
@@ -1641,8 +1645,12 @@ test("warns a freshly mentioned session that another session on the same issue i
     async health() { return { mode: "test" }; },
     async run(payload: AgentTaskPayload) {
       runs.push(payload);
-      // Never resolves - both sessions stay "running" for the test's duration.
+      // Never resolves - session-a stays "running" for the test's duration.
       return new Promise(() => {});
+    },
+    async followUp(sessionId: string, prompt: string) {
+      followUps.push({ sessionId, prompt });
+      return true;
     },
   } as unknown as AgentRunner;
   const controller = new AgentController(linear, runner);
@@ -1659,11 +1667,19 @@ test("warns a freshly mentioned session that another session on the same issue i
     appUserId: "agent-1",
     agentSession: { id: "session-b", issueId: "shared-issue", creatorId: "human-1" },
   });
-  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+  for (let attempt = 0; attempt < 50 && followUps.length < 1; attempt += 1) await Bun.sleep(2);
 
-  assert.equal(runs.length, 2);
-  assert.ok(runs[1]?.guidance?.some((entry) => entry.body?.includes("actively running")));
-  assert.ok(!runs[0]?.guidance?.some((entry) => entry.body?.includes("actively running")));
+  assert.equal(runs.length, 1, "the second mention must never start its own independent Claude Code run - that is two agents on one task");
+  assert.equal(followUps.length, 1, "the second mention's content is delivered live into the already-running sibling instead");
+  assert.equal(followUps[0]?.sessionId, "session-a");
+  assert.ok(
+    activities.some((activity) => activity.sessionId === "session-b" && activity.type === "response" && activity.body?.includes("actively running")),
+    "the new session closes out with a response explaining it was merged, rather than being left open with nothing further to say",
+  );
+  assert.ok(
+    activities.some((activity) => activity.sessionId === "session-a" && activity.body?.includes("merged")),
+    "the active sibling is told a new mention was folded into its own turn",
+  );
 });
 
 test("routes a new mention into the same Claude conversation as a dormant sibling on the same issue", async () => {
@@ -1775,7 +1791,8 @@ test("a Document mention bridged onto its linked issue resumes that issue's dorm
   assert.equal(runs[1]?.resumeConversationId, "conversation-for-session-first-mention");
 });
 
-test("a Document mention bridged onto its linked issue warns instead of silently doubling up when that issue's other session is already active (GAB-28)", async () => {
+test("a Document mention bridged onto its linked issue merges into that issue's already-active session instead of doubling up (GAB-28, GAB-32)", async () => {
+  const followUps: { sessionId: string; prompt: string }[] = [];
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
@@ -1798,6 +1815,10 @@ test("a Document mention bridged onto its linked issue warns instead of silently
       // a report still mid-turn when a Document follow-up mention arrives.
       return new Promise(() => {});
     },
+    async followUp(sessionId: string, prompt: string) {
+      followUps.push({ sessionId, prompt });
+      return true;
+    },
   } as unknown as AgentRunner;
   const controller = new AgentController(linear, runner);
 
@@ -1816,20 +1837,21 @@ test("a Document mention bridged onto its linked issue warns instead of silently
     appUserId: "agent-1",
     agentSession: { id: "session-document-bridge", issueId: "shared-issue", creatorId: "human-1" },
   });
-  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+  for (let attempt = 0; attempt < 50 && followUps.length < 1; attempt += 1) await Bun.sleep(2);
 
-  assert.equal(runs.length, 2);
-  assert.equal(runs[1]?.resumeConversationId, undefined, "a live sibling must never share its conversation with a concurrently-running turn");
-  assert.ok(runs[1]?.guidance?.some((entry) => entry.body?.includes("actively running")));
+  assert.equal(runs.length, 1, "the bridged session must never start its own independent Claude Code run alongside the still-running first mention");
+  assert.equal(followUps.length, 1, "the bridged session's content is delivered live into the already-running sibling instead");
+  assert.equal(followUps[0]?.sessionId, "session-first-mention");
 });
 
-test("never resumes a conversation whose session is still actively running", async () => {
+test("never resumes a conversation whose session is still actively running - a fresh mention merges into it instead (GAB-32)", async () => {
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
     async beginHumanDelegation() {},
     async createActivity() {},
   } as unknown as LinearClient;
   const runs: AgentTaskPayload[] = [];
+  const followUps: { sessionId: string; prompt: string }[] = [];
   let resolveFirstRun!: (value: { ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number; conversationId: string }) => void;
   const firstRun = new Promise<{ ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number; conversationId: string }>((resolve) => {
     resolveFirstRun = resolve;
@@ -1837,7 +1859,10 @@ test("never resumes a conversation whose session is still actively running", asy
   const runner = {
     async repositories() { return []; },
     async health() { return { mode: "test" }; },
-    async followUp() { return false; },
+    async followUp(sessionId: string, prompt: string) {
+      followUps.push({ sessionId, prompt });
+      return false;
+    },
     async run(payload: AgentTaskPayload) {
       runs.push(payload);
       if (runs.length === 1) return firstRun;
@@ -1861,16 +1886,24 @@ test("never resumes a conversation whose session is still actively running", asy
   });
   for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
   assert.equal(runs.length, 2, "the follow-up should have started a second, still-running turn on session-running");
+  // That same-session follow-up above already exercised followUp once on its own, ahead of
+  // the merge under test below - reset so the next check measures only the merge's own call.
+  followUps.length = 0;
 
   await controller.handle({
     action: "created",
     appUserId: "agent-1",
     agentSession: { id: "session-fresh-mention", issueId: "shared-issue", creatorId: "human-1" },
   });
-  for (let attempt = 0; attempt < 50 && runs.length < 3; attempt += 1) await Bun.sleep(2);
+  for (let attempt = 0; attempt < 50 && followUps.length < 1; attempt += 1) await Bun.sleep(2);
 
-  assert.equal(runs.length, 3);
-  assert.equal(runs[2]?.resumeConversationId, undefined, "session-running is mid-turn, so its conversation must not be shared");
+  // session-running is mid-turn, so its conversation must never be shared with a second,
+  // concurrently-running turn - and per GAB-32, the fresh mention must not get its own
+  // independent run at all: it's merged (here, queued behind session-running's own `pending`
+  // slot, since this mock's followUp always declines the live inject).
+  assert.equal(runs.length, 2, "a fresh mention on an issue with a mid-turn sibling must never start its own concurrent run");
+  assert.equal(followUps.length, 1, "the fresh mention's content is still offered to the mid-turn sibling first");
+  assert.equal(followUps[0]?.sessionId, "session-running");
 });
 
 test("mentions the issue's assignee on an urgent signal, giving it real notification visibility", async () => {
