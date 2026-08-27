@@ -3658,3 +3658,36 @@ coverage of the "not a Document-anchor rejection at all" passthrough.
 a plain `bun install` in `claude-capsule/` - a pre-existing, unrelated
 missing-`node_modules` gap in this fresh checkout, not something this fix
 touched) both green.
+
+## GAB-28 follow-up: does the bridge reuse an existing session on the issue? (2026-08-27)
+
+Gaby's question after the QA request: "should it wake up and use the
+existing agent session on that issue if any, instead of making a new one?"
+
+Investigated rather than assumed: the bridge (`agentSessionCreateOnIssue`)
+only performs the mutation and returns - it never calls `handle()` itself.
+Whatever happens next depends entirely on Linear delivering a follow-up
+`AgentSessionEvent` (`action: "created"`) for the session the mutation just
+made, exactly as it already does for the comment-anchored
+`agentSessionCreateOnComment` bridge. That "created" handling is the same
+code path every native mention already goes through, and it already
+implements exactly what was asked, via the 2026-08-20 "mention-as-thread"
+work: `findResumableConversation` resumes the most recent dormant-or-paused
+sibling's Claude conversation on the same issue (an open Steering/QA
+attention counts as dormant, not running - only an actually-mid-turn sibling
+blocks resumption, since two runs cannot safely share one live SDK
+conversation), and `findActiveSiblingSession` injects an explicit
+not-a-fresh-task guidance note when a sibling *is* mid-turn, rather than
+silently starting a disconnected second run.
+
+So: yes, already true, and it needed no new plumbing - Linear's Agent
+Session model has no "get-or-create" primitive (a mutation always makes a
+new session record), but the underlying Claude conversation is what
+actually gets continued, which is what "use the existing session" means in
+practice here. What was missing was proof this generic mechanism actually
+still fires correctly through the *new* bridge path specifically, not just
+in isolation - added two `controller-recovery.test.ts` cases exercising the
+real `documentCommentMention` -> bridge -> "created" sequence end to end:
+one confirming a dormant sibling's conversation is resumed, one confirming
+an actively-running sibling gets the guidance note instead of a silently
+duplicated run. `bun run check`: 214 pass/0 fail.
