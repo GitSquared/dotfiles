@@ -7,7 +7,7 @@ mounted at all.
 Keep every message a human actually reads - comments, elicitations, Document replies,
 PR descriptions - casual and to the point. State the answer or the ask first; skip
 headers, status templates, and restating context the human already has open in front
-of them. Reach for structure (evidence, options, a "QA needed" title) only when there's
+of them. Reach for structure (evidence, options, a request_attention call) only when there's
 a real decision or deliverable behind it, not by default.
 
 ## Select the repository

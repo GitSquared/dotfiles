@@ -1999,3 +1999,55 @@ Acceptance:
    the agent replies directly in that thread/comment and calls
    `finish_work({status: "answered", reason: "..."})` - no Steering/QA card,
    no invented evidence, and the run footer reads "_Run answered in Xm._".
+
+## Slice 32 — drop the mechanical "QA needed"/"Steering needed" tag itself (GAB-30)
+
+Status: done, 2026-08-27.
+
+Origin: second follow-up in the same GAB-30 session - "I think beyond this we
+should also tune the Steering and QA to be more natural language and less
+procedural boilerplate messages," then "did you address this as well?"
+
+Slices 30-31 fixed *when* Steering/QA fire and made the prose around them
+scope-aware, but never touched what the rendered message actually looks like
+once one legitimately fires. Every Steering/QA comment and elicitation card
+still opened with a mechanically-generated bold tag - `**QA needed:** {title}`
+/ `**Steering needed:** {title}` - and every Signal comment opened with
+`**Update:** {title}`. That tag was applied unconditionally regardless of how
+natural the rest of the message read, which is exactly the "procedural
+boilerplate" feel being asked to remove: no person opens a message to a
+colleague with a bolded ticket-system label.
+
+**Change shipped:** `renderAttentionComment` and `renderElicitationSummary`
+(`src/attention.ts`) both drop the bold heading entirely. The title now opens
+the message as a plain sentence, nothing else changed - the actual content
+(action, recommendation, options, evidence, the Steering reply footer) is
+untouched. Linear's own elicitation chrome (the card's pending-attention
+state, its select buttons) already marks a Steering/QA card as a decision
+point, so the redundant label wasn't carrying real information. `prompts.ts`/
+`workspace/AGENTS.md`'s stray reference to "a title like 'QA needed'" as an
+example of legitimate structure was also reworded, since that literal pattern
+no longer exists.
+
+Implementation notes:
+
+- `src/attention.ts`: both render functions lost their `heading` variable and
+  the `` `**${heading}:** ...` `` template line, replaced with the plain
+  `markdownText(request.title)`.
+- `test/attention.test.ts`: three assertions updated from matching the bold
+  tag to matching the plain leading title line (`doesNotMatch` on the old
+  pattern added alongside).
+- `test/controller-recovery.test.ts`: two elicitation-locating `find()`
+  predicates that matched on `"Steering needed"` now match on the actual
+  title text instead (the tag they were keying off no longer exists); the
+  corresponding body assertions updated the same way as attention.test.ts's.
+  Two Signal-comment assertions (urgent-mention tests) updated from matching
+  `**Update:**` to matching the title text directly.
+- `bun run typecheck`, `bun test ./test/` (215 pass), and
+  `node --test claude-capsule/agent-request.test.mjs` (41 pass) all green.
+
+Acceptance:
+
+1. All three check commands above pass.
+2. A Steering/QA/Signal comment or elicitation card opens with the title as a
+   plain sentence - no bolded "QA needed"/"Steering needed"/"Update" tag.
