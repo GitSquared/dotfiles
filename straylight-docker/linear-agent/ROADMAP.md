@@ -2051,3 +2051,64 @@ Acceptance:
 1. All three check commands above pass.
 2. A Steering/QA/Signal comment or elicitation card opens with the title as a
    plain sentence - no bolded "QA needed"/"Steering needed"/"Update" tag.
+## Slice 33 — stop losing a live follow-up's attachment to an expired upload link (GAB-34)
+
+Status: done, 2026-08-27.
+
+Origin: Gaby, GAB-34 - "I tried to send an agent a PDF here [GAB-27] but it failed to get
+it." GAB-27 is the kind of long, open-ended research task ("investigate deeply... give me
+a report") a follow-up attachment is realistically added to mid-run, not at the very start.
+
+Slice 19 Phase 3's `ClaudeHarness.followUp()` already declines outright whenever a live
+follow-up carries new input files, reasoning that "materializing them into a workspace an
+in-flight turn is still using concurrently is a separate, harder problem this doesn't
+attempt, and the existing cold-queue path already handles inputs safely between turns."
+That second half turned out not to be true. `AgentController.execute()`'s "prompted &&
+state.running" branch already calls `prepareLinearInputs` *before* `followUp` - so the file
+is downloaded, validated, and then thrown away the moment `followUp` declines, since
+`state.pending` was set to the raw webhook `payload` (just the `uploads.linear.app` URL as
+text), not the bytes already in hand. Once the in-flight turn finally finishes - which, on
+an issue sitting behind a QA/Steering wait, can be a long time - `execute()` re-derives
+`prepareLinearInputs` a second time from that same original URL. Linear's private upload
+links are short-lived; a long enough queue window is exactly when the second fetch can fail
+against an already-expired link, silently dropping a file that had, in fact, already
+downloaded successfully once. No prior test exercised this path at all - `test/controller-
+inputs.test.ts` only covered the immediate "created" download and the live-injection
+success/decline branches in isolation, never the specific decline-because-of-files ->
+queued -> resumed sequence.
+
+**Change shipped:** `SessionState.pending` is now typed `AgentTaskPayload` (structurally a
+superset of `AgentSessionWebhook` - every added field is optional, so every existing
+assignment site stays valid unchanged). The "prompted && state.running" branch, when
+`followUp` declines, now sets `state.pending = { ...payload, linearInputs: inputs }`
+whenever `prepareLinearInputs` actually found and downloaded something, carrying those
+already-validated bytes forward instead of just the raw payload. A new
+`AgentController.resolveLinearInputs()` checks for that carried `linearInputs` first and
+returns it directly, skipping a redundant (and potentially failing) second network
+round-trip to Linear; `execute()` now calls it instead of calling `prepareLinearInputs`
+unconditionally. The queued-follow-up activity also stopped being silent about the file:
+"Your follow-up will run after the current agent turn" becomes "Your follow-up along with N
+attached file(s) will run after the current agent turn" whenever files were actually
+captured, so the human isn't left guessing whether the attachment registered at all.
+
+New regression test in `test/controller-inputs.test.ts` drives the full sequence with a
+deferred first-turn promise (the `controller-recovery.test.ts` pattern for keeping a
+session genuinely "running"): sends a "created" session, keeps it in flight, sends a
+"prompted" follow-up whose comment references a PDF, asserts the file downloads exactly
+once and the queued-follow-up activity actually mentions it, then resolves the first turn
+and asserts the second turn's task payload receives the same file with `downloadInputs`
+still only having been called once total. Confirmed this test fails without the fix
+(re-download not attempted at all before the carry-forward existed) and passes with it.
+`bun run check` (typecheck + all 215 tests) passes.
+
+Deliberately out of scope, and still an open, harder problem: actually injecting a file
+into a turn that is *currently* running (the concurrency problem Slice 19 named and this
+slice doesn't touch) - a live follow-up with an attachment is still always deferred to the
+next turn, just no longer at risk of silently losing the file while it waits. Also
+unverified: whether GAB-27's specific original attempt hit exactly this path (Straylight
+has no way to inspect that session's past live webhook payloads after the fact) versus some
+other gap in the never-live-tested inbound-file pipeline (ROADMAP Slice 10 still lists
+"restart, bitmap upload, and rich attachment acceptance" as outstanding deployed
+acceptance). This fix closes a real, independently-confirmed bug either way; a fresh live
+PDF attach - both at session creation and as a mid-run follow-up - remains the acceptance
+check worth running once this deploys.
