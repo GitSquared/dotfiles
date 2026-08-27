@@ -164,11 +164,17 @@ export function isAttentionRequest(value: unknown): value is AttentionRequest {
  * issue - as a comment, or as the session's own prominent elicitation card -
  * restating original intent, what changed, and why it matters is pure noise
  * since the human already has the issue open. Keep only the decision itself.
+ *
+ * GAB-30: dropped the mechanical "**QA needed:**"/"**Steering needed:**"/
+ * "**Update:**" bold tag that used to prefix every message regardless of
+ * content - it read like an auto-generated ticket-system label, not
+ * something a person would actually write, and Linear's own elicitation
+ * chrome already marks a Steering/QA card as a decision point. The title
+ * now just opens the message as a plain sentence.
  */
 export function renderAttentionComment(request: AttentionRequest): string {
-  const heading = request.kind === "qa" ? "QA needed" : request.kind === "steering" ? "Steering needed" : "Update";
   const lines = [
-    `**${heading}:** ${markdownText(request.title)}`,
+    markdownText(request.title),
     markdownText(request.action),
   ];
   if (request.kind !== "signal" && request.recommendation) {
@@ -208,12 +214,13 @@ export function renderAttentionComment(request: AttentionRequest): string {
  * text: the full title/action/recommendation/evidence content lives in the tracked issue
  * comment instead, which is also where a human can dig further with follow-up questions.
  * Keeping the elicitation to a one-liner is what actually makes the native card scannable -
- * duplicating the full comment there was the thing that made it feel bureaucratic.
+ * duplicating the full comment there was the thing that made it feel bureaucratic. No bold
+ * "QA needed"/"Steering needed" tag here either (GAB-30) - the card's own native chrome
+ * (select buttons, its distinct pending-attention state) already says what kind it is.
  */
 export function renderElicitationSummary(request: AttentionRequest): string {
-  const heading = request.kind === "qa" ? "QA needed" : "Steering needed";
   const lines = [
-    `**${heading}:** ${markdownText(request.title)}`,
+    markdownText(request.title),
     "See the comment on this issue for full context and evidence.",
   ];
   // QA needs no reply instruction here either - see renderAttentionComment's comment above.

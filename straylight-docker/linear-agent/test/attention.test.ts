@@ -22,7 +22,9 @@ test("accepts a rationalized steering request", () => {
 
 test("renders a terse same-issue comment without restating intent or delta", () => {
   const comment = renderAttentionComment(steering);
-  assert.match(comment, /\*\*Steering needed:\*\* Choose the migration boundary/);
+  // GAB-30: no bold "Steering needed" tag - the title just opens the message as plain prose.
+  assert.match(comment, /^Choose the migration boundary/);
+  assert.doesNotMatch(comment, /\*\*Steering needed/);
   assert.match(comment, /Confirm whether the old table must remain writable/);
   assert.match(comment, /Keep old writer/);
   assert.doesNotMatch(comment, /Original intent/);
@@ -33,7 +35,8 @@ test("renders a terse same-issue comment without restating intent or delta", () 
 test("renders a Signal comment with no hardcoded action-needed footer", () => {
   const { options: _options, ...signal } = steering;
   const comment = renderAttentionComment({ ...signal, kind: "signal", delivery: "queue" });
-  assert.match(comment, /\*\*Update:\*\* Choose the migration boundary/);
+  assert.match(comment, /^Choose the migration boundary/);
+  assert.doesNotMatch(comment, /\*\*Update/);
   assert.doesNotMatch(comment, /No action needed/, "Signal has nothing actionable to instruct - a hardcoded reassurance line is just filler");
 });
 
@@ -45,7 +48,8 @@ test("renders a QA comment with no approve instruction or options list - the nat
     evidence: [{ label: "Preview", url: "https://preview.example.test" }],
   };
   const comment = renderAttentionComment(qa);
-  assert.match(comment, /\*\*QA needed:\*\* Choose the migration boundary/);
+  assert.match(comment, /^Choose the migration boundary/);
+  assert.doesNotMatch(comment, /\*\*QA needed/);
   assert.doesNotMatch(comment, /Reply \*\*approve\*\*/);
   assert.match(comment, /\[Preview\]\(https:\/\/preview\.example\.test\)/);
   assert.doesNotMatch(comment, /Approve and complete —/);

@@ -956,13 +956,16 @@ test("tracks rationalized attention on the parent issue and clears it on follow-
   assert.ok(waiting.controller.attentionQueue.oldestWaitMs >= 0);
   assert.deepEqual(stateFlips, [{ issueId: "issue-1", stateId: "state-blocked" }]);
   assert.equal(comments.length, 1, "blocking Steering/QA also posts a real, tracked comment alongside the elicitation - a reply here resolves it too");
-  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Steering needed"));
+  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("A destructive migration needs a boundary"));
   const elicitationBody = (elicitation?.content as { body?: string }).body ?? "";
-  assert.match(elicitationBody, /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
+  // GAB-30: no bold "Steering needed" tag - the title opens the elicitation as plain prose.
+  assert.match(elicitationBody, /^A destructive migration needs a boundary/);
+  assert.doesNotMatch(elicitationBody, /\*\*Steering needed/);
   assert.match(elicitationBody, /See the comment on this issue/, "the elicitation stays a scannable one-liner, not the full render");
   assert.doesNotMatch(elicitationBody, /Confirm that the old writer/, "the full action text belongs in the comment, not the elicitation");
   assert.deepEqual((elicitation?.options as { signal?: string }).signal, "select");
-  assert.match(comments[0]?.body ?? "", /\*\*Steering needed:\*\* A destructive migration needs a boundary/);
+  assert.match(comments[0]?.body ?? "", /^A destructive migration needs a boundary/);
+  assert.doesNotMatch(comments[0]?.body ?? "", /\*\*Steering needed/);
   assert.match(comments[0]?.body ?? "", /Confirm that the old writer must remain authoritative/, "the comment carries the full context the elicitation omits");
   assert.doesNotMatch(comments[0]?.body ?? "", /Original intent/, "the comment must use the terse render, not the bureaucratic full template");
 
@@ -1033,7 +1036,7 @@ test("posts an access-repair Steering request with the native auth signal", asyn
     },
   });
 
-  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("Steering needed"));
+  const elicitation = activities.find((activity) => (activity.content as { body?: string }).body?.includes("GitHub access is missing"));
   const options = elicitation?.options as { signal?: string; signalMetadata?: { url?: string; providerName?: string } };
   assert.deepEqual(options.signal, "auth");
   assert.deepEqual(options.signalMetadata, { url: "https://straylight.example.test/linear/tools/auth", providerName: "GitHub" });
@@ -1827,7 +1830,8 @@ test("mentions the issue's assignee on an urgent signal, giving it real notifica
     /^https:\/\/linear\.app\/acme\/profiles\/jdoe\n\n/,
     "an urgent signal must lead with a bare mention URL so Linear's own parser renders a real @mention and notifies its Inbox",
   );
-  assert.match(comments[0]!.body, /\*\*Update:\*\* Third-party API is flaking/);
+  assert.match(comments[0]!.body, /Third-party API is flaking/);
+  assert.doesNotMatch(comments[0]!.body, /\*\*Update/);
 });
 
 test("does not mention anyone on a routine signal, even when the issue has an assignee", async () => {
@@ -1906,7 +1910,8 @@ test("falls back to a plain comment when an urgent signal's issue has no assigne
   assert.deepEqual(result, { ok: true, action: "attention" });
   assert.equal(comments.length, 1);
   assert.doesNotMatch(comments[0]!.body, /^https:\/\/linear\.app/, "with no assignee the comment must stay plain, no mention prefix");
-  assert.match(comments[0]!.body, /\*\*Update:\*\* Rate limit close to exhausted/);
+  assert.match(comments[0]!.body, /Rate limit close to exhausted/);
+  assert.doesNotMatch(comments[0]!.body, /\*\*Update/);
 
   const failing = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },

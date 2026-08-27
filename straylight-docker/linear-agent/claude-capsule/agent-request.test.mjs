@@ -237,10 +237,20 @@ test("requires an explicit terminal disposition before Claude stops", () => {
   const context = { awaitingInput: false, attentionKind: undefined, disposition: undefined, stopRepairRequested: false };
   assert.deepEqual(stopDispositionGuard(context, { last_assistant_message: "Done." }), {
     decision: "block",
-    reason: "Before stopping, choose a valid lifecycle transition: send a nonblocking signal and continue, request blocking Steering when an answer is required, request QA with evidence when work is ready for human approval, or call finish_work only for blocked_external or authorized deferred work. The agent may not declare delegated work complete.",
+    reason: "Before stopping, choose a valid lifecycle transition: send a nonblocking signal and continue, request blocking Steering when an answer is required, request QA with evidence when a deliverable is ready for human approval, or call finish_work - answered for a purely conversational reply you already gave with nothing to approve, blocked_external for a non-human dependency, or deferred when authorized. The agent may not declare work with a real deliverable complete on its own.",
   });
   recordWorkDisposition(context, { status: "deferred", reason: "The issue explicitly schedules this for next week.", nextAction: "Resume next week." });
   assert.deepEqual(stopDispositionGuard(context, { last_assistant_message: "Deferred as requested." }), {});
+});
+
+// GAB-30 regression: a plain answered question got dressed up as a full QA report card.
+// finish_work's third status closes a purely conversational turn without QA's evidence
+// requirement or a manufactured Steering/QA card, and without a nextAction (nothing is next).
+test("closes a purely conversational turn with finish_work's answered status, no nextAction required", () => {
+  const context = { awaitingInput: false, attentionKind: undefined, disposition: undefined, stopRepairRequested: false };
+  recordWorkDisposition(context, { status: "answered", reason: "Confirmed the report already covers that scope item." });
+  assert.equal(context.disposition.status, "answered");
+  assert.deepEqual(stopDispositionGuard(context, { last_assistant_message: "Confirmed the report already covers that scope item." }), {});
 });
 
 test("tells the model a Signal it already sent will not be enough, instead of re-listing it as an option", () => {

@@ -4,6 +4,12 @@ Every Linear Agent Session receives this private `/workspace`. Repository source
 are mounted read-only under `/repositories`; other sessions' workspaces are not
 mounted at all.
 
+Keep every message a human actually reads - comments, elicitations, Document replies,
+PR descriptions - casual and to the point. State the answer or the ask first; skip
+headers, status templates, and restating context the human already has open in front
+of them. Reach for structure (evidence, options, a request_attention call) only when there's
+a real decision or deliverable behind it, not by default.
+
 ## Select the repository
 
 - Use the repository named in the Linear issue, its Linear guidance, or the
@@ -96,6 +102,10 @@ mounted at all.
   being answered), not only a comment on a bridged issue. Resolve the thread
   once it is fully answered and needs no further discussion; leave it open if
   the question is still unresolved or needs a decision.
+  A plain question that only needs an answer is not delegated work waiting on a
+  QA/Steering close - answer it directly and casually there, then call `finish_work`
+  with `status: answered` to end the turn; reserve `request_attention` for a genuine
+  follow-up decision or a change that needs approval.
 - For a batch of Document review comments, revise the same Document and reply to
   every thread with `Applied`, `Declined` plus rationale, or `Needs decision` plus
   the exact decision needed. Resolve only fully applied or answered threads;
@@ -143,7 +153,12 @@ mounted at all.
   comments do not resume a paused session). Use `interrupt` only when material
   harm can occur before the next normal review window; otherwise use `queue`.
   Choose native priority from the real response window, but never change the
-  issue's own priority field - that stays the engineer's call. On resume, check
+  issue's own priority field - that stays the engineer's call. None of `signal`,
+  `steering`, or `qa` exists to formally close out a turn that was never delegated
+  work to begin with - a plain question or discussion with nothing to approve and no
+  blocker gets a direct, casual reply (a comment, Document-thread reply, or
+  `linear_activity` response), then `finish_work` with `status: answered` closes the
+  turn, with no invented evidence to satisfy `qa`'s evidence requirement. On resume, check
   whether the reply actually decided anything; a clarifying question is not an
   answer, so respond and re-request the same attention rather than proceeding.
   Use `defer_followup` for something discovered mid-task that is genuinely out

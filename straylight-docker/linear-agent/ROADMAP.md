@@ -1875,3 +1875,179 @@ Acceptance:
 2. Mention Straylight on a Document with no linked issue at all; confirm a
    plain explanatory reply lands directly in that Document's own thread
    instead of silence.
+
+## Slice 30 — casual replies stay casual, not every turn needs a QA card (GAB-30)
+
+Status: done, 2026-08-27.
+
+Origin: Gaby, GAB-30 - "Let's do a wide pass over different messages and
+interactions the agents can send and review them for brevity and clarity,
+rather than procedure and boilerplate." Concrete example: on GAB-28's Document
+thread, a simple yes/no question about the report's scope got a full "QA
+needed" report card back instead of a casual "yes, that was already included."
+
+**Root cause:** `src/prompts.ts` and `workspace/AGENTS.md` told the model that
+"the engineer owns task completion" and "hand apparently finished work to QA"
+without ever scoping that to work that actually produces something to
+approve. Once Slice 29 bridged a Document-comment mention onto a real Agent
+Session, that whole completion-lifecycle framing applied uniformly, so a
+plain answered question got dressed up as though it were a finished feature
+awaiting review - manufacturing a title, an action line, and (where possible)
+evidence for a reply that had none to give.
+
+**Change shipped:** both prompt surfaces now say explicitly that Signal,
+Steering, and QA exist to close out *delegated work with a deliverable* - a
+code change, an artifact, a decision to approve - not to formalize every
+turn. A plain question or discussion with nothing to approve and no blocker
+gets a direct, casual reply (a comment, a Document-thread reply, or a
+`linear_activity` response) in the same register as the question, and the
+turn simply ends there without inventing a QA card or evidence for it. A new
+leading instruction sets the general tone: state the answer or the ask first,
+skip headers and status templates, and reach for structure only when a real
+decision or deliverable is behind it.
+
+Implementation notes:
+
+- `src/prompts.ts`'s `claudeInitialPrompt`: one new tone-setting bullet near
+  the top, plus scoping sentences appended to the existing request_attention
+  and task-completion bullets (no line removed, so every prior regression
+  assertion in `test/behavior.test.ts` still matches).
+- `workspace/AGENTS.md`: the same tone note near the top, an extra sentence on
+  the Document-comment-mention bullet (the exact GAB-28/30 scenario), and a
+  matching addition to the Authority section's `request_attention` bullet.
+- `test/behavior.test.ts`: four new assertions on `"builds a
+  repository-aware initial prompt"` covering the new casual-tone and
+  not-delegated-work language.
+- `renderAttentionComment`/`renderElicitationSummary` in `src/attention.ts`
+  were left unchanged - they were already compact (heading, title, action,
+  evidence); the actual problem was invoking them at all for a plain answer,
+  not their own verbosity.
+
+Acceptance:
+
+1. `bun run check` (typecheck + full test suite) passes.
+2. Ask Straylight a plain yes/no question on a Document thread or issue
+   comment with nothing to approve; confirm it answers directly in that
+   thread/comment and the turn ends there, with no Steering/QA elicitation.
+
+## Slice 31 — finish_work gets a third status so a plain answer can actually stop (GAB-30)
+
+Status: done, 2026-08-27.
+
+Origin: follow-up to Slice 30 in the same GAB-30 session - "can you tune the
+request elicitation / request QA etc tools as well?"
+
+**Root cause, the deeper layer Slice 30 didn't reach:** Slice 30 only edited
+the model-facing prose in `src/prompts.ts`/`workspace/AGENTS.md`. But
+`claude-capsule/agent-request.mjs`'s `stopDispositionGuard` - a real Stop-hook
+enforcement, not advisory prose - blocks every attempt to end a turn unless
+`context.disposition` is already set, and the only ways to set it were
+`request_attention` (Steering/QA) or `finish_work` (`blocked_external`/
+`deferred` only). Signal explicitly never counts ("A Signal alone never ends
+a turn"). So a plain answered question had no valid way to actually stop:
+Steering doesn't fit (no answer needed from the engineer), QA's schema
+requires evidence (`isAttentionRequest` in `src/attention.ts`) that doesn't
+exist for a bare reply, and `finish_work`'s two statuses are both framed as
+"exceptional non-human" reasons. Telling the model in prose to "just answer
+and let the turn end" was true in spirit but unenforceable - the hook would
+have blocked the stop and forced exactly the manufactured QA card GAB-30
+complained about.
+
+**Change shipped:** `finish_work` gained a third status, `answered`, for
+closing a purely conversational turn - a question, clarification, or
+discussion with nothing to approve, already replied to directly - without
+QA's evidence requirement or a Steering elicitation. `nextAction` is now
+optional on the tool (still required by the underlying disposition validator
+for `blocked_external`/`deferred` only, as before). `WorkDisposition.status`
+(`src/runner-protocol.ts`) and its mirrored validator (`src/capsule-client.ts`)
+both gained `"answered"`. `AgentController.finish()` (`src/controller.ts`)
+renders it as a normal `"response"` activity (not `"error"`) with a
+`_Run answered in Xm._` footer, distinct from `"completed"`/`"deferred"`/
+`"blocked externally"`. `stopDispositionGuard`'s two block-reason strings and
+the `request_attention`/`finish_work` tool descriptions were reworded to
+point a plain-question turn at `finish_work({status: "answered"})` instead of
+manufacturing a Steering/QA card - `recordWorkDisposition` and the guard's
+conflict/informal-language checks needed no change since they already
+generalize to any non-attention disposition. `src/prompts.ts` and
+`workspace/AGENTS.md` (Slice 30) were tightened to name the actual mechanism
+(`finish_work` with `status: answered`) instead of the vaguer "let the turn
+end there."
+
+Implementation notes:
+
+- `claude-capsule/agent-request.mjs`: `finish_work` tool description +
+  schema, both `stopDispositionGuard` block-reason strings, `request_attention`
+  description's Signal note.
+- `src/runner-protocol.ts`, `src/capsule-client.ts`: `"answered"` added to
+  the disposition-status allow list (`WorkDisposition` type + both validators).
+- `src/controller.ts`: `finish()`'s outcome/footer and response-vs-error
+  branches gained an `"answered"` case.
+- Tests: `claude-capsule/agent-request.test.mjs` gained a case exercising
+  `recordWorkDisposition`/`stopDispositionGuard` with `answered` (no
+  `nextAction`), and updated the two exact-match block-reason assertions;
+  `test/notifications.test.ts` gained an end-to-end case asserting
+  `finish()` renders `answered` as a `"response"` with the right footer, not
+  an `"error"`; `test/behavior.test.ts` gained an assertion that the prompt
+  names the actual `finish_work` mechanism.
+- `bun run typecheck`, `bun test ./test/` (215 pass), and
+  `node --test claude-capsule/agent-request.test.mjs` (41 pass) are all green.
+
+Acceptance:
+
+1. All three check commands above pass.
+2. On a Document/issue with a plain yes/no question and nothing to approve,
+   the agent replies directly in that thread/comment and calls
+   `finish_work({status: "answered", reason: "..."})` - no Steering/QA card,
+   no invented evidence, and the run footer reads "_Run answered in Xm._".
+
+## Slice 32 — drop the mechanical "QA needed"/"Steering needed" tag itself (GAB-30)
+
+Status: done, 2026-08-27.
+
+Origin: second follow-up in the same GAB-30 session - "I think beyond this we
+should also tune the Steering and QA to be more natural language and less
+procedural boilerplate messages," then "did you address this as well?"
+
+Slices 30-31 fixed *when* Steering/QA fire and made the prose around them
+scope-aware, but never touched what the rendered message actually looks like
+once one legitimately fires. Every Steering/QA comment and elicitation card
+still opened with a mechanically-generated bold tag - `**QA needed:** {title}`
+/ `**Steering needed:** {title}` - and every Signal comment opened with
+`**Update:** {title}`. That tag was applied unconditionally regardless of how
+natural the rest of the message read, which is exactly the "procedural
+boilerplate" feel being asked to remove: no person opens a message to a
+colleague with a bolded ticket-system label.
+
+**Change shipped:** `renderAttentionComment` and `renderElicitationSummary`
+(`src/attention.ts`) both drop the bold heading entirely. The title now opens
+the message as a plain sentence, nothing else changed - the actual content
+(action, recommendation, options, evidence, the Steering reply footer) is
+untouched. Linear's own elicitation chrome (the card's pending-attention
+state, its select buttons) already marks a Steering/QA card as a decision
+point, so the redundant label wasn't carrying real information. `prompts.ts`/
+`workspace/AGENTS.md`'s stray reference to "a title like 'QA needed'" as an
+example of legitimate structure was also reworded, since that literal pattern
+no longer exists.
+
+Implementation notes:
+
+- `src/attention.ts`: both render functions lost their `heading` variable and
+  the `` `**${heading}:** ...` `` template line, replaced with the plain
+  `markdownText(request.title)`.
+- `test/attention.test.ts`: three assertions updated from matching the bold
+  tag to matching the plain leading title line (`doesNotMatch` on the old
+  pattern added alongside).
+- `test/controller-recovery.test.ts`: two elicitation-locating `find()`
+  predicates that matched on `"Steering needed"` now match on the actual
+  title text instead (the tag they were keying off no longer exists); the
+  corresponding body assertions updated the same way as attention.test.ts's.
+  Two Signal-comment assertions (urgent-mention tests) updated from matching
+  `**Update:**` to matching the title text directly.
+- `bun run typecheck`, `bun test ./test/` (215 pass), and
+  `node --test claude-capsule/agent-request.test.mjs` (41 pass) all green.
+
+Acceptance:
+
+1. All three check commands above pass.
+2. A Steering/QA/Signal comment or elicitation card opens with the title as a
+   plain sentence - no bolded "QA needed"/"Steering needed"/"Update" tag.

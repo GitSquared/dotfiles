@@ -51,6 +51,14 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /a bare 'Refs GAB-N' mention in a commit message does not close it/);
   assert.match(prompt, /treat that question as closed going forward/);
   assert.match(prompt, /mention it once in passing with a link back to that comment/);
+  // GAB-30 regression: a plain question got dressed up as a full QA report card
+  // instead of a casual answer - the prompt now says explicitly that answering
+  // isn't delegated work waiting on a lifecycle close.
+  assert.match(prompt, /casual and to the point/);
+  assert.match(prompt, /was never delegated work to begin with/);
+  assert.match(prompt, /never manufacture evidence just to satisfy QA's evidence requirement/);
+  assert.match(prompt, /not a mandate to formalize it as though it were a finished feature/);
+  assert.match(prompt, /finish_work with status: answered/);
 });
 
 test("uses the activity body for follow-ups", () => {
