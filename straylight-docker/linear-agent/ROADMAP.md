@@ -1929,3 +1929,73 @@ Acceptance:
 2. Ask Straylight a plain yes/no question on a Document thread or issue
    comment with nothing to approve; confirm it answers directly in that
    thread/comment and the turn ends there, with no Steering/QA elicitation.
+
+## Slice 31 — finish_work gets a third status so a plain answer can actually stop (GAB-30)
+
+Status: done, 2026-08-27.
+
+Origin: follow-up to Slice 30 in the same GAB-30 session - "can you tune the
+request elicitation / request QA etc tools as well?"
+
+**Root cause, the deeper layer Slice 30 didn't reach:** Slice 30 only edited
+the model-facing prose in `src/prompts.ts`/`workspace/AGENTS.md`. But
+`claude-capsule/agent-request.mjs`'s `stopDispositionGuard` - a real Stop-hook
+enforcement, not advisory prose - blocks every attempt to end a turn unless
+`context.disposition` is already set, and the only ways to set it were
+`request_attention` (Steering/QA) or `finish_work` (`blocked_external`/
+`deferred` only). Signal explicitly never counts ("A Signal alone never ends
+a turn"). So a plain answered question had no valid way to actually stop:
+Steering doesn't fit (no answer needed from the engineer), QA's schema
+requires evidence (`isAttentionRequest` in `src/attention.ts`) that doesn't
+exist for a bare reply, and `finish_work`'s two statuses are both framed as
+"exceptional non-human" reasons. Telling the model in prose to "just answer
+and let the turn end" was true in spirit but unenforceable - the hook would
+have blocked the stop and forced exactly the manufactured QA card GAB-30
+complained about.
+
+**Change shipped:** `finish_work` gained a third status, `answered`, for
+closing a purely conversational turn - a question, clarification, or
+discussion with nothing to approve, already replied to directly - without
+QA's evidence requirement or a Steering elicitation. `nextAction` is now
+optional on the tool (still required by the underlying disposition validator
+for `blocked_external`/`deferred` only, as before). `WorkDisposition.status`
+(`src/runner-protocol.ts`) and its mirrored validator (`src/capsule-client.ts`)
+both gained `"answered"`. `AgentController.finish()` (`src/controller.ts`)
+renders it as a normal `"response"` activity (not `"error"`) with a
+`_Run answered in Xm._` footer, distinct from `"completed"`/`"deferred"`/
+`"blocked externally"`. `stopDispositionGuard`'s two block-reason strings and
+the `request_attention`/`finish_work` tool descriptions were reworded to
+point a plain-question turn at `finish_work({status: "answered"})` instead of
+manufacturing a Steering/QA card - `recordWorkDisposition` and the guard's
+conflict/informal-language checks needed no change since they already
+generalize to any non-attention disposition. `src/prompts.ts` and
+`workspace/AGENTS.md` (Slice 30) were tightened to name the actual mechanism
+(`finish_work` with `status: answered`) instead of the vaguer "let the turn
+end there."
+
+Implementation notes:
+
+- `claude-capsule/agent-request.mjs`: `finish_work` tool description +
+  schema, both `stopDispositionGuard` block-reason strings, `request_attention`
+  description's Signal note.
+- `src/runner-protocol.ts`, `src/capsule-client.ts`: `"answered"` added to
+  the disposition-status allow list (`WorkDisposition` type + both validators).
+- `src/controller.ts`: `finish()`'s outcome/footer and response-vs-error
+  branches gained an `"answered"` case.
+- Tests: `claude-capsule/agent-request.test.mjs` gained a case exercising
+  `recordWorkDisposition`/`stopDispositionGuard` with `answered` (no
+  `nextAction`), and updated the two exact-match block-reason assertions;
+  `test/notifications.test.ts` gained an end-to-end case asserting
+  `finish()` renders `answered` as a `"response"` with the right footer, not
+  an `"error"`; `test/behavior.test.ts` gained an assertion that the prompt
+  names the actual `finish_work` mechanism.
+- `bun run typecheck`, `bun test ./test/` (215 pass), and
+  `node --test claude-capsule/agent-request.test.mjs` (41 pass) are all green.
+
+Acceptance:
+
+1. All three check commands above pass.
+2. On a Document/issue with a plain yes/no question and nothing to approve,
+   the agent replies directly in that thread/comment and calls
+   `finish_work({status: "answered", reason: "..."})` - no Steering/QA card,
+   no invented evidence, and the run footer reads "_Run answered in Xm._".

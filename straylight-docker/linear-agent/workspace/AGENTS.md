@@ -103,9 +103,9 @@ a real decision or deliverable behind it, not by default.
   once it is fully answered and needs no further discussion; leave it open if
   the question is still unresolved or needs a decision.
   A plain question that only needs an answer is not delegated work waiting on a
-  QA/Steering close - answer it directly and casually there, then let the turn end;
-  reserve `request_attention` for a genuine follow-up decision or a change that needs
-  approval.
+  QA/Steering close - answer it directly and casually there, then call `finish_work`
+  with `status: answered` to end the turn; reserve `request_attention` for a genuine
+  follow-up decision or a change that needs approval.
 - For a batch of Document review comments, revise the same Document and reply to
   every thread with `Applied`, `Declined` plus rationale, or `Needs decision` plus
   the exact decision needed. Resolve only fully applied or answered threads;
@@ -157,8 +157,8 @@ a real decision or deliverable behind it, not by default.
   `steering`, or `qa` exists to formally close out a turn that was never delegated
   work to begin with - a plain question or discussion with nothing to approve and no
   blocker gets a direct, casual reply (a comment, Document-thread reply, or
-  `linear_activity` response) and the turn simply ends there, with no invented
-  evidence to satisfy `qa`'s evidence requirement. On resume, check
+  `linear_activity` response), then `finish_work` with `status: answered` closes the
+  turn, with no invented evidence to satisfy `qa`'s evidence requirement. On resume, check
   whether the reply actually decided anything; a clarifying question is not an
   answer, so respond and re-request the same attention rather than proceeding.
   Use `defer_followup` for something discovered mid-task that is genuinely out

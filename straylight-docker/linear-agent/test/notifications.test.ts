@@ -363,6 +363,46 @@ test("auto-resumes a blocked_external session once its reported reset time has p
   );
 });
 
+// GAB-30 regression: a plain answered question got dressed up as a full QA report card.
+// finish_work's "answered" status should close the run as a normal response - not "error" -
+// and without scheduling any blocked_external-style auto-resume.
+test("renders finish_work's answered disposition as a plain response, not an error or a blocker", async () => {
+  let created: { type?: string; body?: string } | undefined;
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity(_sessionId: string, activity: { type?: string; body?: string }) { created = activity; },
+  } as unknown as LinearClient;
+  const runner = {
+    async health() { return { mode: "test" }; },
+    async run() {
+      return {
+        ok: false,
+        timedOut: false,
+        awaitingInput: false,
+        summary: "Confirmed the report already covers that scope item.",
+        elapsedMs: 1_200,
+        disposition: {
+          status: "answered" as const,
+          reason: "The question only needed a direct answer; nothing to approve.",
+        },
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-1", issueId: "issue-1", creatorId: "human-1", issue: { id: "issue-1", teamId: "team-1" } },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.equal(created?.type, "response");
+  assert.match(created?.body ?? "", /Confirmed the report already covers that scope item\./);
+  assert.match(created?.body ?? "", /_Run answered in/);
+});
+
 test("skips a scheduled auto-resume when the Agent Session has reached a terminal status in the meantime", async () => {
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },

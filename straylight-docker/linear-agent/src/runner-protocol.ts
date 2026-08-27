@@ -1,7 +1,7 @@
 import type { AgentActivityContent, AgentTaskPayload, LinearInputFile } from "./types.js";
 
 export type WorkDisposition = {
-  status: "awaiting_steering" | "awaiting_qa" | "blocked_external" | "deferred";
+  status: "awaiting_steering" | "awaiting_qa" | "answered" | "blocked_external" | "deferred";
   reason: string;
   nextAction?: string;
 };
@@ -62,7 +62,7 @@ export function parseRunnerEvent(line: string): RunnerEvent {
 function validWorkDisposition(value: unknown): value is WorkDisposition {
   if (!value || typeof value !== "object") return false;
   const disposition = value as Partial<WorkDisposition>;
-  return ["awaiting_steering", "awaiting_qa", "blocked_external", "deferred"].includes(disposition.status ?? "")
+  return ["awaiting_steering", "awaiting_qa", "answered", "blocked_external", "deferred"].includes(disposition.status ?? "")
     && typeof disposition.reason === "string"
     && disposition.reason.length > 0
     && (disposition.nextAction === undefined || typeof disposition.nextAction === "string")

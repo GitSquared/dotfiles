@@ -241,7 +241,7 @@ function validAgentResult(value: unknown): value is CapsuleAgentResult {
 function validDisposition(value: unknown): value is WorkDisposition {
   if (!value || typeof value !== "object") return false;
   const disposition = value as Partial<WorkDisposition>;
-  return ["awaiting_steering", "awaiting_qa", "blocked_external", "deferred"].includes(disposition.status ?? "")
+  return ["awaiting_steering", "awaiting_qa", "answered", "blocked_external", "deferred"].includes(disposition.status ?? "")
     && typeof disposition.reason === "string"
     && disposition.reason.length > 0
     && (disposition.nextAction === undefined || typeof disposition.nextAction === "string")

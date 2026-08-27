@@ -1410,14 +1410,21 @@ export class AgentController {
   }
 
   private finish(sessionId: string, result: PiResult): Promise<void> {
+    // "answered" is finish_work's third status (alongside blocked_external/deferred): a
+    // purely conversational turn - a question or discussion with no deliverable to approve -
+    // that the agent already replied to directly. It renders the same as a normal completed
+    // response, just labeled distinctly in the footer so the run log still shows how it ended.
     const outcome = result.disposition?.status === "blocked_external"
       ? "blocked externally"
       : result.disposition?.status === "deferred"
         ? "deferred"
-        : result.ok ? "completed" : "failed";
+        : result.disposition?.status === "answered"
+          ? "answered"
+          : result.ok ? "completed" : "failed";
+    const nonFailureDispositions = ["deferred", "answered"];
     const footer = `\n\n_Run ${outcome} in ${elapsed(result.elapsedMs)}._`;
     const activity = this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
-      type: result.ok || result.disposition?.status === "deferred" ? "response" : "error",
+      type: result.ok || (result.disposition && nonFailureDispositions.includes(result.disposition.status)) ? "response" : "error",
       body: finalText(`${result.summary}${footer}`),
     }));
     if (result.disposition?.status === "blocked_external") this.scheduleAutoResumeIfMarked(sessionId, result.disposition.nextAction);

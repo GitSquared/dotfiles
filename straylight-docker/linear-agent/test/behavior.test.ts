@@ -57,7 +57,8 @@ test("builds a repository-aware initial prompt", () => {
   assert.match(prompt, /casual and to the point/);
   assert.match(prompt, /was never delegated work to begin with/);
   assert.match(prompt, /never manufacture evidence just to satisfy QA's evidence requirement/);
-  assert.match(prompt, /not a mandate to formalize a plain answer as though it were a finished feature/);
+  assert.match(prompt, /not a mandate to formalize it as though it were a finished feature/);
+  assert.match(prompt, /finish_work with status: answered/);
 });
 
 test("uses the activity body for follow-ups", () => {
