@@ -52,7 +52,13 @@ type SessionState = {
   awaitingInput: boolean;
   generation: number;
   startedAt: number | undefined;
-  pending: AgentSessionWebhook | undefined;
+  // Widened past AgentSessionWebhook (structurally compatible - the extra fields
+  // are all optional): a live follow-up that already downloaded attachments (see
+  // the "prompted && state.running" branch in execute()) carries those validated
+  // bytes forward here instead of discarding them and re-fetching later from the
+  // same short-lived uploads.linear.app URL, which can expire while queued behind
+  // a long turn or an unresolved attention (GAB-34).
+  pending: AgentTaskPayload | undefined;
   active: AgentSessionWebhook | undefined;
   issueId: string | undefined;
   teamId: string | undefined;
@@ -794,10 +800,20 @@ export class AgentController {
         await this.persist();
         await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up is queued in the active agent session." }).catch(() => undefined));
       } else {
-        state.pending = payload;
+        // ClaudeHarness.followUp() declines outright whenever `inputs.length` (materializing
+        // new files into a workspace an in-flight turn is actively using is a separate, harder
+        // problem it doesn't attempt) - but `prepareLinearInputs` above already downloaded and
+        // validated those bytes from Linear. Carry them forward on the queued payload instead of
+        // discarding them: `execute()` would otherwise re-download from the same webhook-supplied
+        // uploads.linear.app URL once this session resumes, and that short-lived link can expire
+        // while queued behind this turn or a later unresolved attention - silently dropping a
+        // file that already downloaded successfully once (GAB-34: a live follow-up attachment
+        // "failed to get" to the agent).
+        state.pending = inputs.length ? { ...payload, linearInputs: inputs } : payload;
         this.touch(state);
         await this.persist();
-        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: "Your follow-up will run after the current agent turn." }).catch(() => undefined));
+        const filesNote = inputs.length ? ` along with ${inputs.length} attached file${inputs.length === 1 ? "" : "s"}` : "";
+        await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, { type: "thought", body: `Your follow-up${filesNote} will run after the current agent turn.` }).catch(() => undefined));
       }
       return;
     }
@@ -1242,7 +1258,7 @@ export class AgentController {
       const resumable = this.findResumableConversation(sessionId, state.issueId);
       if (resumable) taskPayload.resumeConversationId = resumable;
     }
-    const inputs = await this.prepareLinearInputs(sessionId, payload);
+    const inputs = await this.resolveLinearInputs(sessionId, payload);
     if (inputs.length) taskPayload.linearInputs = inputs;
     const commentId = payload.agentSession?.sourceCommentId ?? payload.agentSession?.comment?.id;
     if (commentId) {
@@ -1644,6 +1660,17 @@ export class AgentController {
         content: { body: "The Claude usage limit that paused this run has now reset - resume and continue the work." },
       },
     });
+  }
+
+  // A payload restarted from `state.pending` after a live follow-up carried new attachments
+  // (see the "prompted && state.running" branch above) already has them downloaded and
+  // validated - reuse those bytes rather than re-fetching from the original webhook-supplied
+  // uploads.linear.app URL a second time, which can fail once that short-lived link expires
+  // while queued (GAB-34).
+  private async resolveLinearInputs(sessionId: string, payload: AgentSessionWebhook): Promise<LinearInputFile[]> {
+    const carried = (payload as Partial<AgentTaskPayload>).linearInputs;
+    if (carried?.length) return carried;
+    return this.prepareLinearInputs(sessionId, payload);
   }
 
   private async prepareLinearInputs(sessionId: string, payload: AgentSessionWebhook): Promise<LinearInputFile[]> {

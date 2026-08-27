@@ -182,3 +182,76 @@ test("continues session boot when Linear project/team context lookup fails", asy
   assert.equal(received?.projectContext, undefined);
   assert.equal(received?.teamContext, undefined);
 });
+
+test("carries an already-downloaded live follow-up attachment through to the next turn without re-downloading it (GAB-34)", async () => {
+  const input: LinearInputFile = {
+    filename: "report.pdf",
+    mimeType: "application/pdf",
+    size: 4,
+    dataBase64: "cGRm",
+  };
+  let downloadCalls = 0;
+  const activities: Array<{ type: string; body?: string }> = [];
+  const linear = {
+    async createActivity(_sessionId: string, content: { type: string; body?: string }) { activities.push(content); },
+    async downloadInputs(payload: { agentSession?: { comment?: { body?: string } } }) {
+      // Only the follow-up's own triggering comment references the PDF - the initial
+      // "created" webhook has nothing to download, matching real `linearInputReferences`
+      // behavior (which only finds references actually present in the payload text).
+      if (!payload.agentSession?.comment?.body?.includes("report.pdf")) return { inputs: [], skipped: [], totalBytes: 0 };
+      downloadCalls += 1;
+      return { inputs: [input], skipped: [], totalBytes: input.size };
+    },
+    async repositorySuggestions() { return []; },
+  } as unknown as LinearClient;
+
+  let finishFirst!: (value: { ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }) => void;
+  const first = new Promise<{ ok: true; timedOut: false; awaitingInput: false; summary: string; elapsedMs: number }>((resolve) => {
+    finishFirst = resolve;
+  });
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      if (runs.length === 1) return first;
+      return { ok: true as const, timedOut: false as const, awaitingInput: false, summary: "Second turn done.", elapsedMs: 1 };
+    },
+    // Mirrors ClaudeHarness.followUp: declines outright whenever the follow-up carries
+    // new input files, deferring materialization to the next cold-queue turn.
+    async followUp(_sessionId: string, _prompt: string, inputs?: LinearInputFile[]) { return !inputs?.length; },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    agentSession: { id: "session-attach", issueId: "issue-attach" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 1; attempt += 1) await Bun.sleep(2);
+
+  // A follow-up arrives mid-turn with a PDF attached to the triggering comment.
+  await controller.handle({
+    action: "prompted",
+    agentSession: {
+      id: "session-attach",
+      issueId: "issue-attach",
+      comment: { id: "comment-2", body: "Here's the pricing PDF: ![report.pdf](https://uploads.linear.app/private/report.pdf)" },
+    },
+  });
+  for (let attempt = 0; attempt < 50 && downloadCalls < 1; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(downloadCalls, 1, "the attachment must be downloaded once while queued, not silently skipped");
+  const queuedNote = activities.find((activity) => activity.type === "thought" && activity.body?.includes("attached file"));
+  assert.ok(queuedNote, "the queued-follow-up activity must tell the user their file was captured, not just the text");
+  assert.match(queuedNote!.body!, /1 attached file/);
+
+  // The in-flight turn now concludes; the queued follow-up (with its already-downloaded
+  // file) should start a fresh turn without hitting Linear for the file a second time.
+  finishFirst({ ok: true, timedOut: false, awaitingInput: false, summary: "First turn done.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 2, "the queued follow-up must actually start a second turn");
+  assert.deepEqual(runs[1]?.linearInputs, [input], "the carried-forward file must reach the second turn's task payload");
+  assert.equal(downloadCalls, 1, "resuming the queued follow-up must reuse the already-downloaded bytes, not re-fetch the short-lived Linear URL");
+});
