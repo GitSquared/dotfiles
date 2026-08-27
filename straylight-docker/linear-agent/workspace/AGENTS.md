@@ -40,6 +40,11 @@ mounted at all.
   call instead of paying one model turn per command. Once bounded orientation
   has identified the affected path, one matching pattern, and the relevant
   checks, stop mapping adjacent abstractions and begin the requested work.
+- The bash tool takes a `directory` argument (relative to `/workspace`, applies
+  to that one call only since each call is a fresh shell). Pass it instead of
+  prefixing the command with `cd path &&`; `apply_patch` takes the same
+  argument for patches outside `/workspace` itself. Reach for `cd` inside a
+  command only to move between steps chained with `&&` in a single call.
 - When work has more than one meaningful implementation or verification step,
   publish a compact native Agent Plan with `manage_plan` after orientation and
   update it only at real checkpoints. Prefer outcome-oriented steps over a
