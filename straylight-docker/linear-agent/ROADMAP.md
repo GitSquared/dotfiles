@@ -2112,3 +2112,59 @@ other gap in the never-live-tested inbound-file pipeline (ROADMAP Slice 10 still
 acceptance). This fix closes a real, independently-confirmed bug either way; a fresh live
 PDF attach - both at session creation and as a mid-run follow-up - remains the acceptance
 check worth running once this deploys.
+
+## Slice 34 — a tracked-comment reply's own guard was still comparing against nothing (GAB-33)
+
+Status: done, 2026-08-27.
+
+Origin: Gaby, GAB-33 - "I answered here [a reply directly under GAB-32's tracked Steering
+comment] but the agent didn't resume until i sent a msg specifically in the agent session for
+some reason?"
+
+Investigation, not assumption: pulled the real GAB-32 comment history rather than trusting the
+report at face value. The reply Gaby linked (a first-level reply directly under the tracked
+Steering comment, `fb2c8ad7`) never produced the "Reply received; resuming the run." activity
+`handle()`'s attention-reply branch is supposed to post on a match, and that comment's thread is
+still unresolved to this day - concrete evidence the routing never fired for it, matching the
+reported symptom exactly (no resume, no error, no feedback at all). Only the later message typed
+directly into the Agent Session panel actually resumed the run.
+
+`routeTrackedCommentReply` (the `AppUserNotification`/`issueNewComment` path a plain issue-comment
+reply takes) looked correct in isolation and is unit-tested for exactly this scenario. But
+`handle()`'s own native "prompted && attention.length" branch - the code path a genuine
+`AgentSessionEvent` reply takes, and the one `routeTrackedCommentReply` itself funnels a matched
+reply back through - had a real, git-history-confirmed regression: `if (session.comment?.parentId)
+{ ...treat as an unrelated thread, don't resume... }` used to correctly compare against
+`attention.commentId` (`replyParentId && replyParentId !== attention.commentId`), before
+2026-08-20's revert removed `attention.commentId` entirely and simplified the guard to reject any
+populated `parentId` outright. When 3b4928a (2026-08-24) brought the tracked comment back
+specifically so a reply to it could resolve the attention, this guard was never restored to
+compare against it again - so any native reply whose `comment.parentId` happens to be populated,
+even one landing directly under the tracked attention comment, has been silently discarded since.
+`routeTrackedCommentReply`'s own synthetic payload deliberately omits `parentId`, which is exactly
+why its own tests never caught this - and why no existing native-reply test ever set `parentId` to
+anything other than `undefined` or a deliberately unrelated id.
+
+**Change shipped:** restored the comparison - `if (session.comment?.parentId &&
+session.comment.parentId !== attention.commentId)`. A reply nested under the tracked attention
+comment now resumes exactly like the elicitation's own native surface, matching what
+`routeTrackedCommentReply` already assumed was true of this branch. One new
+`test/controller-recovery.test.ts` case exercises this directly through `handle()` (not through
+`handleNotification`), asserting the run resumes, the deferred GAB-26 issue-state restore and
+thread resolve both eventually fire, and the attention is actually cleared rather than left open.
+
+Separately, while investigating: confirmed live against the deployed `agent.gaby.dev` that
+`/healthz` is unreachable through the public `/linear` reverse-proxy prefix every other route
+uses (`matches()` in `src/server.ts`) - `/healthz` used a bare pathname check instead, so neither
+`/healthz` (Caddy's own 404, never reaching this app) nor `/linear/healthz` (reaches the app, falls
+through to its generic `not_found`) actually works in production. That's exactly the endpoint an
+operator would reach for to diagnose "why didn't X happen" questions like this one, and it's been
+silently unreachable the whole time. Fixed the same way every other route already handles this
+(`matches(url.pathname, "/healthz")`), with a new `test/server.test.ts` case covering the
+`/linear`-prefixed path.
+
+Not fully settled: whether `routeTrackedCommentReply`'s own `AppUserNotification` path was *also*
+affected for this specific incident, or whether Linear's real webhook simply didn't deliver/match
+for that first reply - the deferred-resolution bookkeeping (`pendingAttentionResolution`) can only
+prove the native branch's guard was live and wrong, not rule out a second, independent gap on the
+notification side. `bun run check` (216 pass/0 fail) and `bun run test:capsule` (40/40) both green.

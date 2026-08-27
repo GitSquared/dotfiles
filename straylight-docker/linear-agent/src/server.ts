@@ -93,7 +93,13 @@ export function createServer(
     const method = request.method;
     const url = new URL(request.url);
 
-    if (method === "GET" && url.pathname === "/healthz") {
+    // GAB-33: use matches() like every other public route, not a bare pathname check - this
+    // endpoint is otherwise unreachable through the public "/linear" reverse-proxy prefix (Caddy
+    // 404s "/healthz" itself before it reaches this app; "/linear/healthz" reached the app but
+    // fell through to the generic not_found response, both confirmed live against the deployed
+    // agent.gaby.dev). That silently denies the operator the one endpoint meant to help diagnose
+    // exactly this class of "why didn't X happen" question - discovered while investigating GAB-33.
+    if (method === "GET" && matches(url.pathname, "/healthz")) {
       try {
         return json(200, {
           ok: true,

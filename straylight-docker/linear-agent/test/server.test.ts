@@ -35,6 +35,22 @@ test("serves controller health through a Web Response", async () => {
   });
 });
 
+// GAB-33: every other public route accepts both the bare path and the "/linear"-prefixed one
+// (createServer's own matches() helper, used for the deployed reverse-proxy setup) - /healthz
+// used a bare pathname check instead and was unreachable through that prefix in production.
+test("serves controller health through the /linear-prefixed path too (GAB-33)", async () => {
+  const controller = { async health() { return { controller: { trackedSessions: 0 }, workbench: { mode: "bun" } }; } } as unknown as AgentController;
+  const handler = createServer(config, {} as LinearClient, controller);
+  const response = await handler(new Request("https://straylight.example.test/linear/healthz"));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    service: "straylight-linear-agent",
+    controller: { trackedSessions: 0 },
+    workbench: { mode: "bun" },
+  });
+});
+
 test("brokers authenticated runner Linear operations", async () => {
   const controller = {
     async manageLinear(sessionId: string, request: unknown) {

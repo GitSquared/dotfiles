@@ -1184,6 +1184,90 @@ test("ignores a reply on an unrelated comment thread while a blocking attention 
   assert.equal(health.controller.attentionQueue.total, 1, "the blocking attention must remain tracked");
 });
 
+// GAB-33: this used to be indistinguishable from the "unrelated thread" case above - any
+// populated `parentId` was rejected outright, even one that exactly matches the tracked
+// attention's own comment id. That regressed on 2026-08-20 (when the tracked comment briefly
+// didn't exist at all) and was never restored once 3b4928a (2026-08-24) brought it back, so a
+// genuine native AgentSessionEvent reply nested under the tracked attention comment was silently
+// discarded - no resume, no error, nothing. `routeTrackedCommentReply`'s own synthetic payload
+// never exercised this because it deliberately omits `parentId`.
+test("resumes on a native reply whose parentId matches the tracked attention comment (GAB-33)", async () => {
+  const stateFlips: Array<{ issueId: string; stateId: string }> = [];
+  const resolvedComments: string[] = [];
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async issueState() { return { id: "state-in-progress", name: "In Progress", type: "started" }; },
+    async resolveAttentionStateId() { return "state-blocked"; },
+    async reactToComment() {},
+    async setIssueState(issueId: string, stateId: string) { stateFlips.push({ issueId, stateId }); },
+    async createIssueComment() { return { id: "attention-comment-1", body: "" }; },
+    async resolveComment(commentId: string) { resolvedComments.push(commentId); },
+    async createActivity() {},
+  } as unknown as LinearClient;
+  let finishFirst!: (value: { ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }) => void;
+  const first = new Promise<{ ok: true; timedOut: false; awaitingInput: true; summary: string; elapsedMs: number }>((resolve) => {
+    finishFirst = resolve;
+  });
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      return runs.length === 1 ? first : { ok: true as const, timedOut: false as const, awaitingInput: false, summary: "Resumed.", elapsedMs: 1 };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "parent-session", issueId: "parent-issue", creatorId: "human-1", issue: { id: "parent-issue", teamId: "team-1" } },
+  });
+  await controller.collaborateLinear("parent-session", {
+    action: "attention",
+    request: {
+      kind: "steering",
+      delivery: "queue",
+      priority: "high",
+      blocking: true,
+      title: "Choose the boundary",
+      action: "Choose the safe migration boundary.",
+      recommendation: "Keep the old writer authoritative.",
+    },
+  });
+  finishFirst({ ok: true, timedOut: false, awaitingInput: true, summary: "Waiting.", elapsedMs: 1 });
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const health = await controller.health() as { controller: { runningSessions: number } };
+    if (health.controller.runningSessions === 0) break;
+    await Bun.sleep(2);
+  }
+
+  // A native AgentSessionEvent reply lands directly under the tracked attention comment itself.
+  await controller.handle({
+    action: "prompted",
+    agentActivity: { content: { body: "Keep the old writer, but add a rollback plan." } },
+    agentSession: {
+      id: "parent-session",
+      issueId: "parent-issue",
+      comment: { id: "reply-1", body: "Keep the old writer, but add a rollback plan.", parentId: "attention-comment-1" },
+    },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 2, "a reply nested under the tracked attention comment must resume the run");
+  // GAB-26's deferred-resolution model: the checkmark/acknowledgement lands immediately, but the
+  // issue-state restore and thread resolve only fire once the resumed turn concludes cleanly.
+  assert.deepEqual(stateFlips, [
+    { issueId: "parent-issue", stateId: "state-blocked" },
+    { issueId: "parent-issue", stateId: "state-in-progress" },
+  ]);
+  assert.deepEqual(resolvedComments, ["attention-comment-1"]);
+  const health = await controller.health() as { controller: { attentionQueue: { total: number } } };
+  assert.equal(health.controller.attentionQueue.total, 0, "the attention must be cleared, not left silently open");
+});
+
 test("completes the issue directly when the engineer approves a QA attention", async () => {
   const activities: Array<{ sessionId: string; content: unknown; options?: unknown }> = [];
   const completedIssues: string[] = [];

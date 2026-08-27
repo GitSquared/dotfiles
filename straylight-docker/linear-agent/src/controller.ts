@@ -691,11 +691,24 @@ export class AgentController {
     }
     if (payload.action === "prompted" && state.attention.length) {
       const attention = state.attention[0]!;
-      if (session.comment?.parentId) {
+      // GAB-33: this used to compare against `attention.commentId` (pre-2026-08-20), correctly
+      // distinguishing "a reply on some unrelated thread" from "a reply on the tracked attention
+      // thread itself". It got simplified to reject *any* populated `parentId` when the tracked
+      // comment (`attention.commentId`) was removed that same day - and was never restored when
+      // 3b4928a (2026-08-24) brought `attention.commentId` back specifically so a reply to that
+      // tracked comment could resolve the attention. Since then this guard has silently discarded
+      // any native AgentSessionEvent reply whose `comment.parentId` happens to be populated, even
+      // one landing directly under the tracked attention comment - with zero feedback to the human
+      // (confirmed live on GAB-32: a reply to the tracked Steering comment never produced the
+      // "Reply received; resuming the run." activity this branch is supposed to post, and that
+      // thread never resolved). `routeTrackedCommentReply`'s own synthetic payload deliberately
+      // omits `parentId`, which is exactly why that path's tests never caught this gap.
+      if (session.comment?.parentId && session.comment.parentId !== attention.commentId) {
         // A reply landed on some other pre-existing comment thread (e.g. a
         // side question on an earlier Signal), not on this session's own
-        // elicitation. Don't treat it as the answer - the run stays paused
-        // waiting for a real reply through the session itself.
+        // elicitation or its tracked comment. Don't treat it as the answer -
+        // the run stays paused waiting for a real reply through the session
+        // itself or a reply to the tracked comment.
         this.touch(state);
         this.states.set(sessionId, state);
         await this.persist();
