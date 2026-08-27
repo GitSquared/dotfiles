@@ -46,10 +46,16 @@ test("routes Linear inbox notifications without synthesizing comment instruction
   assert.equal(promotedComment, "root-1");
 });
 
-test("classifies Linear's unsupported Document comment anchor as permanent", async () => {
+test("classifies Linear's unsupported Document comment anchor as permanent when the Document has no linked issue to bridge through", async () => {
+  const replies: Array<{ parentId: string; body: string }> = [];
   const linear = {
     async createAgentSessionOnComment() {
       throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+    async documentLinkedIssueId() { return undefined; },
+    async replyToComment(parentId: string, body: string) {
+      replies.push({ parentId, body });
+      return { id: "fallback-reply-1", body };
     },
   } as unknown as LinearClient;
   const runner = { async health() { return { mode: "test" }; } } as unknown as AgentRunner;
@@ -62,13 +68,64 @@ test("classifies Linear's unsupported Document comment anchor as permanent", asy
     }),
     PermanentWebhookDeliveryError,
   );
+
+  // With genuinely nothing to bridge through, the best remaining human-visible option is a
+  // plain reply directly in the Document's own thread - not silence, and not a detour to an
+  // issue that doesn't exist.
+  assert.equal(replies.length, 1);
+  assert.equal(replies[0]?.parentId, "root-1");
+  assert.match(replies[0]?.body ?? "", /doesn't yet support Agent Sessions on Document comment threads/);
 });
 
-test("tells the human why a Document mention did nothing, when the Document links an issue", async () => {
+// GAB-28: a live mention on the GAB-27 report Document went completely unanswered. The
+// Document *did* link an issue (`Document.issue.id` was populated), but the
+// `documentCommentMention` webhook notification itself didn't carry that id - so the old
+// code, which only ever consulted the notification payload, treated it as unlinked and gave
+// up silently. These two tests cover the actual fix: resolving the linked issue by asking
+// Linear directly when the payload omits it, and then genuinely bridging a working Agent
+// Session onto that issue instead of only leaving an apology.
+test("bridges a Document mention through its linked issue to a working Agent Session when the notification omits the issue id (GAB-28)", async () => {
+  let bridgedIssueId: string | undefined;
+  let queriedDocumentId: string | undefined;
+  const linear = {
+    async createAgentSessionOnComment() {
+      throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+    async documentLinkedIssueId(documentId: string) {
+      queriedDocumentId = documentId;
+      return "issue-1";
+    },
+    async createAgentSessionOnIssue(issueId: string) {
+      bridgedIssueId = issueId;
+      return { id: "bridged-session-1" };
+    },
+  } as unknown as LinearClient;
+  const runner = { async health() { return { mode: "test" }; } } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handleNotification({
+    action: "documentCommentMention",
+    // Deliberately no issueId/issue field here - the real GAB-28 payload didn't carry one
+    // even though the Document it pointed at had a real linked issue.
+    notification: { documentId: "document-1", commentId: "comment-1", parentCommentId: "root-1" },
+  });
+
+  assert.equal(queriedDocumentId, "document-1");
+  assert.equal(bridgedIssueId, "issue-1");
+  const health = await controller.health() as {
+    controller: { notifications: { counts: Record<string, number> } };
+  };
+  assert.equal(health.controller.notifications.counts.agentSessionOwned, 1);
+});
+
+test("falls back to a plain comment on the linked issue when bridging through it also fails", async () => {
   const comments: Array<{ issueId: string; body: string }> = [];
   const linear = {
     async createAgentSessionOnComment() {
       throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+    async createAgentSessionOnIssue() {
+      throw new Error("Linear rejected Agent Session creation for the Document's linked issue");
     },
     async createIssueComment(issueId: string, body: string) {
       comments.push({ issueId, body });

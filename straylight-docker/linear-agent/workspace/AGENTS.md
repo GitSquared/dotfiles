@@ -90,8 +90,12 @@ mounted at all.
 - Before creating a similarly named document, list the current issue's documents
   and update the intended document by id when one already exists.
 - Treat a direct Document or Document-comment mention as the current request.
-  Read the supplied bounded Document and thread context, then use generic comment
-  list/get/reply/resolve operations if more review context is needed.
+  Read the supplied bounded Document and thread context, then answer where the
+  human is actually watching: reply directly in that Document comment thread
+  with the generic `linear` tool's comment `reply` operation (id = the comment
+  being answered), not only a comment on a bridged issue. Resolve the thread
+  once it is fully answered and needs no further discussion; leave it open if
+  the question is still unresolved or needs a decision.
 - For a batch of Document review comments, revise the same Document and reply to
   every thread with `Applied`, `Declined` plus rationale, or `Needs decision` plus
   the exact decision needed. Resolve only fully applied or answered threads;

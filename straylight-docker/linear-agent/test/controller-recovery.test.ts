@@ -1621,6 +1621,121 @@ test("routes a new mention into the same Claude conversation as a dormant siblin
   assert.equal(runs[1]?.resumeConversationId, "conversation-for-session-first-mention");
 });
 
+// GAB-28: does a Document-comment mention bridged onto its linked issue reuse a dormant
+// session already on that issue, rather than always starting blind? The mention-as-thread
+// mechanic above already resumes the most recent dormant sibling's Claude conversation on any
+// "created" AgentSessionEvent, regardless of what mutation caused Linear to create the
+// session - `agentSessionCreateOnIssue` (the Document-mention bridge) is no exception. This
+// exercises the actual documentCommentMention path end to end, not just the general mechanic
+// in isolation, to prove the bridge doesn't accidentally opt out of it.
+test("a Document mention bridged onto its linked issue resumes that issue's dormant conversation instead of starting blind (GAB-28)", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async createAgentSessionOnComment() {
+      throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+    async createAgentSessionOnIssue(issueId: string) {
+      assert.equal(issueId, "shared-issue");
+      return { id: "session-document-bridge" };
+    },
+  } as unknown as LinearClient;
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      return {
+        ok: true as const,
+        timedOut: false as const,
+        awaitingInput: false,
+        summary: "Done.",
+        elapsedMs: 1,
+        conversationId: `conversation-for-${payload.agentSession?.id}`,
+      };
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  // An earlier, unrelated mention already ran to completion on this issue and left a dormant
+  // Claude conversation behind - e.g. the QA thread already open on a report Document's linked
+  // issue by the time someone leaves a follow-up question on the Document itself.
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-first-mention", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 1; attempt += 1) await Bun.sleep(2);
+
+  // The Document mention itself: rejected as a comment anchor, bridged onto the same issue.
+  await controller.handleNotification({
+    action: "documentCommentMention",
+    notification: { documentId: "document-1", commentId: "comment-1", parentCommentId: "root-1", issueId: "shared-issue" },
+  });
+
+  // Linear delivers the follow-up AgentSessionEvent for the session the bridge just created,
+  // exactly as it does for any other programmatically-created session.
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-document-bridge", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 2);
+  assert.equal(runs[1]?.resumeConversationId, "conversation-for-session-first-mention");
+});
+
+test("a Document mention bridged onto its linked issue warns instead of silently doubling up when that issue's other session is already active (GAB-28)", async () => {
+  const linear = {
+    async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
+    async beginHumanDelegation() {},
+    async createActivity() {},
+    async createAgentSessionOnComment() {
+      throw new Error("Linear GraphQL request failed: comment must be on an issue: Agent sessions can only be created for comment threads on issues.");
+    },
+    async createAgentSessionOnIssue(issueId: string) {
+      assert.equal(issueId, "shared-issue");
+      return { id: "session-document-bridge" };
+    },
+  } as unknown as LinearClient;
+  const runs: AgentTaskPayload[] = [];
+  const runner = {
+    async repositories() { return []; },
+    async health() { return { mode: "test" }; },
+    async run(payload: AgentTaskPayload) {
+      runs.push(payload);
+      // Never resolves - the first session stays "running" for the test's duration, matching
+      // a report still mid-turn when a Document follow-up mention arrives.
+      return new Promise(() => {});
+    },
+  } as unknown as AgentRunner;
+  const controller = new AgentController(linear, runner);
+
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-first-mention", issueId: "shared-issue", creatorId: "human-1" },
+  });
+
+  await controller.handleNotification({
+    action: "documentCommentMention",
+    notification: { documentId: "document-1", commentId: "comment-1", parentCommentId: "root-1", issueId: "shared-issue" },
+  });
+  await controller.handle({
+    action: "created",
+    appUserId: "agent-1",
+    agentSession: { id: "session-document-bridge", issueId: "shared-issue", creatorId: "human-1" },
+  });
+  for (let attempt = 0; attempt < 50 && runs.length < 2; attempt += 1) await Bun.sleep(2);
+
+  assert.equal(runs.length, 2);
+  assert.equal(runs[1]?.resumeConversationId, undefined, "a live sibling must never share its conversation with a concurrently-running turn");
+  assert.ok(runs[1]?.guidance?.some((entry) => entry.body?.includes("actively running")));
+});
+
 test("never resumes a conversation whose session is still actively running", async () => {
   const linear = {
     async downloadInputs() { return { inputs: [], skipped: [], totalBytes: 0 }; },
