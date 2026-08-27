@@ -971,44 +971,85 @@ export class AgentController {
       }
       this.notificationThreadSources.set(rootCommentId, commentId);
       let session: { id: string };
+      let bridgedViaIssue = false;
       try {
         session = await this.linear.createAgentSessionOnComment(rootCommentId);
       } catch (error) {
-        this.notificationThreadSources.delete(rootCommentId);
         const message = error instanceof Error ? error.message : String(error);
-        if (message.includes("comment must be on an issue") || message.includes("comment threads on issues")) {
-          const linkedIssueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
-          if (linkedIssueId) {
-            const question = payload.notification?.comment?.body?.trim();
-            await this.linear.createIssueComment(
-              linkedIssueId,
-              finalText([
-                "A mention on this issue's linked Document didn't reach me - Linear doesn't yet support Agent Sessions on Document comment threads.",
-                question ? `The question there was:\n> ${question}` : undefined,
-                "Ask here on the issue instead and I'll see it.",
-              ].filter((line): line is string => Boolean(line)).join("\n\n")),
-            ).catch((commentError: unknown) => {
-              console.warn("failed to post the Document-mention fallback comment", {
-                documentId,
-                linkedIssueId,
-                message: commentError instanceof Error ? commentError.message : String(commentError),
-              });
+        if (!message.includes("comment must be on an issue") && !message.includes("comment threads on issues")) {
+          this.notificationThreadSources.delete(rootCommentId);
+          throw error;
+        }
+        // GAB-28: Linear permanently rejects an Agent Session anchored directly on a Document
+        // comment thread. A genuine human @-mention here still needs to wake an agent, not
+        // just leave an apology - bridge onto the Document's linked issue instead, true for
+        // every issue-backed work-record Document this app creates. The notification doesn't
+        // reliably carry that linked issue id even when one exists (confirmed live on GAB-28:
+        // the Document had `issue.id` set, but the webhook payload didn't), so ask Linear
+        // directly rather than trusting the payload alone.
+        let linkedIssueId = payload.notification?.issueId ?? payload.notification?.issue?.id;
+        if (!linkedIssueId && documentId) {
+          try {
+            linkedIssueId = await this.linear.documentLinkedIssueId(documentId);
+          } catch (lookupError) {
+            console.warn("failed to resolve the Document's linked issue", {
+              documentId,
+              message: lookupError instanceof Error ? lookupError.message : String(lookupError),
+            });
+          }
+        }
+        if (!linkedIssueId) {
+          this.notificationThreadSources.delete(rootCommentId);
+          // No issue to bridge through - the only remaining human-visible option is a plain
+          // reply directly in the Document's own thread; that needs no Agent Session at all.
+          try {
+            await this.linear.replyToComment(
+              rootCommentId,
+              "Linear doesn't yet support Agent Sessions on Document comment threads, and this Document has no linked issue to bridge through. Mention me on an issue instead and I'll see it.",
+            );
+          } catch (replyError) {
+            console.warn("failed to post the Document-mention fallback reply", {
+              documentId,
+              message: replyError instanceof Error ? replyError.message : String(replyError),
             });
           }
           throw new PermanentWebhookDeliveryError(
-            "Linear currently rejects Agent Sessions on Document comment threads. The mention was quarantined without its private comment body; use an issue-backed Agent Session that links the Document until Linear supports this anchor.",
+            "Linear currently rejects Agent Sessions on Document comment threads, and this Document has no linked issue to bridge through. The mention was quarantined without its private comment body.",
           );
         }
-        throw error;
+        try {
+          session = await this.linear.createAgentSessionOnIssue(linkedIssueId);
+          bridgedViaIssue = true;
+        } catch (bridgeError) {
+          this.notificationThreadSources.delete(rootCommentId);
+          const question = payload.notification?.comment?.body?.trim();
+          await this.linear.createIssueComment(
+            linkedIssueId,
+            finalText([
+              "A mention on this issue's linked Document didn't reach me - Linear doesn't yet support Agent Sessions on Document comment threads, and starting one on the linked issue instead also failed.",
+              question ? `The question there was:\n> ${question}` : undefined,
+              "Ask here on the issue instead and I'll see it.",
+            ].filter((line): line is string => Boolean(line)).join("\n\n")),
+          ).catch((commentError: unknown) => {
+            console.warn("failed to post the Document-mention fallback comment", {
+              documentId,
+              linkedIssueId,
+              message: commentError instanceof Error ? commentError.message : String(commentError),
+            });
+          });
+          throw new PermanentWebhookDeliveryError(
+            "Linear currently rejects Agent Sessions on Document comment threads, and bridging through the Document's linked issue also failed. The mention was quarantined without its private comment body.",
+          );
+        }
       }
       if (this.notificationThreadSources.has(rootCommentId)) this.notificationSources.set(session.id, commentId);
       this.recordNotification(action, "agentSessionOwned");
-      console.info("Linear Document comment mention promoted to an Agent Session", {
-        documentId,
-        commentId,
-        rootCommentId,
-        agentSessionId: session.id,
-      });
+      console.info(
+        bridgedViaIssue
+          ? "Linear Document comment mention bridged through its linked issue to an Agent Session"
+          : "Linear Document comment mention promoted to an Agent Session",
+        { documentId, commentId, rootCommentId, agentSessionId: session.id },
+      );
       return;
     }
     if (action === "documentMention") {

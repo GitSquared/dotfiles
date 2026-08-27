@@ -3583,3 +3583,78 @@ sentence naming those surfaces directly, with an explicit exception for
 talking to another automated system rather than a human, matching
 Gaby's own framing ("NEVER post output publicly without explicit
 operator approval, EXCEPT when interacting with other robots").
+
+## GAB-28: the Document-mention "known limitation" gave up too early (2026-08-27)
+
+Gaby reported a live failure: he `@straylight`-mentioned a reply comment
+inside the GAB-27 report Document and got nothing back - no answer, no
+apology, no trace anywhere. `handleNotification`'s `documentCommentMention`
+branch has carried a documented, verified-live limitation since 2026-08-19
+(`agentSessionCreateOnComment` rejects with "comment must be on an issue"
+for any Document-anchored comment thread - confirmed again against Linear's
+current public schema before touching anything, not assumed stale). That
+part was never wrong. What was wrong: the fallback for that known failure
+only ever consulted `payload.notification.issueId`/`.issue.id`, and when
+neither was present it gave up and quarantined the webhook with **no
+human-visible trace at all** - not even the courtesy comment the code
+believed it was always capable of posting.
+
+Reproduced the exact live case via `manage_linear` against the real GAB-27
+issue and its Document: `document(id).issue.id` **was** populated (the
+Document is genuinely linked to GAB-27), but no fallback comment ever
+landed on GAB-27's own thread - proving the `documentCommentMention`
+webhook notification itself doesn't reliably carry that linked issue id
+even when Linear's own `Document.issue` field has it. The payload and the
+entity's real state disagree; trusting the payload alone was the actual
+bug, not the underlying platform limitation itself.
+
+**Fix, not just a better apology.** GAB-28 asked for real behavior:
+"agents should be woken up to answer these in thread, and be able to solve
+the conversation as well if relevant." Trusting the payload's `issueId`
+was never going to satisfy that even when it happened to be present - the
+old code only ever posted a "sorry, ask on the issue instead" comment, it
+never actually started an agent. Two changes:
+
+1. When the payload omits the linked issue id, ask Linear directly
+   (`document(id) { issue { id } }`) instead of giving up. Cheap, and it's
+   exactly the query that proved the live bug above.
+2. Once a linked issue is known (from the payload or the live lookup),
+   actually bridge a working Agent Session onto it via
+   `agentSessionCreateOnIssue` - the sibling mutation to
+   `agentSessionCreateOnComment`, which RESEARCH.md's 2026-08-24 API audit
+   already confirmed is the sanctioned bridge mechanism for exactly this
+   "Linear gives no native trigger for a Document mention" gap. This isn't
+   the proactive/unprompted session creation that audit correctly ruled
+   out keeping unused elsewhere - it's completing the same human-prompted
+   bridge already in production for the comment-anchored case, for the
+   sibling case where that anchor is rejected. The existing
+   `notificationThreadSources`/`notificationSources` plumbing and
+   `commentContext`/`linearDocumentReview` prompt rendering needed no
+   changes at all - they already carry the mentioned comment id and full
+   Document/thread context into the bridged session's task payload exactly
+   as they do for a successful comment-anchored session, once the session
+   id itself flows through correctly.
+
+Only when *both* the payload and the live lookup come up empty (a
+genuinely unlinked Document) does the code fall back to a plain reply
+posted directly into the Document's own thread (new `replyToComment`,
+parentId-only, no Agent Session required) - strictly better than the old
+behavior's total silence in that case, and than posting to an issue the
+human isn't watching in the case that's now actually fixable.
+
+Also strengthened `workspace/AGENTS.md`'s existing Document-mention
+guidance: it already said to use the generic comment reply/resolve
+operations "if more review context is needed," but didn't say the actual
+answer belongs back in the Document thread specifically. Made that
+explicit, since a bridged session's most natural instinct might otherwise
+be to just answer on the issue it landed on.
+
+**Tests**: replaced the two `notifications.test.ts` cases that encoded the
+old give-up-when-unlinked behavior with three that cover the real fix -
+live-lookup bridging succeeding, the double-failure fallback (bridge also
+fails), and the genuinely-unlinked reply-in-thread case - plus kept full
+coverage of the "not a Document-anchor rejection at all" passthrough.
+`bun run check` (212 pass/0 fail) and `bun run test:capsule` (40/40, after
+a plain `bun install` in `claude-capsule/` - a pre-existing, unrelated
+missing-`node_modules` gap in this fresh checkout, not something this fix
+touched) both green.

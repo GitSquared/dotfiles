@@ -689,6 +689,41 @@ export class LinearClient {
     return session;
   }
 
+  /**
+   * GAB-28: `agentSessionCreateOnComment` permanently rejects a comment whose thread lives on
+   * a Document ("comment must be on an issue"). When the mentioned Document links a real
+   * issue - true for every issue-backed work-record Document this app creates - the controller
+   * bridges the session onto that issue instead, so a genuine human @-mention in a Document
+   * thread still wakes an agent rather than only leaving an apology.
+   */
+  async createAgentSessionOnIssue(issueId: string): Promise<{ id: string }> {
+    const data = await this.graphql<{
+      agentSessionCreateOnIssue: { success: boolean; agentSession?: { id: string } | null };
+    }>(
+      `mutation CreateAgentSessionOnIssue($input: AgentSessionCreateOnIssue!) {
+        agentSessionCreateOnIssue(input: $input) { success agentSession { id } }
+      }`,
+      { input: { issueId } },
+    );
+    const session = data.agentSessionCreateOnIssue.agentSession;
+    if (!data.agentSessionCreateOnIssue.success || !session) throw new Error("Linear rejected Agent Session creation for the Document's linked issue");
+    return session;
+  }
+
+  /**
+   * The `documentCommentMention` notification doesn't reliably carry the Document's linked
+   * issue id even when one exists (confirmed live on GAB-28: `Document.issue` was populated,
+   * but the webhook payload wasn't) - query the Document directly rather than trusting the
+   * payload alone.
+   */
+  async documentLinkedIssueId(documentId: string): Promise<string | undefined> {
+    const data = await this.graphql<{ document?: { issue?: { id: string } | null } | null }>(
+      `query DocumentLinkedIssue($id: String!) { document(id: $id) { issue { id } } }`,
+      { id: documentId },
+    );
+    return data.document?.issue?.id ?? undefined;
+  }
+
   async createIssueComment(issueId: string, body: string): Promise<{ id: string; body: string }> {
     const data = await this.graphql<{
       commentCreate: { success: boolean; comment?: { id: string; body: string } | null };
@@ -700,6 +735,22 @@ export class LinearClient {
     );
     const comment = data.commentCreate.comment;
     if (!data.commentCreate.success || !comment) throw new Error("Linear rejected issue comment creation");
+    return comment;
+  }
+
+  // Generic reply usable on any comment thread, issue- or Document-anchored - unlike
+  // replyToIssueComment below, a Document thread has no issueId to pass alongside parentId.
+  async replyToComment(parentId: string, body: string): Promise<{ id: string; body: string }> {
+    const data = await this.graphql<{
+      commentCreate: { success: boolean; comment?: { id: string; body: string } | null };
+    }>(
+      `mutation ReplyToComment($input: CommentCreateInput!) {
+        commentCreate(input: $input) { success comment { id body } }
+      }`,
+      { input: { parentId, body } },
+    );
+    const comment = data.commentCreate.comment;
+    if (!data.commentCreate.success || !comment) throw new Error("Linear rejected comment reply creation");
     return comment;
   }
 

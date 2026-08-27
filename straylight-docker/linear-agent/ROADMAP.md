@@ -1820,3 +1820,58 @@ Claude's own judgment when a `git commit`/signing operation actually fails,
 per the existing `missingAccess` Steering convention. Nothing forwards an
 `ssh-agent` socket into task containers either; the stored private key file is
 read directly, matching how the GitHub OAuth token file already works there.
+
+## Slice 29 — bridge Document-comment mentions through their linked issue (GAB-28)
+
+Status: done, 2026-08-27.
+
+Origin: Gaby, GAB-28 - "I tried pinging straylight to answer a question on a
+document but it didn't work... Agents should be woken up to answer these in
+thread, and be able to solve the conversation as well if relevant."
+
+Slice 12's `documentCommentMention` handling already knew Linear permanently
+rejects `agentSessionCreateOnComment` for a Document-anchored comment thread,
+and posted an apology comment on the Document's linked issue when the webhook
+notification happened to carry that issue's id. Live on GAB-27's report
+Document, it carried neither: the notification lacked `issueId`/`issue.id`
+even though `Document.issue` itself was genuinely populated, so the mention
+went completely unanswered with no trace anywhere.
+
+**Change shipped:** when the comment-anchored mutation is rejected, the
+controller now (1) resolves the linked issue by querying `document(id) {
+issue { id } }` directly when the notification omits it, then (2) actually
+bridges a working Agent Session onto that issue via `agentSessionCreateOnIssue`
+- the sibling mutation to the comment-anchored one, and the same kind of
+human-prompted bridge already sanctioned for the comment case - rather than
+only leaving an apology. The existing `notificationThreadSources`/
+`notificationSources` plumbing and `linearDocumentReview` prompt context
+needed no changes to carry the mentioned comment and full Document thread
+into the bridged session. Only when no linked issue exists at all (neither in
+the payload nor live) does it fall back to a plain reply posted directly into
+the Document's own thread - strictly better than the old total silence in
+that genuinely unlinked case.
+
+`workspace/AGENTS.md`'s Document-mention guidance now says explicitly that
+the answer belongs back in the Document thread itself (`manage_linear`
+comment `reply`, resolving once answered), not just wherever the bridged
+session happens to land.
+
+Implementation notes:
+
+- `LinearClient` gained `createAgentSessionOnIssue`, `documentLinkedIssueId`,
+  and a generic parentId-only `replyToComment` (Document threads have no
+  issueId to pass, unlike `replyToIssueComment`).
+- `test/notifications.test.ts`: replaced the two cases that encoded the old
+  give-up-when-unlinked behavior with three covering the real fix - live
+  bridging when the payload omits the issue id, the double-failure fallback
+  (bridge itself also rejected), and the genuinely-unlinked reply-in-thread
+  case.
+
+Acceptance:
+
+1. Mention Straylight in a reply on an issue-linked Document's comment
+   thread; confirm a real Agent Session starts with the full Document/thread
+   context, and the answer lands as a reply in that same Document thread.
+2. Mention Straylight on a Document with no linked issue at all; confirm a
+   plain explanatory reply lands directly in that Document's own thread
+   instead of silence.
