@@ -1875,3 +1875,57 @@ Acceptance:
 2. Mention Straylight on a Document with no linked issue at all; confirm a
    plain explanatory reply lands directly in that Document's own thread
    instead of silence.
+
+## Slice 30 — casual replies stay casual, not every turn needs a QA card (GAB-30)
+
+Status: done, 2026-08-27.
+
+Origin: Gaby, GAB-30 - "Let's do a wide pass over different messages and
+interactions the agents can send and review them for brevity and clarity,
+rather than procedure and boilerplate." Concrete example: on GAB-28's Document
+thread, a simple yes/no question about the report's scope got a full "QA
+needed" report card back instead of a casual "yes, that was already included."
+
+**Root cause:** `src/prompts.ts` and `workspace/AGENTS.md` told the model that
+"the engineer owns task completion" and "hand apparently finished work to QA"
+without ever scoping that to work that actually produces something to
+approve. Once Slice 29 bridged a Document-comment mention onto a real Agent
+Session, that whole completion-lifecycle framing applied uniformly, so a
+plain answered question got dressed up as though it were a finished feature
+awaiting review - manufacturing a title, an action line, and (where possible)
+evidence for a reply that had none to give.
+
+**Change shipped:** both prompt surfaces now say explicitly that Signal,
+Steering, and QA exist to close out *delegated work with a deliverable* - a
+code change, an artifact, a decision to approve - not to formalize every
+turn. A plain question or discussion with nothing to approve and no blocker
+gets a direct, casual reply (a comment, a Document-thread reply, or a
+`linear_activity` response) in the same register as the question, and the
+turn simply ends there without inventing a QA card or evidence for it. A new
+leading instruction sets the general tone: state the answer or the ask first,
+skip headers and status templates, and reach for structure only when a real
+decision or deliverable is behind it.
+
+Implementation notes:
+
+- `src/prompts.ts`'s `claudeInitialPrompt`: one new tone-setting bullet near
+  the top, plus scoping sentences appended to the existing request_attention
+  and task-completion bullets (no line removed, so every prior regression
+  assertion in `test/behavior.test.ts` still matches).
+- `workspace/AGENTS.md`: the same tone note near the top, an extra sentence on
+  the Document-comment-mention bullet (the exact GAB-28/30 scenario), and a
+  matching addition to the Authority section's `request_attention` bullet.
+- `test/behavior.test.ts`: four new assertions on `"builds a
+  repository-aware initial prompt"` covering the new casual-tone and
+  not-delegated-work language.
+- `renderAttentionComment`/`renderElicitationSummary` in `src/attention.ts`
+  were left unchanged - they were already compact (heading, title, action,
+  evidence); the actual problem was invoking them at all for a plain answer,
+  not their own verbosity.
+
+Acceptance:
+
+1. `bun run check` (typecheck + full test suite) passes.
+2. Ask Straylight a plain yes/no question on a Document thread or issue
+   comment with nothing to approve; confirm it answers directly in that
+   thread/comment and the turn ends there, with no Steering/QA elicitation.
