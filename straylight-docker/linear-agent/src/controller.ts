@@ -831,27 +831,81 @@ export class AgentController {
       return;
     }
     if (payload.action === "created" && state.issueId) {
-      const sibling = this.findActiveSiblingSession(sessionId, state.issueId);
+      const sibling = this.findActiveSibling(sessionId, state.issueId);
       if (sibling) {
-        payload.guidance = [
-          ...(payload.guidance ?? []),
-          {
-            body: `This issue already has another Straylight Agent Session that is ${sibling}. This new mention may be about that same ongoing work rather than a separate task - check before assuming it's unrelated, and avoid duplicating effort already in progress there.`,
-          },
-        ];
+        // GAB-32: an issue with a genuinely mid-turn (or paused-on-attention) sibling must
+        // never get a second independent Claude Code run started underneath it - that's
+        // exactly "two agents at once on the same task", the failure mode this closes. Route
+        // this new mention's content into the sibling instead of starting this session's own
+        // run at all.
+        await this.mergeIntoActiveSibling(sessionId, payload, sibling);
+        return;
       }
     }
     await this.start(sessionId, payload, state);
   }
 
-  private findActiveSiblingSession(sessionId: string, issueId: string): string | undefined {
+  private findActiveSibling(sessionId: string, issueId: string): { sessionId: string; state: SessionState; status: string } | undefined {
     for (const [otherId, other] of this.states) {
       if (otherId === sessionId || other.issueId !== issueId) continue;
-      if (other.attention.length) return "paused, awaiting a Steering/QA reply";
-      if (other.running) return "actively running";
-      if (other.awaitingInput) return "awaiting input";
+      if (other.attention.length) return { sessionId: otherId, state: other, status: "paused, awaiting a Steering/QA reply" };
+      if (other.running) return { sessionId: otherId, state: other, status: "actively running" };
+      if (other.awaitingInput) return { sessionId: otherId, state: other, status: "awaiting input" };
     }
     return undefined;
+  }
+
+  /**
+   * GAB-32: Linear spawns a brand-new AgentSession for every fresh @-mention, even one that
+   * lands on an issue whose earlier session is still mid-turn or paused on a blocking
+   * Steering/QA reply - "tag the bot with more context for the ongoing work" and "start an
+   * unrelated new task" are indistinguishable from Linear's side. Starting this new session's
+   * own Claude Code run in that situation is exactly "two agents running at once on the same
+   * task": both would edit the same worktree, both could open pull requests, and only one of
+   * them is the conversation a human replying later actually expects to continue. So a
+   * "created" session with an active sibling never calls start() - it forwards its content
+   * into the sibling instead (a live inject via followUp while mid-turn, the same mechanic the
+   * same-session queued-follow-up path above already uses; queued behind the sibling's own
+   * `pending` slot otherwise, drained by execute()'s existing tail once that session is next
+   * free - identical to how a same-session follow-up queued mid-turn already resolves today)
+   * and closes this session out with a plain response rather than leaving it open forever with
+   * nothing further to say.
+   *
+   * Known limitation shared with the same-session queuing this reuses: `pending` is a single
+   * slot, not a queue - a second merge (or same-session follow-up) landing before an earlier
+   * queued one drains overwrites it. Narrow and pre-existing, not new here.
+   */
+  private async mergeIntoActiveSibling(
+    sessionId: string,
+    payload: AgentSessionWebhook,
+    sibling: { sessionId: string; state: SessionState; status: string },
+  ): Promise<void> {
+    const siblingState = sibling.state;
+    let live = false;
+    if (siblingState.running) {
+      // Only fetch this now, not on the queued path below - a queued payload is re-run
+      // through the normal execute() -> prepareLinearInputs() path once it's picked up, so
+      // downloading and reporting inputs here too would just duplicate that activity.
+      const inputs = await this.prepareLinearInputs(sibling.sessionId, payload);
+      live = await this.runner.followUp(sibling.sessionId, claudeFollowUpPrompt(payload), inputs);
+    }
+    if (live) {
+      siblingState.active = payload;
+    } else {
+      siblingState.pending = payload;
+    }
+    this.touch(siblingState);
+    await this.persist();
+    await this.enqueueActivity(sibling.sessionId, () => this.linear.createActivity(sibling.sessionId, {
+      type: "thought",
+      body: live
+        ? "A new mention landed on this issue while this session was already active; merged it into the current turn instead of starting a duplicate run."
+        : "A new mention landed on this issue while this session was busy or paused; it's queued and will run once this session is free.",
+    }).catch(() => undefined));
+    await this.enqueueActivity(sessionId, () => this.linear.createActivity(sessionId, {
+      type: "response",
+      body: `This issue already has another Straylight Agent Session that is ${sibling.status}. Rather than start a second, duplicate run, this message has been forwarded there ${live ? "and is being handled now" : "and will run once that session is free"} - no separate response will come from this session.`,
+    }).catch(() => undefined));
   }
 
   /**
