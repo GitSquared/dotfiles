@@ -32,6 +32,7 @@ fish_vi_key_bindings
 # Aliases
 
 alias ls='eza -l --git --group-directories-first --time-style=iso --icons -- '
+alias lsa='eza -al --git --group-directories-first --time-style=iso --icons -- '
 alias tree='eza -T --git-ignore -I "**/node_modules" --icons --group-directories-first -- '
 alias cat='bat'
 alias lg='lazygit'
