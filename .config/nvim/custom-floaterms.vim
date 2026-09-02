@@ -6,7 +6,7 @@ function! CustomTermToggle(cmd)
 	if a:cmd == g:floaterm_shell && g:floaterm_shell_opened == 1
 		exe 'FloatermToggle '.a:cmd
 	else
-		exe 'FloatermNew --autoclose=2 --height=0.8 --width=0.8 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
+		exe 'FloatermNew --autoclose=smart --height=0.8 --width=0.8 --name='.a:cmd.' --title='.a:cmd.' '.a:cmd
 	endif
 endfunction
 
