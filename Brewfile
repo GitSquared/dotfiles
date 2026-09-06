@@ -31,6 +31,8 @@ brew "chafa"
 brew "cloud-sql-proxy"
 # Console Matrix
 brew "cmatrix"
+# Create and run Linux containers using lightweight virtual machines
+brew "container"
 # Minimal, fast alternative to 'du -sh'
 brew "diskus"
 # More intuitive version of du in rust
@@ -85,6 +87,8 @@ brew "libtool"
 brew "imagemagick"
 # Lightweight and flexible command-line JSON processor
 brew "jq"
+# Handy way to save and run project-specific commands
+brew "just"
 # Simple terminal UI for git commands
 brew "lazygit"
 # Portable Foreign Function Interface library
@@ -144,8 +148,8 @@ brew "tree-sitter-cli"
 brew "uv"
 # Executes a program periodically, showing output fullscreen
 brew "watch"
-# Watch files and take action when they change
-brew "watchman"
+# Execute commands when watched files change
+brew "watchexec"
 # Internet file retriever
 brew "wget"
 # HTTP benchmarking tool

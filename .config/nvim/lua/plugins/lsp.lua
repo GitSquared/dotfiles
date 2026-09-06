@@ -95,7 +95,18 @@ return {
 				yamlls = {},
 				gh_actions_ls = {},
 				terraformls = {},
-				rust_analyzer = {},
+				rust_analyzer = {
+					settings = {
+						['rust-analyzer'] = {
+							checkOnSave = true,
+							check = {
+								command = "clippy", -- use clippy instead of `cargo check`
+								extraArgs = { "--no-deps" }, -- skip linting dependencies
+								extraEnv = { CARGO_TARGET_DIR = "target/rust-analyzer" },
+							},
+						}
+					}
+				},
 				pylsp = {
 					settings = {
 						pylsp = {
@@ -147,10 +158,10 @@ return {
 				local cursor = vim.api.nvim_win_get_cursor(0)
 				local previous = ts_hover_state[bufnr]
 				local continuing = previous
-					and previous.row == cursor[1]
-					and previous.col == cursor[2]
-					and previous.winid
-					and vim.api.nvim_win_is_valid(previous.winid)
+					 and previous.row == cursor[1]
+					 and previous.col == cursor[2]
+					 and previous.winid
+					 and vim.api.nvim_win_is_valid(previous.winid)
 				local level
 
 				if vim.v.count > 0 then
