@@ -103,7 +103,7 @@
     }
   },
   "syntaxHighlightingDisabled": false,
-  "advisorModel": "opus",
+  "advisorModel": "fable",
   "tui": "fullscreen",
   "skipWorkflowUsageWarning": true,
   "editorMode": "vim",

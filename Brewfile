@@ -3,8 +3,6 @@ tap "hashicorp/tap", trusted: true
 tap "nikitabobko/tap", trusted: true
 tap "oven-sh/bun", trusted: true
 tap "theboredteam/boring-notch", "https://github.com/TheBoredTeam/homebrew-boring-notch", trusted: true
-# Static checker for GitHub Actions workflow files
-brew "actionlint"
 # Terminal bandwidth utilization tool
 brew "bandwhich"
 # GNU internationalization (i18n) and localization (l10n) library
@@ -45,8 +43,6 @@ brew "fd"
 brew "ffmpeg"
 # User-friendly command-line shell for UNIX-like operating systems
 brew "fish"
-# Plugin manager for the Fish shell
-brew "fisher"
 # Infamous electronic fortune-cookie generator
 brew "fortune"
 # Terminal JSON viewer
@@ -55,10 +51,6 @@ brew "fx"
 brew "fzf"
 # GNU compiler collection
 brew "gcc"
-# YAML Parser
-brew "libyaml"
-# Scanner for secrets and sensitive data in code
-brew "ggshield"
 # GitHub command-line tool
 brew "gh"
 # Distributed revision control system
@@ -95,6 +87,8 @@ brew "lazygit"
 brew "libffi"
 # Postgres C API library
 brew "libpq"
+# YAML Parser
+brew "libyaml"
 # Powerful, lightweight programming language
 brew "lua"
 # Run multiple commands in parallel
