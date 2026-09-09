@@ -29,6 +29,13 @@ fish_config theme choose catppuccin-mocha
 # Prompt config
 fish_vi_key_bindings
 
+# Keep the cursor blinking in every vi mode (fish's vi-cursor hook otherwise
+# re-asserts a steady shape on every prompt/mode change, overriding terminal config)
+set -g fish_cursor_default block blink
+set -g fish_cursor_insert line blink
+set -g fish_cursor_replace_one underscore blink
+set -g fish_cursor_visual block blink
+
 # Aliases
 
 alias ls='eza -l --git --group-directories-first --time-style=iso --icons -- '
