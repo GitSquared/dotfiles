@@ -3,6 +3,8 @@ tap "hashicorp/tap", trusted: true
 tap "nikitabobko/tap", trusted: true
 tap "oven-sh/bun", trusted: true
 tap "theboredteam/boring-notch", "https://github.com/TheBoredTeam/homebrew-boring-notch", trusted: true
+# Static checker for GitHub Actions workflow files
+brew "actionlint"
 # Terminal bandwidth utilization tool
 brew "bandwhich"
 # GNU internationalization (i18n) and localization (l10n) library
@@ -126,8 +128,6 @@ brew "pyenv"
 brew "rbenv"
 # Search tool like grep and The Silver Searcher
 brew "ripgrep"
-# CLI proxy to minimize LLM token consumption
-brew "rtk"
 # Safe, concurrent, practical language
 brew "rust"
 # Intuitive find & replace CLI
@@ -166,7 +166,7 @@ cask "1password-cli"
 cask "beeper"
 # Virtual Audio Driver
 cask "blackhole-2ch"
-# Not so boring notch That Rocks 🎸🎶 
+# Not so boring notch That Rocks
 cask "theboredteam/boring-notch/boring-notch"
 # App to build and share containerised applications and microservices
 cask "docker-desktop"
