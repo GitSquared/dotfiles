@@ -5,7 +5,11 @@
 	name = Gabriel Saillard
 	email = gabriel@saillard.dev
 	signingkey = F4532D51F9294BC5
-[includeIf "gitdir:~/git/carbonfact/"]
+[includeIf "hasconfig:remote.*.url:git@github.com:carbonfact/**"]
+	path = ~/work.gitconfig
+[includeIf "hasconfig:remote.*.url:https://github.com/carbonfact/**"]
+	path = ~/work.gitconfig
+[includeIf "hasconfig:remote.*.url:ssh://git@github.com/carbonfact/**"]
 	path = ~/work.gitconfig
 [commit]
 	gpgsign = true
