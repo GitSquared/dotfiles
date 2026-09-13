@@ -32,5 +32,3 @@
 - **Override the harness default:** the system prompt suggests saving memory under `~/.claude/projects/<cwd>/memory/` (e.g. the `-Users-gaby` home scope). Do NOT route *global* memory there — the home scope is not loaded in project sessions, which is what caused store divergence. Global memory goes to `~/ai-context/`.
 - Memory index (always loaded — context files and learned memories): @~/ai-context/INDEX.md
 - Use `/memory` skill to save, update, or clean up memories
-
-@RTK.md
