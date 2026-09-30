@@ -1,6 +1,7 @@
 [misc]
 # Keep OS updates, repository changes, and container images outside tool maintenance.
-disable = ["system", "git_repos", "yadm", "containers"]
+disable = ["system", "git_repos", "yadm", "containers", "gem", "ruby_gems"]
+ask_retry = false
 notify_end = "on_failure"
 
 [brew]

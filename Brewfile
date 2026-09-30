@@ -85,6 +85,8 @@ brew "jq"
 brew "just"
 # Simple terminal UI for git commands
 brew "lazygit"
+# BLAKE2 library required by existing pyenv Python builds
+brew "libb2"
 # Portable Foreign Function Interface library
 brew "libffi"
 # Postgres C API library
