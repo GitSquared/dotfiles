@@ -1,0 +1,23 @@
+#!/bin/sh
+# Keep an interactive terminal and a transcript without recording hidden input.
+umask 077
+state="$HOME/.local/state/topgrade"
+mkdir -p "$state/logs"
+lock="$state/running"
+if ! mkdir "$lock" 2>/dev/null; then
+    printf 'Another upgrade may be running. Lock: %s\n' "$lock"
+    exit 1
+fi
+trap 'rmdir "$lock" 2>/dev/null' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+log="$state/logs/$(date +%Y-%m-%d_%H-%M-%S)-$$.log"
+printf 'Upgrade transcript: %s\n\n' "$log"
+/usr/bin/script -q "$log" /opt/homebrew/bin/fish -lc 'command topgrade --yes brew_formula brew_cask $argv' -- "$@"
+result=$?
+rmdir "$lock"
+trap - EXIT
+printf '\nTopgrade exited with status %s. Log: %s\n' "$result" "$log"
+printf 'Press Return to close this window.'
+read -r reply
+exit "$result"
