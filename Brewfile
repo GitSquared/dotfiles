@@ -93,8 +93,6 @@ brew "libpq"
 brew "libyaml"
 # Powerful, lightweight programming language
 brew "lua"
-# Run multiple commands in parallel
-brew "mprocs"
 # NCurses Disk Usage
 brew "ncdu"
 # Ambitious Vim-fork focused on extensibility and agility
@@ -136,6 +134,8 @@ brew "sd"
 brew "tdf"
 # Code-search similar to ack
 brew "the_silver_searcher"
+# Upgrade all the things
+brew "topgrade"
 # Parser generator tool
 brew "tree-sitter-cli"
 # Extremely fast Python package installer and resolver, written in Rust
