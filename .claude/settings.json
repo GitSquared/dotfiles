@@ -35,7 +35,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"/Users/gaby/.claude/hooks/context-mode-cache-heal.mjs\""
+            "command": "python3 \"/Users/gaby/.claude/hooks/session-status.py\" start",
+            "timeout": 10
           }
         ]
       }
@@ -45,15 +46,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"/Users/gaby/.claude/hooks/deferral-gate.py\"",
+            "command": "python3 \"/Users/gaby/.claude/hooks/session-status.py\" stop",
             "timeout": 15,
-            "statusMessage": "Checking for unowned deferrals"
-          },
-          {
-            "type": "command",
-            "command": "python3 \"/Users/gaby/.claude/hooks/attention-gate.py\"",
-            "timeout": 15,
-            "statusMessage": "Checking attention contract"
+            "statusMessage": "Checking session status page"
           }
         ]
       }
@@ -91,5 +86,6 @@
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false
+  "voiceEnabled": false,
+  "outputStyle": "Concise"
 }

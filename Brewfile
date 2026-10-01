@@ -85,7 +85,7 @@ brew "jq"
 brew "just"
 # Simple terminal UI for git commands
 brew "lazygit"
-# BLAKE2 library required by existing pyenv Python builds
+# Secure hashing function
 brew "libb2"
 # Portable Foreign Function Interface library
 brew "libffi"
@@ -103,8 +103,6 @@ brew "neovim"
 brew "nmap"
 # Open-source, cross-platform JavaScript runtime environment
 brew "node"
-# Development kit for the Java programming language
-brew "openjdk"
 # Command-line tool to generate, analyze, convert and manipulate colors
 brew "pastel"
 # AI agent toolkit
@@ -196,14 +194,14 @@ cask "stats"
 cask "steam"
 # Mesh VPN based on WireGuard
 cask "tailscale-app"
+# Menu bar manager
+cask "thaw"
 # Open-source BitTorrent client
 cask "transmission"
 # Multimedia player
 cask "vlc"
 # Network protocol analyzer
 cask "wireshark-app"
-npm "@sentry/cli"
-npm "eas-cli"
 npm "neovim"
 npm "npm-check-updates"
 npm "skills"

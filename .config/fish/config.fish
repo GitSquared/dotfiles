@@ -18,10 +18,10 @@ zoxide init fish | source
 fish_add_path /opt/homebrew/bin
 fish_add_path ~/.cargo/bin
 fish_add_path ~/.local/bin
+fish_add_path ~/.bun/bin
 set -x ANDROID_SDK_ROOT $HOME/Library/Android/sdk
 fish_add_path $ANDROID_SDK_ROOT/emulator
 fish_add_path $ANDROID_SDK_ROOT/platform-tools
-fish_add_path /opt/homebrew/opt/openjdk/bin
 
 # Default ENV
 set -x EDITOR nvim
@@ -66,6 +66,11 @@ if [ -f '/opt/homebrew/share/google-cloud-sdk/path.fish.inc' ]; . '/opt/homebrew
 # aikido-endpoint-cert-config-start
 # Allow Node.js tooling to trust the SafeChain MITM CA while preserving public roots.
 set -gx NODE_EXTRA_CA_CERTS "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-node-combined-ca.pem"
+if string match -q -- '*--use-openssl-ca*' "$NODE_OPTIONS"
+  set -e NODE_USE_SYSTEM_CA
+else
+  set -gx NODE_USE_SYSTEM_CA 1
+end
 # aikido-endpoint-cert-config-end
 # aikido-endpoint-pip-cert-config-start
 # Allow Python package managers to trust the SafeChain MITM CA while preserving user-provided roots.
@@ -83,4 +88,3 @@ set -gx BUNDLE_SSL_CA_CERT "/Library/Application Support/AikidoSecurity/Endpoint
 set -gx SSL_CERT_FILE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
 set -gx CURL_CA_BUNDLE "/Library/Application Support/AikidoSecurity/EndpointProtection/run/endpoint-protection-openssl-combined-ca.pem"
 # aikido-endpoint-curl-cert-config-v2-end
-source /Users/gaby/.safe-chain/scripts/init-fish.fish # Safe-chain Fish initialization script
