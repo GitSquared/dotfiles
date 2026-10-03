@@ -1,0 +1,49 @@
+{
+  "enabled": true,
+  "registerToolOverrides": {
+    "read": true,
+    "grep": true,
+    "find": true,
+    "ls": true,
+    "bash": false,
+    "edit": true,
+    "write": true
+  },
+  "customToolOverrides": {
+    "web_search": {
+      "enabled": true,
+      "kind": "generic",
+      "outputMode": "hidden"
+    },
+    "fetch_content": {
+      "enabled": true,
+      "kind": "generic",
+      "outputMode": "hidden"
+    },
+    "source_check": {
+      "enabled": true,
+      "kind": "generic",
+      "outputMode": "hidden"
+    },
+    "get_search_content": {
+      "enabled": true,
+      "kind": "generic",
+      "outputMode": "hidden"
+    }
+  },
+  "enableNativeUserMessageBox": false,
+  "readOutputMode": "hidden",
+  "searchOutputMode": "hidden",
+  "mcpOutputMode": "hidden",
+  "previewLines": 4,
+  "expandedPreviewMaxLines": 4000,
+  "bashOutputMode": "summary",
+  "bashCollapsedLines": 5,
+  "diffViewMode": "auto",
+  "diffIndicatorMode": "bars",
+  "diffSplitMinWidth": 120,
+  "diffCollapsedLines": 24,
+  "diffWordWrap": true,
+  "showTruncationHints": false,
+  "showRtkCompactionHints": false
+}
