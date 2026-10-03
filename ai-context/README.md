@@ -1,6 +1,6 @@
 # ai-context
 
-Personal knowledge base and memory system for AI coding agents (Claude Code, etc.).
+Personal knowledge base and memory system for AI coding agents.
 
 This directory is the single source of truth for persistent context that should be available across all projects and conversations.
 
@@ -94,25 +94,16 @@ qmd get qmd://ai-context/memories/feedback/rejection-emails.md
 qmd update && qmd embed
 ```
 
-### MCP server
-
-QMD exposes an MCP server for direct agent integration:
-
-```bash
-qmd mcp  # stdio transport — plug into Claude Code or other MCP-compatible agents
-```
-
 A QMD skill is installed at `~/.claude/skills/qmd` (symlinked from `~/.agents/skills/qmd`).
 
 ## Adding to other agents
 
-To give another AI agent access to this context:
+Agents should use the **QMD CLI** for on-demand search—do not set up a separate agent integration. Give the agent shell access and tell it to:
 
-1. **Direct file reading** — Point the agent at `~/ai-context/INDEX.md` as its entry point. It lists all context files and memories with descriptions, so the agent can read specific files on demand.
-
-2. **QMD MCP server** — If the agent supports MCP, run `qmd mcp` and connect it. The agent gets `query`, `get`, `multi_get`, and `status` tools for semantic search over the knowledge base.
-
-3. **QMD CLI** — For agents that can run shell commands, `qmd query "..." --json` returns structured results.
+1. Read `~/ai-context/INDEX.md` as the overview and routing guide.
+2. Search relevant memories with `qmd query "your question" -c ai-context` (hybrid semantic search) or `qmd search "keywords" -c ai-context` (fast keyword search).
+3. Read useful results with `qmd get qmd://ai-context/path/to/file.md`.
+4. If QMD is not installed or the collection is missing, follow the setup below.
 
 ### Minimal setup for a new agent
 
@@ -120,16 +111,16 @@ To give another AI agent access to this context:
 # 1. Install qmd
 bun install -g @tobilu/qmd
 
-# 2. Verify the collection exists
+# 2. Check the index and collection
 qmd status
 
-# 3. If not, set it up
+# 3. If the ai-context collection is missing, register it
 qmd collection add ~/ai-context --name ai-context --mask "**/*.md"
-qmd context add qmd://ai-context "Personal knowledge base for AI agent memory"
+qmd context add qmd://ai-context/ "Personal knowledge base for AI agent memory"
 qmd embed
 
-# 4. Point the agent's system prompt at ~/ai-context/INDEX.md
-#    or connect it to `qmd mcp` via MCP
+# 4. Tell the agent to read ~/ai-context/INDEX.md and use the QMD CLI
+#    for relevant on-demand retrieval (see instructions above)
 ```
 
 ## Maintenance
