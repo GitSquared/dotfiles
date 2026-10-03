@@ -71,7 +71,7 @@ qmd status
 
 # If starting fresh, register the collection:
 qmd collection add ~/ai-context --name ai-context --mask "**/*.md"
-qmd context add qmd://ai-context "Personal knowledge base for AI agent memory"
+qmd context add qmd://ai-context/ "Personal knowledge base for AI agent memory"
 qmd embed
 ```
 
