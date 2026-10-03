@@ -1,0 +1,34 @@
+{
+	"lastChangelogVersion": "1.0.0",
+	"theme": "catppuccin-tui-mocha",
+	"defaultProvider": "vercel-ai-gateway",
+	"defaultModel": "deepseek/deepseek-v4.1-flash",
+	"defaultThinkingLevel": "medium",
+	"packages": [
+		"npm:pi-web-access",
+		"npm:pi-tool-display",
+		"npm:pi-vim",
+		{
+			"source": "npm:pi-catppuccin-tui",
+			"extensions": []
+		}
+	],
+	"terminal": {
+		"showTerminalProgress": true
+	},
+	"steeringMode": "all",
+	"followUpMode": "all",
+	"hideThinkingBlock": true,
+	"collapseChangelog": true,
+	"markdown": {
+		"mermaid": "streaming"
+	},
+	"doubleEscapeAction": "tree",
+	"enabledModels": [
+		"vercel-ai-gateway/deepseek/deepseek-v4.1-flash",
+		"vercel-ai-gateway/moonshotai/kimi-k3",
+		"openai-codex/gpt-6-luna",
+		"openai-codex/gpt-6-sol",
+		"openai-codex/gpt-6-astra"
+	]
+}
