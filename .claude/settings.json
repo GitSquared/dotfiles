@@ -63,11 +63,11 @@
     "code-simplifier@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,
-    "typescript-lsp@claude-plugins-official": true,
     "carbonfact-common@carbonfact-plugins": true,
     "carbonfact-cops@carbonfact-plugins": false,
     "carbonfact-eng@carbonfact-plugins": true,
-    "aikido@claude-plugins-official": true
+    "aikido@claude-plugins-official": true,
+    "carbonfact-science@carbonfact-plugins": false
   },
   "extraKnownMarketplaces": {
     "carbonfact-plugins": {
@@ -78,6 +78,7 @@
       "autoUpdate": true
     }
   },
+  "outputStyle": "Concise",
   "syntaxHighlightingDisabled": false,
   "advisorModel": "fable",
   "tui": "fullscreen",
@@ -86,6 +87,5 @@
   "remoteControlAtStartup": true,
   "agentPushNotifEnabled": true,
   "skipAutoPermissionPrompt": true,
-  "voiceEnabled": false,
-  "outputStyle": "Concise"
+  "voiceEnabled": false
 }

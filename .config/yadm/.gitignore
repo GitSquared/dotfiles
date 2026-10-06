@@ -6,3 +6,4 @@ ai-context/INDEX.md
 
 # Claude Code: per-project memory (sensitive, ephemeral)
 .claude/projects/
+/.config/nvim/lazy-lock.json
