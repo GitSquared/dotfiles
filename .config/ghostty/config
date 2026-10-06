@@ -1,6 +1,6 @@
 auto-update = check
 
-theme = Catppuccin Mocha
+theme = monokai-pro-spectrum
 
 #background-blur-radius = 20
 #background-opacity = 0.75

@@ -1,6 +1,6 @@
 {
 	"lastChangelogVersion": "1.0.0",
-	"theme": "catppuccin-tui-mocha",
+	"theme": "monokai-pro-spectrum",
 	"defaultProvider": "vercel-ai-gateway",
 	"defaultModel": "deepseek/deepseek-v4.1-flash",
 	"defaultThinkingLevel": "medium",

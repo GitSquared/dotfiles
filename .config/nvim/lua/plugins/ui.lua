@@ -1,69 +1,16 @@
 return {
 	{
-		'catppuccin/nvim',
-		name = 'catppuccin',
+		'loctvl842/monokai-pro.nvim',
+		lazy = false,
 		priority = 1000,
-		config = function()
-			require('catppuccin').setup({
-				flavour = "mocha", -- latte, frappe, macchiato, mocha
-				background = { -- :h background
-					light = "latte",
-					dark = "mocha",
-				},
-				transparent_background = true, -- disables setting the background color.
-				float = {
-					transparent = false, -- enable transparent floating windows
-					solid = false,      -- use solid styling for floating windows, see |winborder|
-				},
-				term_colors = true,    -- sets terminal colors (e.g. `g:terminal_color_0`)
-				dim_inactive = {
-					enabled = false,    -- dims the background color of inactive window
-					shade = "dark",
-					percentage = 0.15,  -- percentage of the shade to apply to the inactive window
-				},
-				no_italic = false,     -- Force no italic
-				no_bold = false,       -- Force no bold
-				no_underline = false,  -- Force no underline
-				styles = {             -- Handles the styles of general hi groups (see `:h highlight-args`):
-					comments = { "italic" }, -- Change the style of comments
-					conditionals = { "italic" },
-					loops = {},
-					functions = {},
-					keywords = {},
-					strings = {},
-					variables = {},
-					numbers = {},
-					booleans = {},
-					properties = {},
-					types = {},
-					operators = {},
-					-- miscs = {}, -- Uncomment to turn off hard-coded styles
-				},
-				lsp_styles = { -- Handles the style of specific lsp hl groups (see `:h lsp-highlight`).
-					virtual_text = {
-						errors = { "italic" },
-						hints = { "italic" },
-						warnings = { "italic" },
-						information = { "italic" },
-						ok = { "italic" },
-					},
-					underlines = {
-						errors = { "underline" },
-						hints = { "underline" },
-						warnings = { "underline" },
-						information = { "underline" },
-						ok = { "underline" },
-					},
-					inlay_hints = {
-						background = true,
-					},
-				},
-				color_overrides = {},
-				custom_highlights = {},
-				default_integrations = true,
-				auto_integrations = true,
-			})
-			vim.cmd('colorscheme catppuccin-nvim')
+		opts = {
+			filter = 'spectrum',
+			transparent_background = false,
+			terminal_colors = true,
+		},
+		config = function(_, opts)
+			require('monokai-pro').setup(opts)
+			vim.cmd.colorscheme('monokai-pro-spectrum')
 		end,
 	},
 
@@ -135,6 +82,7 @@ return {
 			require('lualine').setup({
 				options = {
 					icons_enabled = true,
+					theme = 'monokai-pro',
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '', right = '' },
 				},
@@ -157,7 +105,7 @@ return {
 							return msg
 						end,
 						cond = require('noice').api.statusline.mode.has,
-						color = { fg = '#E6E1CF' },
+						color = { fg = '#f7f1ff' },
 					}, 'copilot', 'diagnostics' },
 					lualine_y = { 'filetype' },
 					lualine_z = { { 'location', separator = { right = '' }, left_padding = 2 } },
@@ -237,14 +185,14 @@ return {
 			require('modes').setup({
 				colors = {
 					bg = 'NONE',
-					copy = '#E6C384',
-					delete = '#E46876',
-					change = '#FFA066',
-					format = '#E6C384',
-					insert = '#98BB6C',
-					replace = '#98BB6C',
-					select = '#957FB8',
-					visual = '#957FB8',
+					copy = '#fce566',
+					delete = '#fc618d',
+					change = '#fd9353',
+					format = '#fce566',
+					insert = '#7bd88f',
+					replace = '#7bd88f',
+					select = '#948ae3',
+					visual = '#948ae3',
 				},
 				set_cursor = true,
 				set_cursorline = true,

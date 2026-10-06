@@ -1,0 +1,28 @@
+# Monokai Pro Spectrum
+fish_color_normal f7f1ff
+fish_color_command 7bd88f
+fish_color_param f7f1ff
+fish_color_quote fce566
+fish_color_redirection fd9353
+fish_color_end fc618d
+fish_color_error fc618d
+fish_color_comment 8b888f
+fish_color_operator fc618d
+fish_color_escape 948ae3
+fish_color_autosuggestion 8b888f
+fish_color_cwd 5ad4e6
+fish_color_cwd_root fc618d
+fish_color_user 7bd88f
+fish_color_host f7f1ff
+fish_color_host_remote 948ae3
+fish_color_status fc618d
+fish_color_valid_path --underline
+fish_color_search_match f7f1ff --background=414141
+fish_color_selection f7f1ff --background=414141
+fish_color_cancel -r
+fish_color_history_current --bold
+fish_pager_color_prefix fc618d --bold
+fish_pager_color_completion f7f1ff
+fish_pager_color_description bab6c0
+fish_pager_color_progress f7f1ff --background=414141
+fish_pager_color_selected_background --background=414141

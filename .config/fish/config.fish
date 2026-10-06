@@ -28,7 +28,19 @@ set -x EDITOR nvim
 set -x HOMEBREW_NO_ENV_HINTS 1
 
 # Load color scheme
-fish_config theme choose catppuccin-mocha
+fish_config theme choose monokai-pro-spectrum
+
+# Spectrum prompt accents (neutral backgrounds).
+set -g tide_pwd_color_dirs bab6c0
+set -g tide_pwd_color_anchors f7f1ff
+set -g tide_pwd_color_truncated_dirs 8b888f
+set -g tide_git_color_branch 948ae3
+set -g tide_git_color_dirty fd9353
+set -g tide_git_color_staged 7bd88f
+set -g tide_git_color_conflicted fc618d
+set -g tide_git_color_untracked fce566
+set -g tide_character_color 7bd88f
+set -g tide_character_color_failure fc618d
 
 # Prompt config
 fish_vi_key_bindings
