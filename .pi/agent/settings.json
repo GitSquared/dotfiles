@@ -1,5 +1,5 @@
 {
-	"lastChangelogVersion": "1.0.0",
+	"lastChangelogVersion": "1.3.0",
 	"theme": "monokai-pro-spectrum",
 	"defaultProvider": "vercel-ai-gateway",
 	"defaultModel": "deepseek/deepseek-v4.1-flash",
@@ -25,10 +25,14 @@
 	},
 	"doubleEscapeAction": "tree",
 	"enabledModels": [
-		"vercel-ai-gateway/deepseek/deepseek-v4.1-flash",
+		"vercel-ai-gateway/deepseek/deepseek-v4.1-flash-1017",
 		"vercel-ai-gateway/moonshotai/kimi-k3",
 		"openai-codex/gpt-6-luna",
 		"openai-codex/gpt-6-sol",
 		"openai-codex/gpt-6-astra"
-	]
+	],
+	"defaultTools": [
+		"+codemode"
+	],
+	"showCacheMissNotices": true
 }
