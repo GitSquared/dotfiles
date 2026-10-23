@@ -33,6 +33,9 @@ fish_config theme choose 'fish default'
 # Keep Tide's layout, but let terminal colors replace its RGB defaults.
 for name in (set --names | string match -r '^tide_.*color.*$')
     switch $name
+        # These are separator text, despite having "color" in their names.
+        case 'tide_left_prompt_separator_*_color' 'tide_right_prompt_separator_*_color'
+            continue
         case '*bg_color*' '*separator*' '*frame*'
             set -g $name normal
         case '*failure*' '*conflicted*' '*urgent*' '*operation*'
