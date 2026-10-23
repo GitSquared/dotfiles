@@ -1,19 +1,48 @@
 return {
 	{
-		'loctvl842/monokai-pro.nvim',
+		'kylesower/termcolors.nvim',
 		lazy = false,
 		priority = 1000,
-		opts = {
-			filter = 'spectrum',
-			transparent_background = false,
-			terminal_colors = true,
-		},
+		opts = { term_colors_only = false, color_adjust_amount = 0.04 },
 		config = function(_, opts)
-			require('monokai-pro').setup(opts)
-			vim.cmd.colorscheme('monokai-pro-spectrum')
+			-- Palette queries need a real terminal; keep headless jobs usable.
+			if vim.fn.has('ttyin') == 0 or vim.fn.has('ttyout') == 0 then return end
+			local theme = require('termcolors')
+			theme.setup(opts)
+			-- Notify UI plugins when automatic palette refreshes replace highlights.
+			local load = theme.load
+			theme.load = function()
+				local previous = theme.colors
+				load()
+				if previous ~= theme.colors then
+					-- Keep structural surfaces readable in both terminal appearances.
+					local colors = theme.colors
+					-- Semantic roles use the sampled ANSI slots, never fixed RGB colors.
+					vim.api.nvim_set_hl(0, 'Statement', { fg = colors.values[5], bold = true })
+					vim.api.nvim_set_hl(0, 'PreProc', { fg = colors.values[5] })
+					vim.api.nvim_set_hl(0, 'Function', { fg = colors.values[7] })
+					vim.api.nvim_set_hl(0, 'Special', { fg = colors.values[7] })
+					vim.api.nvim_set_hl(0, 'Constant', { fg = colors.values[6] })
+					vim.api.nvim_set_hl(0, 'String', { fg = colors.values[4] })
+					vim.api.nvim_set_hl(0, '@constant.builtin', { link = 'Constant' })
+					vim.api.nvim_set_hl(0, 'Operator', { fg = colors.fg })
+					local panel = vim.api.nvim_get_hl(0, { name = 'CursorLine' }).bg
+					for _, name in ipairs({ 'StatusLine', 'TabLineSel', 'Pmenu' }) do
+						vim.api.nvim_set_hl(0, name, { fg = colors.fg, bg = panel })
+					end
+					for _, name in ipairs({ 'StatusLineNC', 'TabLine', 'TabLineFill' }) do
+						vim.api.nvim_set_hl(0, name, { fg = colors.values[9], bg = colors.bg })
+					end
+					vim.api.nvim_set_hl(0, 'WinBar', { fg = colors.fg, bg = colors.bg })
+					vim.api.nvim_set_hl(0, 'WinBarNC', { fg = colors.values[9], bg = colors.bg })
+					vim.schedule(function()
+						vim.api.nvim_exec_autocmds('ColorScheme', { pattern = 'termcolors' })
+					end)
+				end
+			end
+			vim.cmd.colorscheme('termcolors')
 		end,
 	},
-
 	{
 		'nvimdev/dashboard-nvim',
 		dependencies = { 'nvim-tree/nvim-web-devicons',
@@ -82,7 +111,7 @@ return {
 			require('lualine').setup({
 				options = {
 					icons_enabled = true,
-					theme = 'monokai-pro',
+					theme = 'auto',
 					section_separators = { left = '', right = '' },
 					component_separators = { left = '', right = '' },
 				},
@@ -105,8 +134,7 @@ return {
 							return msg
 						end,
 						cond = require('noice').api.statusline.mode.has,
-						color = { fg = '#f7f1ff' },
-					}, 'copilot', 'diagnostics' },
+					}, { 'copilot', show_colors = false }, 'diagnostics' },
 					lualine_y = { 'filetype' },
 					lualine_z = { { 'location', separator = { right = '' }, left_padding = 2 } },
 				},
@@ -115,7 +143,7 @@ return {
 					lualine_b = {},
 					lualine_c = {},
 					lualine_x = {},
-					lualine_y = { 'diagnostics' },
+					lualine_y = { { 'diagnostics', colored = false } },
 					lualine_z = { 'filetype' },
 				},
 			})
@@ -135,7 +163,7 @@ return {
 			require('notify').setup({
 				top_down = false,
 				render = 'wrapped-compact',
-				stages = 'fade_in_slide_out',
+				stages = 'static',
 				timeout = 3000,
 			})
 		end,
@@ -177,30 +205,6 @@ return {
 				filetypes = { 'dashboard', 'lspinfo', 'packer', 'checkhealth', 'help', 'man', 'NvimTree' },
 			},
 		},
-	},
-
-	{
-		'mvllow/modes.nvim',
-		config = function()
-			require('modes').setup({
-				colors = {
-					bg = 'NONE',
-					copy = '#fce566',
-					delete = '#fc618d',
-					change = '#fd9353',
-					format = '#fce566',
-					insert = '#7bd88f',
-					replace = '#7bd88f',
-					select = '#948ae3',
-					visual = '#948ae3',
-				},
-				set_cursor = true,
-				set_cursorline = true,
-				set_number = true,
-				set_signcolumn = true,
-				line_opacity = 0.4,
-			})
-		end,
 	},
 
 	{

@@ -21,6 +21,21 @@
 	diffFilter = delta --color-only
 [delta]
 	navigate = true # use n and N to move between diff sections
+	syntax-theme = ansi
+	minus-style = syntax normal
+	plus-style = syntax normal
+	minus-emph-style = red bold normal
+	plus-emph-style = green bold normal
+	line-numbers-minus-style = red
+	line-numbers-plus-style = green
+	line-numbers-zero-style = normal
+	line-numbers-left-style = normal
+	line-numbers-right-style = normal
+	file-style = blue bold
+	file-decoration-style = blue box
+	hunk-header-style = file line-number syntax
+	hunk-header-decoration-style = blue box
+	keep-plus-minus-markers = true
 [merge]
 	conflictstyle = zdiff3
 [color]

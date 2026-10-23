@@ -20,7 +20,7 @@ require('lazy').setup({
 	spec = {
 		{ import = 'plugins' },
 	},
-	install = { colorscheme = { 'monokai-pro-spectrum' } },
+	install = { colorscheme = { 'default' } },
 	checker = { enabled = false },
 	git = { url_format = 'git@github.com:%s.git' },
 })

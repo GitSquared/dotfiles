@@ -1,6 +1,6 @@
 auto-update = check
 
-theme = monokai-pro-spectrum
+theme = light:merino-light,dark:merino-dark
 
 #background-blur-radius = 20
 #background-opacity = 0.75

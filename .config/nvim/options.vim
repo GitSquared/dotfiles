@@ -5,6 +5,7 @@ set updatetime=1000
 set switchbuf=useopen,vsplit
 set hidden
 set nobackup
+" termcolors.nvim derives true colors from the terminal palette.
 set termguicolors
 set nowritebackup
 set laststatus=3
@@ -52,9 +53,3 @@ function! CustomFoldText()
 	let fold_indicator = ' ↙ ' . folded_lines_count . ' lines'
   return line . fold_indicator
 endfunction
-
-augroup CustomHighlights
-	autocmd!
-	" NotifyBackground with ayu theme colors
-	autocmd ColorScheme * highlight NotifyBackground guibg=#0F131A ctermbg=NONE
-augroup END

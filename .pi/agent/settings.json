@@ -1,17 +1,13 @@
 {
 	"lastChangelogVersion": "1.3.0",
-	"theme": "monokai-pro-spectrum",
+	"theme": "system",
 	"defaultProvider": "vercel-ai-gateway",
 	"defaultModel": "deepseek/deepseek-v4.1-flash",
 	"defaultThinkingLevel": "medium",
 	"packages": [
 		"npm:pi-web-access",
 		"npm:pi-tool-display",
-		"npm:pi-vim",
-		{
-			"source": "npm:pi-catppuccin-tui",
-			"extensions": []
-		}
+		"npm:pi-vim"
 	],
 	"terminal": {
 		"showTerminalProgress": true
