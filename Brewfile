@@ -1,6 +1,5 @@
 tap "harelba/q", trusted: true
 tap "hashicorp/tap", trusted: true
-tap "nikitabobko/tap", trusted: true
 tap "oven-sh/bun", trusted: true
 tap "theboredteam/boring-notch", "https://github.com/TheBoredTeam/homebrew-boring-notch", trusted: true
 # Static checker for GitHub Actions workflow files
@@ -188,14 +187,10 @@ cask "monero-wallet"
 cask "moom"
 # Control your tools with a few keystrokes
 cask "raycast"
-# System monitor for the menu bar
-cask "stats"
 # Video game digital distribution service
 cask "steam"
 # Mesh VPN based on WireGuard
 cask "tailscale-app"
-# Menu bar manager
-cask "thaw"
 # Open-source BitTorrent client
 cask "transmission"
 # Multimedia player
