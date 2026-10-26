@@ -39,6 +39,24 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gaby/code/claude-carbon/scripts/safety-rescan.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh -c 'rex __internal session-start --agent claude 2>/dev/null || true'",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "Stop": [
@@ -51,6 +69,38 @@
             "statusMessage": "Checking session status page"
           }
         ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gaby/code/claude-carbon/scripts/persist-session.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/gaby/code/claude-carbon/scripts/persist-on-exit.sh"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/deny-pr-approve.sh",
+            "timeout": 10
+          }
+        ]
       }
     ]
   },
@@ -59,7 +109,6 @@
     "command": "bash ~/.claude/statusline-command.sh"
   },
   "enabledPlugins": {
-    "context7@claude-plugins-official": true,
     "code-simplifier@claude-plugins-official": true,
     "claude-md-management@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true,

@@ -1,6 +1,7 @@
 tap "harelba/q", trusted: true
 tap "hashicorp/tap", trusted: true
 tap "oven-sh/bun", trusted: true
+tap "saffsanity/sill", trusted: { casks: ["sill"] }
 tap "theboredteam/boring-notch", "https://github.com/TheBoredTeam/homebrew-boring-notch", trusted: true
 # Static checker for GitHub Actions workflow files
 brew "actionlint"
@@ -10,8 +11,6 @@ brew "bandwhich"
 brew "gettext"
 # Library for command-line editing
 brew "readline"
-# Cryptography and SSL/TLS Toolkit
-brew "openssl@3"
 # Clone of cat(1) with syntax highlighting and Git integration
 brew "bat"
 # Library for manipulating PNG images
@@ -187,8 +186,6 @@ cask "monero-wallet"
 cask "moom"
 # Control your tools with a few keystrokes
 cask "raycast"
-# Video game digital distribution service
-cask "steam"
 # Mesh VPN based on WireGuard
 cask "tailscale-app"
 # Open-source BitTorrent client

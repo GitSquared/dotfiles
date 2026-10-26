@@ -9,6 +9,24 @@
       "skillFolderHash": "76a98a285cb0434f3d39e1a873823556330e398b",
       "installedAt": "2026-02-16T09:41:41.940Z",
       "updatedAt": "2026-08-05T10:59:33.220Z"
+    },
+    "dimensional-drawing": {
+      "source": "enesozturk/dimensional-drawing",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/enesozturk/dimensional-drawing.git",
+      "skillPath": "skills/dimensional-drawing/SKILL.md",
+      "skillFolderHash": "35ea1d610551df8202e2b0c9b66824ffd2ca2a8a",
+      "installedAt": "2026-10-25T17:10:42.530Z",
+      "updatedAt": "2026-10-25T17:10:42.530Z"
+    },
+    "dimensional-drawing-motion": {
+      "source": "enesozturk/dimensional-drawing",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/enesozturk/dimensional-drawing.git",
+      "skillPath": "skills/dimensional-drawing-motion/SKILL.md",
+      "skillFolderHash": "6829bcc45cf83edf2bce5aa341d19d97b55251c8",
+      "installedAt": "2026-10-25T17:10:42.534Z",
+      "updatedAt": "2026-10-25T17:10:42.534Z"
     }
   },
   "dismissed": {
@@ -19,11 +37,15 @@
     "cline",
     "codex",
     "cursor",
+    "droid",
     "gemini-cli",
     "github-copilot",
-    "kimi-cli",
+    "kilo",
+    "kimi-code-cli",
     "opencode",
+    "pi",
     "warp",
+    "zed",
     "claude-code"
   ]
 }
