@@ -126,7 +126,6 @@ preflight() {
 
   [[ -r "$PACKAGE_FILE" ]] || die "package manifest is missing: $PACKAGE_FILE"
   [[ -r "$CODEX_SOURCE/config.toml" ]] || die 'managed Codex config is missing'
-  [[ -r "$CODEX_SOURCE/plugins.list" ]] || die 'managed Codex plugin manifest is missing'
   [[ -r "$CODEX_SOURCE/rules/default.rules" ]] || die 'managed Codex rules are missing'
   [[ -r "$SOURCE_ROOT/etc/fstab" ]] || die 'managed fstab is missing'
   [[ -r "$FISH_CONFIG_DIR/config.fish" ]] || die 'managed fish config is missing'
@@ -165,45 +164,17 @@ install_user_file() {
 }
 
 configure_codex() {
-  local plugin
   local codex_config="$STRAYLIGHT_HOME/.codex/config.toml"
-  local bundled_marketplace="$STRAYLIGHT_HOME/.codex/.tmp/bundled-marketplaces/openai-bundled"
 
+  # Seed preferences and rules on a fresh installation only. Marketplaces,
+  # plugins, and MCP entries are Codex's own state once config.toml exists;
+  # bootstrap does not race it by re-reconciling them on every run.
   if [[ -e "$codex_config" ]]; then
     log "preserving existing generated Codex config: $codex_config"
   else
     install_user_file "$CODEX_SOURCE/config.toml" "$codex_config" 0600
   fi
   install_user_file "$CODEX_SOURCE/rules/default.rules" "$STRAYLIGHT_HOME/.codex/rules/default.rules" 0600
-
-  if ! command -v codex >/dev/null 2>&1; then
-    log 'Codex CLI is not installed; desired config is ready for a future installation'
-    return
-  fi
-
-  if codex mcp get openaiDeveloperDocs >/dev/null 2>&1; then
-    log 'Codex MCP is configured: openaiDeveloperDocs'
-  else
-    run codex mcp add openaiDeveloperDocs --url https://developers.openai.com/mcp
-  fi
-
-  if codex plugin marketplace list 2>/dev/null | awk '$1 == "openai-bundled" {found=1} END {exit(found ? 0 : 1)}'; then
-    log 'Codex marketplace is configured: openai-bundled'
-  elif [[ -f "$bundled_marketplace/.agents/plugins/marketplace.json" ]]; then
-    run codex plugin marketplace add "$bundled_marketplace"
-  else
-    log 'Codex bundled marketplace snapshot is unavailable; plugin reconciliation skipped'
-    return
-  fi
-
-  while IFS= read -r plugin; do
-    [[ -z "$plugin" || "$plugin" == \#* ]] && continue
-    if codex plugin list 2>/dev/null | awk -v wanted="$plugin" '$1 == wanted && $2 ~ /^installed/ {found=1} END {exit(found ? 0 : 1)}'; then
-      log "Codex plugin is installed: $plugin"
-    else
-      run codex plugin add "$plugin"
-    fi
-  done < "$CODEX_SOURCE/plugins.list"
 }
 
 configure_fish() {

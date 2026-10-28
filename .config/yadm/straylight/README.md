@@ -95,11 +95,12 @@ the plugin manifest are committed.
 
 ## Codex
 
-The public desired state includes stable Codex preferences, the official OpenAI
-developer-docs MCP endpoint, Straylight command rules, and the Sites and
-Visualize plugins. On a fresh installation, bootstrap seeds `config.toml`. Once
-Codex has generated marketplace metadata, bootstrap preserves that file and
-reconciles MCP, marketplace, plugin, and rules state through supported commands.
+The public desired state is limited to stable Codex preferences, Straylight
+command rules, and the seeded `config.toml`, which declares the official OpenAI
+developer-docs MCP server. On a fresh installation, bootstrap seeds
+`config.toml`; once it exists, Codex owns that file. Marketplaces and plugins
+are Codex's own state and are installed through its CLI or UI, not enforced by
+bootstrap.
 
 Codex itself and its login are provisioned separately. Never commit
 `~/.codex/auth.json`, sessions, archives, memories, goals, logs, databases,
