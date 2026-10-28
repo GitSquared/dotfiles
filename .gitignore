@@ -24,7 +24,6 @@
 /straylight-docker/*
 !/straylight-docker/docker-compose.yml
 !/straylight-docker/.env.example
-!/straylight-docker/compose
 
 !/straylight-docker/caddy/
 /straylight-docker/caddy/*

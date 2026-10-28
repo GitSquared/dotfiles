@@ -220,6 +220,29 @@ services:
       - "wud.tag.include=^v\\d+\\.\\d+\\.\\d+$$"
       - "wud.compose.file=/wud/docker-compose.yml"
 
+  altitude:
+    image: altitude-straylight:local
+    container_name: altitude
+    hostname: straylight
+    init: true
+    restart: unless-stopped
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - "994" # Straylight's kvm group
+    ports:
+      - "100.85.226.105:25848:25848/tcp"
+      - "100.85.226.105:25848:25848/udp"
+    volumes:
+      - type: bind
+        source: ./altitude
+        target: /home/altitude
+        bind:
+          create_host_path: false
+    stop_grace_period: 60s
+    labels:
+      - "wud.watch=false"
+
 networks:
   caddy_proxy:
     ipam:

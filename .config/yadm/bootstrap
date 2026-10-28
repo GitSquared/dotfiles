@@ -97,7 +97,6 @@ preflight() {
   require_env_key ICLOUD_SMTP_PASS
   require_env_key SAMBA_PASSWORD
   require_env_key SAMBA_GUEST_PASSWORD
-  [[ -z $(env_value DOCKER_GID) ]] || die 'DOCKER_GID must not be stored in .env; bootstrap derives it from /var/run/docker.sock'
 
   require_regular_owned_file "$RCLONE_CONFIG"
   for remote in s3.net.gaby.dev s3-storage-crypt s3-config-crypt; do
@@ -301,20 +300,6 @@ ensure_docker() {
   run sudo systemctl enable --now docker.service
 }
 
-derive_docker_socket_gid() {
-  local socket_path=${1:-/var/run/docker.sock}
-  local socket_gid
-
-  [[ -S "$socket_path" ]] || die "Docker socket is absent or is not a Unix socket: $socket_path"
-  [[ -r "$socket_path" && -w "$socket_path" ]] \
-    || die "Docker socket is not readable and writable by $EXPECTED_USER: $socket_path"
-  socket_gid=$(stat -c '%g' "$socket_path") \
-    || die "could not read Docker socket group: $socket_path"
-  [[ "$socket_gid" =~ ^[0-9]+$ ]] || die 'derived Docker socket group is not numeric'
-  export DOCKER_GID="$socket_gid"
-  log 'derived Docker socket group for Compose'
-}
-
 validate_compose() {
   command -v docker >/dev/null 2>&1 || die 'docker is unavailable after package convergence'
   docker compose --project-directory "$COMPOSE_DIR" config --quiet
@@ -365,7 +350,6 @@ main() {
   install_root_files
   prepare_storage
   ensure_docker
-  derive_docker_socket_gid
   validate_compose
   reconcile_services
   log "$([[ "$DRY_RUN" == 1 ]] && printf 'dry-run audit' || printf 'full convergence') completed successfully"
