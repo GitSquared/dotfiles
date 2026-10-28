@@ -5,6 +5,10 @@ readonly STRAYLIGHT_HOME=/home/gaby
 readonly SOURCE_ROOT="$STRAYLIGHT_HOME/.config/yadm/straylight/rootfs"
 readonly PACKAGE_FILE="$STRAYLIGHT_HOME/.config/yadm/straylight/packages.apt"
 readonly CODEX_SOURCE="$STRAYLIGHT_HOME/.config/yadm/straylight/codex"
+readonly FISH_CONFIG_DIR="$STRAYLIGHT_HOME/.config/fish"
+readonly FISH_BIN=/usr/bin/fish
+readonly FISHER_VERSION=4.4.8
+readonly FISHER_URL="https://raw.githubusercontent.com/jorgebucaran/fisher/$FISHER_VERSION/functions/fisher.fish"
 readonly COMPOSE_DIR="$STRAYLIGHT_HOME/straylight-docker"
 readonly ENV_FILE="$COMPOSE_DIR/.env"
 readonly RCLONE_CONFIG="$STRAYLIGHT_HOME/.config/rclone/rclone.conf"
@@ -125,6 +129,8 @@ preflight() {
   [[ -r "$CODEX_SOURCE/plugins.list" ]] || die 'managed Codex plugin manifest is missing'
   [[ -r "$CODEX_SOURCE/rules/default.rules" ]] || die 'managed Codex rules are missing'
   [[ -r "$SOURCE_ROOT/etc/fstab" ]] || die 'managed fstab is missing'
+  [[ -r "$FISH_CONFIG_DIR/config.fish" ]] || die 'managed fish config is missing'
+  [[ -r "$FISH_CONFIG_DIR/fish_plugins" ]] || die 'managed fish plugin manifest is missing'
   while read -r source; do
     [[ -z "$source" || "$source" == /swap.img ]] && continue
     [[ -e "$source" ]] || die "fstab source is unavailable: $source"
@@ -198,6 +204,47 @@ configure_codex() {
       run codex plugin add "$plugin"
     fi
   done < "$CODEX_SOURCE/plugins.list"
+}
+
+configure_fish() {
+  local installed desired fisher_installer
+
+  # The fish package normally registers itself, but a minimal image can skip
+  # the postinst, and chsh only accepts shells listed in /etc/shells.
+  if ! grep -Fqx "$FISH_BIN" /etc/shells; then
+    run sudo sh -c "printf '%s\\n' '$FISH_BIN' >> /etc/shells"
+  fi
+
+  if [[ $(getent passwd "$EXPECTED_USER" | cut -d: -f7) == "$FISH_BIN" ]]; then
+    log "login shell is already $FISH_BIN"
+  else
+    run sudo chsh -s "$FISH_BIN" "$EXPECTED_USER"
+  fi
+
+  if [[ "$DRY_RUN" == 1 ]]; then
+    show_command curl -fsSL --output "$FISH_CONFIG_DIR/functions/fisher.fish" "$FISHER_URL"
+    show_command "$FISH_BIN" -c 'fisher update'
+    return
+  fi
+
+  # Fisher is the installer for itself: persisting its function file is all
+  # the interactive installer does. Plugin state then comes from fish_plugins.
+  if ! "$FISH_BIN" -c 'functions -q fisher' >/dev/null 2>&1 </dev/null; then
+    fisher_installer=$(mktemp)
+    curl -fsSL --output "$fisher_installer" "$FISHER_URL"
+    install -D -m 0644 "$fisher_installer" "$FISH_CONFIG_DIR/functions/fisher.fish"
+    rm -f "$fisher_installer"
+  fi
+
+  installed=$("$FISH_BIN" -c 'fisher list' </dev/null | sort)
+  desired=$(awk '!/^[[:space:]]*(#|$)/' "$FISH_CONFIG_DIR/fish_plugins" | sort)
+  if [[ "$installed" == "$desired" ]]; then
+    log 'managed fish plugins are installed'
+  else
+    "$FISH_BIN" -c 'fisher update' </dev/null
+    installed=$("$FISH_BIN" -c 'fisher list' </dev/null | sort)
+    [[ "$installed" == "$desired" ]] || die 'fish plugin convergence failed'
+  fi
 }
 
 install_packages() {
@@ -346,6 +393,7 @@ main() {
   configure_commit_signing
   configure_codex
   install_packages
+  configure_fish
   validate_fstab
   install_root_files
   prepare_storage

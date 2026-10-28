@@ -75,6 +75,24 @@ timers; and reconciles the Docker Compose stack.
 Changed root files are copied to `/var/backups/straylight-yadm/<timestamp>/`
 before replacement.
 
+## Shell
+
+SSH sessions start in fish. The committed `.config/fish/config.fish` mirrors
+the Neuromancer experience — vi key bindings, blinking cursors, the two-line
+Tide prompt recoloured for ANSI terminals, and `zoxide` — while deliberately
+dropping the macOS-only tooling (Homebrew, pyenv, rbenv, nvm, the Android SDK,
+and the Aikido certificate overrides) and the `ls`/`cat` replacement aliases.
+Bootstrap installs `fish`, `zoxide`, and `fzf`, registers `/usr/bin/fish` in
+`/etc/shells`, makes it the login shell for `gaby`, and installs the pinned
+Fisher plugins from `.config/fish/fish_plugins` (`tide@v6`, `autopair.fish`,
+`fzf.fish`).
+
+Tide's layout is declared as globals in `config.fish` rather than left in
+universal variables, so a rebuild reproduces the prompt instead of inheriting
+whatever `fish_variables` happened to contain. Fisher's downloaded functions,
+`conf.d` snippets, and `fish_variables` stay untracked; only the config and
+the plugin manifest are committed.
+
 ## Codex
 
 The public desired state includes stable Codex preferences, the official OpenAI

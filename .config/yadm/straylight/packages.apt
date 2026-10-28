@@ -1,8 +1,11 @@
 curl
 docker.io
 docker-compose-v2
+fish
+fzf
 git
 jq
 mergerfs
 rclone
 smartmontools
+zoxide
