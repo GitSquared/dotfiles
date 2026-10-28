@@ -128,7 +128,7 @@ services:
     labels:
       - "wud.watch=false"
   prowlarr:
-    image: ghcr.io/hotio/prowlarr:release-2.4.0.5397
+    image: ghcr.io/hotio/prowlarr:release-2.6.5.5623
     container_name: prowlarr
     restart: unless-stopped
     environment:
@@ -143,7 +143,7 @@ services:
       - "wud.tag.include=^release-\\d+\\.\\d+\\.\\d+\\.\\d+$$"
       - "wud.compose.file=/wud/docker-compose.yml"
   radarr:
-    image: ghcr.io/hotio/radarr:release-6.2.1.10461
+    image: ghcr.io/hotio/radarr:release-6.4.4.10685
     container_name: radarr
     restart: unless-stopped
     environment:
@@ -159,7 +159,7 @@ services:
       - "wud.tag.include=^release-\\d+\\.\\d+\\.\\d+\\.\\d+$$"
       - "wud.compose.file=/wud/docker-compose.yml"
   sonarr:
-    image: ghcr.io/hotio/sonarr:release-4.0.19.2979
+    image: ghcr.io/hotio/sonarr:release-4.0.20.3014
     container_name: sonarr
     restart: unless-stopped
     environment:
@@ -195,7 +195,7 @@ services:
       - "wud.compose.file=/wud/docker-compose.yml"
   homeassistant:
     container_name: homeassistant
-    image: ghcr.io/home-assistant/home-assistant:2026.6.4
+    image: ghcr.io/home-assistant/home-assistant:2026.9.3
     restart: unless-stopped
     network_mode: host
     volumes:
@@ -222,6 +222,9 @@ services:
 
   altitude:
     image: altitude-straylight:local
+    build:
+      context: /home/gaby/altitude
+      target: main
     container_name: altitude
     hostname: straylight
     init: true
@@ -242,6 +245,7 @@ services:
     stop_grace_period: 60s
     labels:
       - "wud.watch=false"
+
 
 networks:
   caddy_proxy:
