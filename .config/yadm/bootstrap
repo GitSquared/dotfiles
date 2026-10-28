@@ -87,7 +87,7 @@ preflight() {
   source /etc/os-release
   distro=${ID:-}
   version=${VERSION_ID:-}
-  [[ "$distro" == ubuntu && "$version" == 24.04 ]] || die 'expected Ubuntu 24.04'
+  [[ "$distro" == ubuntu && "$version" =~ ^(24\.04|26\.04)$ ]] || die 'expected Ubuntu 24.04 or 26.04'
 
   command -v yadm >/dev/null 2>&1 || die 'yadm is not installed'
   current_branch=$(yadm branch --show-current)
