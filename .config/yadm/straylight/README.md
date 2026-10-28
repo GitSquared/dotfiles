@@ -48,10 +48,6 @@ Before bootstrap, securely provision:
 - `/home/gaby/.config/rclone/rclone.conf`
 - `/home/gaby/straylight-docker/.env`
 - `/home/gaby/.ssh/id_ed25519` and its `.pub` file
-- Linear OAuth and webhook values, an independent runner secret, and the host
-  Docker group ID in `/home/gaby/straylight-docker/.env` (follow the agent README)
-- Pi's ChatGPT subscription credential in
-  `straylight-docker/linear-agent/pi-config/auth.json` (follow the agent README)
 
 Register the public SSH key with GitHub as both an authentication key and a
 signing key. Bootstrap configures the local yadm repository to use the confirmed
@@ -75,10 +71,7 @@ yadm bootstrap
 
 Bootstrap validates the host, secrets, state, disks, fstab, and Compose model;
 installs packages and root-owned configuration; mounts storage; enables backup
-timers; reconciles the Docker Compose stack; and publishes the credential-isolated
-Linear controller at `/linear` through Straylight's existing Tailscale Funnel.
-Every Linear Agent Session runs in a fresh constrained task container without
-Linear credentials; a narrow private workbench supervises their lifecycle.
+timers; and reconciles the Docker Compose stack.
 Changed root files are copied to `/var/backups/straylight-yadm/<timestamp>/`
 before replacement.
 

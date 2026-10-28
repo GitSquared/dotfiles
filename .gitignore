@@ -26,22 +26,6 @@
 !/straylight-docker/.env.example
 !/straylight-docker/compose
 
-!/straylight-docker/linear-agent/
-!/straylight-docker/linear-agent/**
-/straylight-docker/linear-agent/data/
-/straylight-docker/linear-agent/memory/
-/straylight-docker/linear-agent/dist/
-/straylight-docker/linear-agent/node_modules/
-/straylight-docker/linear-agent/claude-capsule/node_modules/
-/straylight-docker/linear-agent/pi-config/*
-!/straylight-docker/linear-agent/pi-config/README.md
-!/straylight-docker/linear-agent/pi-config/model-policy.json
-!/straylight-docker/linear-agent/pi-config/extensions/
-!/straylight-docker/linear-agent/pi-config/extensions/rtk.ts
-/straylight-docker/linear-agent/tool-profile/
-/straylight-docker/linear-agent/workspace/repos/
-/straylight-docker/linear-agent/workspace/runs/
-
 !/straylight-docker/caddy/
 /straylight-docker/caddy/*
 !/straylight-docker/caddy/config/
