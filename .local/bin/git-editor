@@ -1,0 +1,9 @@
+#!/bin/sh
+# git asks for an editor whenever a commit or tag needs a message. Agent-spawned
+# shells have no terminal, so nvim would sit there swallowing keystrokes that
+# never arrive and the caller waits forever; refuse instead of hanging.
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  echo "git-editor: no terminal, pass -m instead of relying on an editor" >&2
+  exit 1
+fi
+exec nvim "$@"

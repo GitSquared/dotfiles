@@ -1,5 +1,5 @@
 [core]
-	editor = nvim
+	editor = git-editor
 	pager = delta
 [user]
 	name = Gabriel Saillard
