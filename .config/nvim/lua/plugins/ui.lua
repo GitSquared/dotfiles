@@ -1,47 +1,10 @@
 return {
 	{
-		'kylesower/termcolors.nvim',
+		'nvim-mini/mini.base16',
+		branch = 'stable',
 		lazy = false,
 		priority = 1000,
-		opts = { term_colors_only = false, color_adjust_amount = 0.04 },
-		config = function(_, opts)
-			-- Palette queries need a real terminal; keep headless jobs usable.
-			if vim.fn.has('ttyin') == 0 or vim.fn.has('ttyout') == 0 then return end
-			local theme = require('termcolors')
-			theme.setup(opts)
-			-- Notify UI plugins when automatic palette refreshes replace highlights.
-			local load = theme.load
-			theme.load = function()
-				local previous = theme.colors
-				load()
-				if previous ~= theme.colors then
-					-- Keep structural surfaces readable in both terminal appearances.
-					local colors = theme.colors
-					-- Semantic roles use the sampled ANSI slots, never fixed RGB colors.
-					vim.api.nvim_set_hl(0, 'Statement', { fg = colors.values[5], bold = true })
-					vim.api.nvim_set_hl(0, 'PreProc', { fg = colors.values[5] })
-					vim.api.nvim_set_hl(0, 'Function', { fg = colors.values[7] })
-					vim.api.nvim_set_hl(0, 'Special', { fg = colors.values[7] })
-					vim.api.nvim_set_hl(0, 'Constant', { fg = colors.values[6] })
-					vim.api.nvim_set_hl(0, 'String', { fg = colors.values[4] })
-					vim.api.nvim_set_hl(0, '@constant.builtin', { link = 'Constant' })
-					vim.api.nvim_set_hl(0, 'Operator', { fg = colors.fg })
-					local panel = vim.api.nvim_get_hl(0, { name = 'CursorLine' }).bg
-					for _, name in ipairs({ 'StatusLine', 'TabLineSel', 'Pmenu' }) do
-						vim.api.nvim_set_hl(0, name, { fg = colors.fg, bg = panel })
-					end
-					for _, name in ipairs({ 'StatusLineNC', 'TabLine', 'TabLineFill' }) do
-						vim.api.nvim_set_hl(0, name, { fg = colors.values[9], bg = colors.bg })
-					end
-					vim.api.nvim_set_hl(0, 'WinBar', { fg = colors.fg, bg = colors.bg })
-					vim.api.nvim_set_hl(0, 'WinBarNC', { fg = colors.values[9], bg = colors.bg })
-					vim.schedule(function()
-						vim.api.nvim_exec_autocmds('ColorScheme', { pattern = 'termcolors' })
-					end)
-				end
-			end
-			vim.cmd.colorscheme('termcolors')
-		end,
+		config = function() require('config.terminal_theme').setup() end,
 	},
 	{
 		'nvimdev/dashboard-nvim',
@@ -200,7 +163,9 @@ return {
 		'lukas-reineke/indent-blankline.nvim',
 		main = 'ibl',
 		opts = {
-			indent = { char = '▏', tab_char = '▏' },
+			indent = { char = '│', tab_char = '│', highlight = 'IblIndent' },
+			whitespace = { highlight = 'IblWhitespace' },
+			scope = { highlight = 'IblScope', show_start = false, show_end = false },
 			exclude = {
 				filetypes = { 'dashboard', 'lspinfo', 'packer', 'checkhealth', 'help', 'man', 'NvimTree' },
 			},
