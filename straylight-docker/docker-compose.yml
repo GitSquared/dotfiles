@@ -103,8 +103,7 @@ services:
       - ./caddy/data:/data
       - ./caddy/config:/config
     networks:
-      caddy_proxy:
-        ipv4_address: 172.30.10.2
+      - caddy_proxy
     environment:
       - TZ=Europe/Paris
     labels:
