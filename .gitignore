@@ -2,6 +2,7 @@
 /*
 
 !/.gitignore
+!/rebuild-altitude.sh
 
 !/.config/
 /.config/*
