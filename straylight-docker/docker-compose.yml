@@ -87,7 +87,7 @@ services:
       - "wud.tag.include=^\\d+\\.\\d+\\.\\d+$$"
       - "wud.compose.file=/wud/docker-compose.yml"
   caddy:
-    image: caddy:2.11.4
+    image: caddy:2.11.9
     container_name: caddy
     restart: unless-stopped
     depends_on:
@@ -230,6 +230,9 @@ services:
     restart: unless-stopped
     devices:
       - /dev/kvm:/dev/kvm
+    networks:
+      - default
+      - caddy_proxy
     group_add:
       - "994" # Straylight's kvm group
     ports:
