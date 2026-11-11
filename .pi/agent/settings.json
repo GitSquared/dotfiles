@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "1.4.0",
+  "lastChangelogVersion": "1.5.0",
   "theme": "system",
   "defaultProvider": "vercel-ai-gateway",
   "defaultModel": "deepseek/deepseek-v4.1-flash",
@@ -30,5 +30,9 @@
   "defaultTools": [
     "+codemode"
   ],
-  "showCacheMissNotices": true
+  "showCacheMissNotices": true,
+  "extensionChangelogVersions": {
+    "{\"source\":\"npm:pi-web-access\",\"scope\":\"user\"}": "0.47.0",
+    "{\"source\":\"npm:pi-tool-display\",\"scope\":\"user\"}": "0.5.0"
+  }
 }

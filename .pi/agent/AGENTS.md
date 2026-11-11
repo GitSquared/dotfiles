@@ -1,3 +1,7 @@
+## Searching
+
+Use `ag` (the_silver_searcher) for code searches instead of `grep`/`rg`. Line numbers and headings are on by default; `-n` means **norecurse**, not line numbers — never pass it. Useful flags: `ag -l` (files only), `-i`, `-C 5` (context), `-c` (counts), `-g '<glob>'` (filenames), `-u` (no ignores), `--rust` / `--ts` type filters.
+
 ## Personal context (`~/ai-context`)
 
 When a request would benefit from the user's established preferences, workflows, team/project context, or prior decisions, consult the personal knowledge base on demand—do not load it wholesale:

@@ -1,3 +1,4 @@
+tap "gitsquared/altitude", "https://github.com/gitsquared/altitude"
 tap "harelba/q", trusted: true
 tap "hashicorp/tap", trusted: true
 tap "oven-sh/bun", trusted: true
@@ -118,6 +119,8 @@ brew "pipx"
 brew "pkgconf"
 # Object-relational database system
 brew "postgresql@17", link: true
+# Terminal slideshow tool
+brew "presenterm"
 # Python version management
 brew "pyenv"
 # Ruby version manager
@@ -152,6 +155,8 @@ brew "yadm"
 brew "yazi"
 # Shell extension to navigate your filesystem faster
 brew "zoxide"
+# Terminal control plane for delegated coding agents
+brew "gitsquared/altitude/altitude"
 # Run SQL directly on CSV or TSV files, and on multiple sqlite databases
 brew "harelba/q/q"
 # Terraform
@@ -166,6 +171,8 @@ cask "beeper"
 cask "blackhole-2ch"
 # Not so boring notch That Rocks
 cask "theboredteam/boring-notch/boring-notch"
+# Screen recording software
+cask "cap"
 # App to build and share containerised applications and microservices
 cask "docker-desktop"
 cask "font-jetbrains-mono"
@@ -194,6 +201,7 @@ cask "transmission"
 cask "vlc"
 # Network protocol analyzer
 cask "wireshark-app"
+npm "corepack"
 npm "neovim"
 npm "npm-check-updates"
 npm "skills"
