@@ -251,6 +251,9 @@ services:
 
 networks:
   caddy_proxy:
+    # No fixed addresses: a pin is only free if nothing took it, and Docker gives the
+    # lowest free address to whoever is created first, so a pinned caddy loses its
+    # address to whatever came up while caddy was down.
     ipam:
       config:
         - subnet: 172.30.10.0/24
