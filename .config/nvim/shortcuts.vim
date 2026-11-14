@@ -43,10 +43,10 @@ nmap <C-S-h> <C-W>H
 nmap <C-S-l> <C-W>L
 " Resize windows
 nmap <Leader>= <C-W>=
-nmap <silent><S-k> :resize +3<CR>
-nmap <silent><S-j> :resize -3<CR>
-nmap <silent><S-h> :vertical resize -3<CR>
-nmap <silent><S-l> :vertical resize +3<CR>
+nmap <silent><C-S-k> :resize +3<CR>
+nmap <silent><C-S-j> :resize -3<CR>
+nmap <silent><C-S-h> :vertical resize -3<CR>
+nmap <silent><C-S-l> :vertical resize +3<CR>
 " Toggle side panels
 nmap <Leader>/ :FzfLua lgrep_curbuf<CR>
 nmap <Leader>p :FzfLua files<CR>
