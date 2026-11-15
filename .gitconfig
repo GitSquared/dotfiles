@@ -4,13 +4,13 @@
 [user]
 	name = Gabriel Saillard
 	email = gabriel@saillard.dev
-	signingkey = F4532D51F9294BC5
+	signingkey = /Users/gaby/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/PublicKeys/d6aa9028979c723ba3f27b4cb0c178e7.pub
 [includeIf "hasconfig:remote.*.url:git@github.com:carbonfact/**"]
-	path = ~/work.gitconfig
+	email = gabriel@carbonfact.com
 [includeIf "hasconfig:remote.*.url:https://github.com/carbonfact/**"]
-	path = ~/work.gitconfig
+	email = gabriel@carbonfact.com
 [includeIf "hasconfig:remote.*.url:ssh://git@github.com/carbonfact/**"]
-	path = ~/work.gitconfig
+	email = gabriel@carbonfact.com
 [commit]
 	gpgsign = true
 [tag]
@@ -59,7 +59,9 @@
 [init]
 	defaultBranch = main
 [gpg]
-	program = /opt/homebrew/bin/gpg
+	format = ssh
+[gpg "ssh"]
+	allowedSignersFile = ~/.gitallowedsigners
 [fetch]
 	prune = true
 [maintenance]

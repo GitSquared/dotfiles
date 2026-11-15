@@ -23,39 +23,12 @@ set -x ANDROID_SDK_ROOT $HOME/Library/Android/sdk
 fish_add_path $ANDROID_SDK_ROOT/emulator
 fish_add_path $ANDROID_SDK_ROOT/platform-tools
 
+# Use Secretive for SSH
+set -x SSH_AUTH_SOCK /Users/gaby/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh
+
 # Default ENV
 set -x EDITOR nvim
 set -x HOMEBREW_NO_ENV_HINTS 1
-
-# ANSI colors follow the terminal in both light and dark mode.
-fish_config theme choose 'fish default'
-
-# Keep Tide's layout, but let terminal colors replace its RGB defaults.
-for name in (set --names | string match -r '^tide_.*color.*$')
-    switch $name
-        # These are separator text, despite having "color" in their names.
-        case 'tide_left_prompt_separator_*_color' 'tide_right_prompt_separator_*_color'
-            continue
-        case '*bg_color*' '*separator*' '*frame*'
-            set -g $name normal
-        case '*failure*' '*conflicted*' '*urgent*' '*operation*'
-            set -g $name red
-        case '*dirty*' '*untracked*'
-            set -g $name yellow
-        case '*staged*' '*stash*' '*upstream*' 'tide_character_color'
-            set -g $name green
-        case '*branch*' '*anchors*'
-            set -g $name blue
-        case '*truncated*'
-            set -g $name brblack
-        case '*dirs*'
-            set -g $name cyan
-        case '*vi_mode*'
-            set -g $name magenta
-        case '*'
-            set -g $name normal
-    end
-end
 
 # Prompt config
 fish_vi_key_bindings
@@ -89,6 +62,37 @@ end
 
 # The next line updates PATH for the Google Cloud SDK.
 if [ -f '/opt/homebrew/share/google-cloud-sdk/path.fish.inc' ]; . '/opt/homebrew/share/google-cloud-sdk/path.fish.inc'; end
+
+# ANSI colors follow the terminal in both light and dark mode.
+fish_config theme choose 'fish default'
+
+# Keep Tide's layout, but let terminal colors replace its RGB defaults.
+for name in (set --names | string match -r '^tide_.*color.*$')
+    switch $name
+        # These are separator text, despite having "color" in their names.
+        case 'tide_left_prompt_separator_*_color' 'tide_right_prompt_separator_*_color'
+            continue
+        case '*bg_color*' '*separator*' '*frame*'
+            set -g $name normal
+        case '*failure*' '*conflicted*' '*urgent*' '*operation*'
+            set -g $name red
+        case '*dirty*' '*untracked*'
+            set -g $name yellow
+        case '*staged*' '*stash*' '*upstream*' 'tide_character_color'
+            set -g $name green
+        case '*branch*' '*anchors*'
+            set -g $name blue
+        case '*truncated*'
+            set -g $name brblack
+        case '*dirs*'
+            set -g $name cyan
+        case '*vi_mode*'
+            set -g $name magenta
+        case '*'
+            set -g $name normal
+    end
+end
+
 
 # aikido-endpoint-cert-config-start
 # Allow Node.js tooling to trust the SafeChain MITM CA while preserving public roots.

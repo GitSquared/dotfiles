@@ -173,6 +173,8 @@ cask "blackhole-2ch"
 cask "theboredteam/boring-notch/boring-notch"
 # Screen recording software
 cask "cap"
+# OpenAI's coding agent that runs in your terminal
+cask "codex"
 # App to build and share containerised applications and microservices
 cask "docker-desktop"
 cask "font-jetbrains-mono"
@@ -193,6 +195,8 @@ cask "monero-wallet"
 cask "moom"
 # Control your tools with a few keystrokes
 cask "raycast"
+# Store SSH keys in the Secure Enclave
+cask "secretive"
 # Mesh VPN based on WireGuard
 cask "tailscale-app"
 # Open-source BitTorrent client
