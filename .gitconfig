@@ -4,7 +4,7 @@
 [user]
 	name = Gabriel Saillard
 	email = gabriel@saillard.dev
-	signingkey = /Users/gaby/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/PublicKeys/d6aa9028979c723ba3f27b4cb0c178e7.pub
+	signingkey = /Users/gaby/.ssh/secretive-neuromancer.pub
 [includeIf "hasconfig:remote.*.url:git@github.com:carbonfact/**"]
 	email = gabriel@carbonfact.com
 [includeIf "hasconfig:remote.*.url:https://github.com/carbonfact/**"]
